@@ -1,0 +1,32 @@
+project:
+  name: "AutoQA Demo"
+
+target:
+  url: "http://localhost:4173/"
+  environment: "local-fixture"
+
+browser:
+  engine: "chromium"
+  headless: true
+  viewport:
+    width: 1440
+    height: 900
+
+agent:
+  maxActions: 15
+  maxModelCalls: 15
+
+validation:
+  attempts: 3
+  minimumSuccesses: 2
+
+evidence:
+  screenshots: true
+  trace: true
+  console: true
+  network: true
+
+safety:
+  safeMode: true
+  allowedOrigins:
+    - "http://localhost:4173"
