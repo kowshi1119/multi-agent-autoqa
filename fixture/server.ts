@@ -1,10 +1,11 @@
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const INDEX_HTML = readFileSync(join(__dirname, "index.html"), "utf-8");
+// Read from the source fixture/ directory (not __dirname) so this works
+// both run directly and from the compiled dist/ output, without a
+// separate asset-copy build step for one static HTML file.
+const INDEX_HTML = readFileSync(join(process.cwd(), "fixture", "index.html"), "utf-8");
 
 export type FixtureServer = {
   close: () => Promise<void>;
