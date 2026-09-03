@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AutoQA Fixture</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 4rem auto; }
+    label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+    input[type="text"] { width: 100%; padding: 0.5rem; margin-bottom: 1rem; box-sizing: border-box; }
+    button { padding: 0.5rem 1.5rem; }
+    #result { margin-top: 1rem; color: green; }
+  </style>
+</head>
+<body>
+  <h1>AutoQA Demo Fixture</h1>
+  <form id="demo-form">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" placeholder="Enter your username" />
+    <button type="submit">Submit</button>
+  </form>
+  <p id="result" hidden>Form submitted successfully.</p>
+
+  <script>
+    // Deterministic seeded defect for Phase-0 acceptance testing: submitting
+    // the form always logs an unexpected console error, giving the
+    // console-error oracle known ground truth to detect and reproduce.
+    document.getElementById("demo-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      console.error("Seeded QA defect");
+      document.getElementById("result").hidden = false;
+    });
+  </script>
+</body>
+</html>
