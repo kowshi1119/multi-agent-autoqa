@@ -13,8 +13,8 @@ browser:
     height: 900
 
 agent:
-  maxActions: 50
-  maxModelCalls: 30
+  maxActions: 80
+  maxModelCalls: 60
   maxPages: 10
   maxFindings: 10
   maxDurationMs: 300000
