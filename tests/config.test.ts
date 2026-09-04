@@ -19,6 +19,8 @@ browser:
 agent:
   maxActions: 15
   maxModelCalls: 15
+heuristics:
+  longTextBoundaryChars: 500
 validation:
   attempts: 3
   minimumSuccesses: 2
@@ -79,6 +81,21 @@ describe("loadConfig", () => {
       '- "http://localhost:4173"',
       '- "not an origin"'
     );
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects longTextBoundaryChars above the attack-scale guard rail", () => {
+    const invalid = validYaml.replace(
+      "longTextBoundaryChars: 500",
+      "longTextBoundaryChars: 1000000"
+    );
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects a non-positive longTextBoundaryChars", () => {
+    const invalid = validYaml.replace("longTextBoundaryChars: 500", "longTextBoundaryChars: 0");
     const path = writeConfig(invalid);
     expect(() => loadConfig(path)).toThrow(ConfigError);
   });

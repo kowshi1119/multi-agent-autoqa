@@ -36,6 +36,13 @@ const configSchema = z
       maxActions: z.number().int().positive("agent.maxActions must be > 0"),
       maxModelCalls: z.number().int().positive("agent.maxModelCalls must be > 0"),
     }),
+    heuristics: z.object({
+      longTextBoundaryChars: z
+        .number()
+        .int()
+        .positive("heuristics.longTextBoundaryChars must be > 0")
+        .max(5_000, "heuristics.longTextBoundaryChars must stay well below attack-scale lengths"),
+    }),
     validation: z.object({
       attempts: z.number().int().min(1, "validation.attempts must be >= 1"),
       minimumSuccesses: z.number().int().min(1, "validation.minimumSuccesses must be >= 1"),

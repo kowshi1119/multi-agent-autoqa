@@ -16,6 +16,9 @@ agent:
   maxActions: 15
   maxModelCalls: 15
 
+heuristics:
+  longTextBoundaryChars: 500
+
 validation:
   attempts: 3
   minimumSuccesses: 2

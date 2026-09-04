@@ -120,6 +120,30 @@ export type Observation = {
   screenshotPath?: string;
 };
 
+/**
+ * A candidate action the Planner offers to the Explorer. `id` is what the
+ * model actually chooses (see ExplorerDecision, wired up in M6) — never a
+ * raw action — which keeps the model's response surface small and closed.
+ */
+export type TestCandidate = {
+  id: string;
+  kind: "heuristic" | "navigation" | "control";
+  heuristicId?: string;
+  controlKey?: string;
+  description: string;
+  risk: ActionRisk;
+  actions: QaAction[];
+  /** Present for kind:"heuristic" — the exact §14 tracking key for this (page, control, heuristic) combo. */
+  trackingKey?: string;
+};
+
+export type HeuristicResult = {
+  heuristicId: string;
+  executed: boolean;
+  actions: RecordedStep[];
+  notes?: string;
+};
+
 export type ExplorerInput = {
   observation: Observation;
   previousActions: RecordedStep[];
