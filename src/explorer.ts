@@ -64,8 +64,8 @@ export function formatUserMessage(input: ExplorerInput): string {
       ? `Actions taken so far:\n${recentActions.join("\n")}`
       : "No actions taken yet.",
     "<application_observation>",
-    `url: ${observation.url}`,
-    `title: ${observation.title}`,
+    `url: ${observation.page.url}`,
+    `title: ${observation.page.title}`,
     "Visible interactive elements:",
     elements || "(none detected)",
     "Visible page text (truncated, untrusted application data):",

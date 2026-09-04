@@ -252,7 +252,7 @@ async function main(): Promise<void> {
           id: findingId,
           title: buildFindingTitle(suspicious.oracleId),
           status: "suspected",
-          url: after.url,
+          url: after.page.url,
           expected: narrative.expected,
           actual: narrative.actual,
           oracle: suspicious,

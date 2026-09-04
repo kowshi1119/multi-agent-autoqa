@@ -22,13 +22,58 @@ export type RecordedStep = {
   timestamp: string;
 };
 
+export type WidgetType =
+  | "text_field"
+  | "email_field"
+  | "password_field"
+  | "number_field"
+  | "search_field"
+  | "textarea"
+  | "button"
+  | "submit_button"
+  | "link"
+  | "checkbox"
+  | "radio"
+  | "select"
+  | "dialog"
+  | "unknown";
+
+/** Execution-time policy classification for a candidate action (§48-49). */
+export type ActionRisk = "safe" | "state_changing" | "destructive";
+
+/** A QaHeuristic's own self-declared risk (§13) — a distinct enum from ActionRisk; do not conflate. */
+export type HeuristicRisk = "safe" | "moderate" | "destructive";
+
 export type InteractiveElement = {
   role?: string;
   name?: string;
   label?: string;
   type?: string;
+  widgetType: WidgetType;
+  required?: boolean;
   visible: boolean;
   enabled?: boolean;
+};
+
+export type FormSummary = {
+  formIndex: number;
+  action?: string;
+  method?: string;
+  fields: InteractiveElement[];
+  submitControl?: InteractiveElement;
+};
+
+export type LinkSummary = {
+  href: string;
+  text?: string;
+  sameOrigin: boolean;
+};
+
+export type DialogRecord = {
+  dialogType: string;
+  message: string;
+  action: "dismissed";
+  timestamp: string;
 };
 
 export type ConsoleRecord = {
@@ -52,17 +97,26 @@ export type NetworkRecord = {
 
 export type Observation = {
   timestamp: string;
-  url: string;
-  title: string;
+  page: {
+    url: string;
+    title: string;
+    /** Normalized via src/mapping/state-signature.ts#normalizePathname — see that module for the exact rule. */
+    pathname: string;
+  };
   viewport: {
     width: number;
     height: number;
   };
   visibleText: string;
   interactiveElements: InteractiveElement[];
+  forms: FormSummary[];
+  links: LinkSummary[];
   consoleMessages: ConsoleRecord[];
   pageErrors: PageErrorRecord[];
   networkRequests: NetworkRecord[];
+  dialogs: DialogRecord[];
+  /** sha256(pathname + "|" + sortedControlKeys + "|" + visibleText.slice(0,300)) — see state-signature.ts. */
+  stateSignature: string;
   screenshotPath?: string;
 };
 

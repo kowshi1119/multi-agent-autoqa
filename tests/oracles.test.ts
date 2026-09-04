@@ -5,11 +5,12 @@ import type { Observation, RecordedStep } from "../src/types.js";
 function observation(consoleErrors: string[]): Observation {
   return {
     timestamp: new Date().toISOString(),
-    url: "http://localhost:4173/",
-    title: "AutoQA Fixture",
+    page: { url: "http://localhost:4173/", title: "AutoQA Fixture", pathname: "/" },
     viewport: { width: 1440, height: 900 },
     visibleText: "",
     interactiveElements: [],
+    forms: [],
+    links: [],
     consoleMessages: consoleErrors.map((text) => ({
       type: "error",
       text,
@@ -17,6 +18,8 @@ function observation(consoleErrors: string[]): Observation {
     })),
     pageErrors: [],
     networkRequests: [],
+    dialogs: [],
+    stateSignature: "irrelevant-for-oracle-test",
   };
 }
 
