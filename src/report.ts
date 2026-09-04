@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { BudgetSnapshot } from "./budget.js";
 import type { Finding, FindingCategory } from "./types.js";
 
 export type RunSummary = {
@@ -8,7 +9,8 @@ export type RunSummary = {
   target: string;
   startedAt: string;
   finishedAt: string;
-  status: "completed";
+  status: "completed" | "failed";
+  stopReason?: string;
   provider: string;
   actionsPerformed: number;
   modelCalls: number;
@@ -16,6 +18,16 @@ export type RunSummary = {
   validatedFindings: number;
   rejectedFindings: number;
   needsHuman: number;
+  coverage: {
+    pagesDiscovered: number;
+    pagesVisited: number;
+    interactiveControlsDiscovered: number;
+    heuristicsApplicable: number;
+    heuristicsExecuted: number;
+    /** executed/applicable — "heuristic coverage", not application test coverage. */
+    heuristicCoverage: number;
+  };
+  budget: BudgetSnapshot;
   tokenUsage: null;
 };
 

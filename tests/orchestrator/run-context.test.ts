@@ -16,7 +16,7 @@ describe("createRunContext", () => {
     expect(ctx.testedHeuristics.size).toBe(0);
     expect(ctx.visitedPages.size).toBe(0);
     expect(ctx.frontier).toEqual([]);
-    expect(ctx.heuristicsApplicableCount).toBe(0);
+    expect(ctx.offeredHeuristicKeys.size).toBe(0);
     expect(ctx.startedAt).toBe("2026-01-01T00:00:00.000Z");
   });
 });

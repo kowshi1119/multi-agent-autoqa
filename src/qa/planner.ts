@@ -76,7 +76,7 @@ export class Planner {
         if (!heuristic.isApplicable(observation, element)) continue;
 
         const trackingKey = buildHeuristicTrackingKey(observation.stateSignature, key, heuristic.id);
-        ctx.heuristicsApplicableCount += 1;
+        ctx.offeredHeuristicKeys.add(trackingKey);
         if (hasExecuted(ctx, trackingKey)) continue;
 
         const actions = await heuristic.buildTest(observation, element);

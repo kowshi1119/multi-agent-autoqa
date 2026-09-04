@@ -11,6 +11,7 @@ import { buildOracleRegistry } from "./oracles.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
 import { createRunContext, type RunContext } from "./orchestrator/run-context.js";
 import { allHeuristics } from "./qa/heuristics.js";
+import type { SafetyEvent } from "./types.js";
 import { startFixtureServer, type FixtureServer } from "../fixture/server.js";
 
 /** Shared by both `qa` and `benchmark` entry points so the pipeline exists in exactly one place. */
@@ -38,6 +39,7 @@ export type PipelineResult = {
   mapper: PageMapper;
   provider: ModelProvider;
   budget: BudgetTracker;
+  safetyEvents: SafetyEvent[];
 };
 
 export type PipelineOptions = {
@@ -99,11 +101,12 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
 
     const initialCtx = createRunContext(runId, new Date(), config.target.url);
     const finalCtx = await orchestrator.run(initialCtx);
+    const safetyEvents = orchestrator.getSafetyEvents();
     await orchestrator.closeSession();
 
     writeFileSync(join(runDir, "application-map.json"), JSON.stringify(mapper.toJSON(), null, 2), "utf-8");
 
-    return { finalCtx, mapper, provider, budget };
+    return { finalCtx, mapper, provider, budget, safetyEvents };
   } finally {
     await browserManager.close();
     if (fixtureServer) {

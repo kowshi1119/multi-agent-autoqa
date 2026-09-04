@@ -1,10 +1,22 @@
 import "dotenv/config";
+import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BrowserLaunchError } from "./browser/browser.js";
 import { ConfigError, loadConfig, resolveHeadless, type AppConfig } from "./config.js";
 import { ensureDir } from "./evidence.js";
 import { createLogger } from "./logger.js";
+import { normalizePathname } from "./mapping/state-signature.js";
 import { generateRunId, writeRunSummary, type RunSummary } from "./report.js";
+import { loadGroundTruth, matchFindings } from "./reporting/benchmark.js";
+import { computeHeuristicCoverage } from "./reporting/coverage.js";
+import {
+  buildOracleBreakdown,
+  buildReportMarkdown,
+  writeReportJson,
+  writeReportMarkdown,
+  TRACE_POLICY_STATEMENT,
+  type QaReport,
+} from "./reporting/qa-report.js";
 import { runPipeline } from "./run-pipeline.js";
 
 function parseArgs(argv: string[]): { configPath: string } {
@@ -65,21 +77,42 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  const { finalCtx, provider, budget } = result;
+  const { finalCtx, provider, budget, mapper, safetyEvents } = result;
+  const failed = finalCtx.state === "FAILED";
 
-  if (finalCtx.state === "FAILED") {
+  if (failed) {
     console.error(`\nRun FAILED: ${finalCtx.stopReason ?? "unknown error"}`);
     logger.error({ stopReason: finalCtx.stopReason }, "Run failed");
   }
 
   const finishedAt = new Date();
+  const applicationMap = mapper.toJSON();
+  const pagesDiscovered = new Set([
+    ...finalCtx.visitedPages,
+    ...finalCtx.frontier.map((url) => normalizePathname(url)),
+  ]).size;
+  const interactiveControlsDiscovered = applicationMap.pages.reduce((sum, page) => sum + page.controls.length, 0);
+  const heuristicsApplicable = finalCtx.offeredHeuristicKeys.size;
+  const heuristicCoverage = computeHeuristicCoverage(finalCtx.heuristicsExecuted, heuristicsApplicable);
+
+  const coverage = {
+    pagesDiscovered,
+    pagesVisited: finalCtx.pagesVisited,
+    interactiveControlsDiscovered,
+    heuristicsApplicable,
+    heuristicsExecuted: finalCtx.heuristicsExecuted,
+    heuristicCoverage,
+  };
+  const budgetSnapshot = budget.snapshot();
+
   const summary: RunSummary = {
     runId,
     project: config.project.name,
     target: config.target.url,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
-    status: "completed",
+    status: failed ? "failed" : "completed",
+    ...(finalCtx.stopReason ? { stopReason: finalCtx.stopReason } : {}),
     provider: provider.name,
     actionsPerformed: budget.actionsPerformed,
     modelCalls: budget.modelCalls,
@@ -87,9 +120,44 @@ async function main(): Promise<void> {
     validatedFindings: finalCtx.findings.filter((f) => f.status === "validated").length,
     rejectedFindings: finalCtx.findings.filter((f) => f.status === "rejected").length,
     needsHuman: finalCtx.findings.filter((f) => f.status === "needs_human").length,
+    coverage,
+    budget: budgetSnapshot,
     tokenUsage: null,
   };
   writeRunSummary(runDir, summary);
+
+  const benchmark =
+    config.target.environment === "local-fixture"
+      ? matchFindings(
+          finalCtx.findings.filter((f) => f.status === "validated"),
+          loadGroundTruth(resolve("fixture", "ground-truth.json")).defects
+        )
+      : undefined;
+  if (benchmark) {
+    writeFileSync(join(runDir, "benchmark.json"), JSON.stringify(benchmark, null, 2), "utf-8");
+  }
+
+  const report: QaReport = {
+    runId,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    status: failed ? "failed" : "completed",
+    ...(finalCtx.stopReason ? { stopReason: finalCtx.stopReason } : {}),
+    target: { url: config.target.url, environment: config.target.environment },
+    provider: { name: provider.name },
+    applicationMap,
+    coverage,
+    findings: finalCtx.findings,
+    oracleBreakdown: buildOracleBreakdown(finalCtx.findings),
+    budget: budgetSnapshot,
+    tracePolicy: TRACE_POLICY_STATEMENT,
+    ...(benchmark ? { benchmark } : {}),
+    safetyEventCount: safetyEvents.length,
+    ...(failed ? { errorClassification: finalCtx.stopReason } : {}),
+  };
+  writeReportJson(runDir, report);
+  writeReportMarkdown(runDir, buildReportMarkdown(report));
+
   logger.info({ summary, stopReason: finalCtx.stopReason }, "Run complete");
 
   console.log("\n=================================================");
@@ -98,14 +166,20 @@ async function main(): Promise<void> {
   console.log(`Run ID:\n${summary.runId}\n`);
   console.log(`Target:\n${summary.target}\n`);
   console.log(`Provider:\n${summary.provider}\n`);
-  console.log(`Pages visited:\n${finalCtx.pagesVisited}\n`);
-  console.log(`Heuristics executed:\n${finalCtx.heuristicsExecuted}\n`);
+  console.log(`Pages visited:\n${coverage.pagesVisited} (of ${coverage.pagesDiscovered} discovered)\n`);
+  console.log(`Heuristics executed:\n${coverage.heuristicsExecuted} (coverage: ${(coverage.heuristicCoverage * 100).toFixed(1)}%)\n`);
   console.log(`Actions:\n${summary.actionsPerformed}\n`);
   console.log(`Model calls:\n${summary.modelCalls}\n`);
   console.log(`Findings suspected:\n${summary.suspectedFindings}\n`);
   console.log(`Validated:\n${summary.validatedFindings}\n`);
   console.log(`Rejected:\n${summary.rejectedFindings}\n`);
   console.log(`Needs human:\n${summary.needsHuman}\n`);
+  console.log(`Safety events:\n${safetyEvents.length}\n`);
+  if (benchmark) {
+    console.log(
+      `Benchmark:\nprecision ${benchmark.precision.toFixed(2)} / recall ${benchmark.recall.toFixed(2)} / F1 ${benchmark.f1.toFixed(2)}\n`
+    );
+  }
   console.log(`Stop reason:\n${finalCtx.stopReason ?? "(none recorded)"}\n`);
   console.log(`Artifacts:\nruns/${summary.runId}`);
   console.log("=================================================");
