@@ -174,9 +174,13 @@ export function resolveHeadless(config: AppConfig): {
   const hasDisplay = Boolean(process.env["DISPLAY"]);
 
   if (!hasDisplay) {
+    // DISPLAY is an X11/POSIX concept, normally absent on Windows -- don't
+    // phrase this as "no X11 display detected" (implies a check that only
+    // meaningfully runs on POSIX); "forced" + "no virtual display detected"
+    // reads correctly on every platform this runs on.
     return {
       headless: true,
-      reason: "no DISPLAY detected",
+      reason: "forced (no virtual display detected)",
     };
   }
 

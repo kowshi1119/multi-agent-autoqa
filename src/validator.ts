@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { executeAction } from "./actions.js";
 import type { BrowserManager } from "./browser/browser.js";
 import { observe } from "./browser/observation.js";
+import type { BudgetTracker } from "./budget.js";
 import type { AppConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import type { Oracle } from "./oracles.js";
@@ -49,6 +50,15 @@ export type ValidatorDeps = {
   logger: Logger;
   /** Directory the caller has already created for this finding's evidence. */
   evidenceDir: string;
+  /**
+   * When provided, checked before each replay attempt; validation stops
+   * early (not mid-attempt) if the run's wall-clock budget is exhausted.
+   * Exploration counters (actions/model calls/pages) are NOT consumed by
+   * replay -- reproduction isn't exploration -- only duration is enforced
+   * here, since that's the one budget explicitly about never letting
+   * anything, including validation, hang the run.
+   */
+  budget?: BudgetTracker;
 };
 
 /**
@@ -60,7 +70,7 @@ export class Validator {
   constructor(private readonly deps: ValidatorDeps) {}
 
   async validate(finding: Finding): Promise<ValidationOutcome> {
-    const { config, browserManager, oracles, logger, evidenceDir } = this.deps;
+    const { config, browserManager, oracles, logger, evidenceDir, budget } = this.deps;
     const oracle = oracles.find((candidate) => candidate.id === finding.oracle.oracleId);
     if (!oracle) {
       throw new Error(`Validator: unknown oracle id "${finding.oracle.oracleId}"`);
@@ -79,6 +89,14 @@ export class Validator {
     );
 
     for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+      if (budget?.isDurationExceeded()) {
+        logger.warn(
+          { findingId: finding.id, attemptsCompleted: attempts.length, of: totalAttempts },
+          "BUDGET_EXHAUSTED: stopping validation early (maxDurationMs)"
+        );
+        break;
+      }
+
       const captureEvidence = attempt === 1;
       const session = await browserManager.newPageSession();
 
@@ -156,7 +174,7 @@ export class Validator {
     const validatedFinding: Finding = {
       ...finding,
       status,
-      reproduction: { attempts: totalAttempts, successes },
+      reproduction: { attempts: attempts.length, successes },
     };
 
     return { finding: validatedFinding, attempts, representativeEvidence };

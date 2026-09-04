@@ -10,15 +10,22 @@
 
 ## Milestones (10)
 - [x] M1 — Phase-0 verification + architecture assessment
-- [ ] M2 — Explicit orchestrator FSM
-- [ ] M3 — Enhanced Observation + page/module mapping
-- [ ] M4 — QA heuristic framework + initial heuristic library
-- [ ] M5 — Multiple deterministic oracle types
-- [ ] M6 — Multi-page autonomous exploration
-- [ ] M7 — Safety/navigation improvements + budgets
+- [x] M2 — Explicit orchestrator FSM (states.ts, run-context.ts; orchestrator.ts driver deferred into M6)
+- [x] M3 — Enhanced Observation + page/module mapping
+- [x] M4 — QA heuristic framework + initial heuristic library
+- [x] M5 — Multiple deterministic oracle types
+- [x] M7 — Safety/navigation improvements + budgets (built before M6, since the
+      Orchestrator being built in M6 depends on BudgetTracker + navigation guards)
+- [ ] M6 — Multi-page autonomous exploration (Planner, Explorer/Provider rewrite,
+      Orchestrator driver, index.ts rewrite, dedup, Finding extension) — IN PROGRESS
 - [ ] M8 — Enhanced fixture + seeded-defect benchmark
 - [ ] M9 — Run-level reporting + coverage metrics
 - [ ] M10 — Full Phase-1 acceptance run + README + final verification
+
+Two real bugs found and fixed via the M7 real-browser safety test (not just
+unit mocks) -- see commit aff158b. Worth remembering: context.on('page')
+fires for our own context.newPage() too, and a popup's first navigation
+request can throw from request.frame().
 
 ## Key architectural decisions (from design pass, adopted)
 1. **Observation shape**: breaking change to `page.{url,title,pathname}` (spec explicitly requires it). All consumers updated in the same milestone (M3) to avoid a half-migrated state.

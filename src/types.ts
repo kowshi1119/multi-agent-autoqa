@@ -144,14 +144,22 @@ export type HeuristicResult = {
   notes?: string;
 };
 
+/**
+ * The model picks only from `candidates` (by id) — it never invents a raw
+ * action. This keeps the response surface small and closed, which also
+ * materially lowers invalid-JSON risk for a real provider.
+ */
 export type ExplorerInput = {
   observation: Observation;
-  previousActions: RecordedStep[];
+  candidates: TestCandidate[];
+  recentActions: RecordedStep[];
   remainingActions: number;
+  remainingModelCalls: number;
+  remainingDurationMs: number;
 };
 
 export type ExplorerDecision = {
-  action: QaAction;
+  candidateId: string;
   testingIntent: string;
   reason: string;
 };
@@ -171,19 +179,44 @@ export type FindingStatus =
   | "rejected"
   | "needs_human";
 
+export type FindingCategory = "console" | "runtime" | "network" | "validation" | "state" | "functional";
+
 export type Finding = {
   id: string;
   title: string;
   status: FindingStatus;
+  category: FindingCategory;
+  pageId: string;
   url: string;
+  /**
+   * Normalized pathname (see mapping/state-signature.ts#normalizePathname),
+   * stored at creation time rather than reparsed from `url` later -- this
+   * is the exact tuple half used by the dedup key (§25) and the benchmark
+   * matcher (§35), both keyed on (oracleId, pathname).
+   */
+  pathname: string;
   expected: string;
   actual: string;
   oracle: OracleResult;
+  heuristicId?: string;
+  /** The affected control's normalized key (role:name/role:label/role:), "" if none. Used by the dedup key (§25). */
+  controlKey?: string;
+  /**
+   * The triggering candidate's own actions only -- NOT the full run
+   * history. Validator.validate() does `page.goto(finding.url)` then
+   * replays `steps` verbatim; scoping this to one candidate's actions is
+   * what lets exploration continue across many pages while validation
+   * still works unmodified (a spec deviation from the illustrative Finding
+   * type, which omits `steps` entirely -- necessary since replay is
+   * otherwise impossible).
+   */
   steps: RecordedStep[];
   reproduction: {
     attempts: number;
     successes: number;
   };
+  /** Run-level dedup count (§25) -- starts at 1, incremented instead of creating a duplicate finding. */
+  occurrenceCount: number;
   evidence: string[];
 };
 

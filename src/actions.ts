@@ -34,7 +34,7 @@ export const qaActionSchema = z.discriminatedUnion("type", [
 ]);
 
 export const explorerDecisionSchema = z.object({
-  action: qaActionSchema,
+  candidateId: z.string().min(1),
   testingIntent: z.string(),
   reason: z.string(),
 });

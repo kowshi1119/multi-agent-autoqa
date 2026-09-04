@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Finding } from "./types.js";
+import type { Finding, FindingCategory } from "./types.js";
 
 export type RunSummary = {
   runId: string;
@@ -34,6 +34,9 @@ export function generateFindingId(index: number): string {
 
 const FINDING_TITLES: Record<string, string> = {
   "console-error": "New browser console error appears after form submission",
+  "page-error": "New uncaught runtime error appears after interaction",
+  "http-failure": "Server returns an HTTP 5xx response after interaction",
+  "duplicate-request": "Interaction produces more requests than expected",
 };
 
 /**
@@ -44,10 +47,34 @@ export function buildFindingTitle(oracleId: string): string {
   return FINDING_TITLES[oracleId] ?? `Anomaly detected by oracle "${oracleId}"`;
 }
 
+const FINDING_CATEGORIES: Record<string, FindingCategory> = {
+  "console-error": "console",
+  "page-error": "runtime",
+  "http-failure": "network",
+  "duplicate-request": "network",
+};
+
+/** Deterministic from the oracle id alone, same reasoning as buildFindingTitle. */
+export function categoryForOracle(oracleId: string): FindingCategory {
+  return FINDING_CATEGORIES[oracleId] ?? "functional";
+}
+
 const FINDING_NARRATIVES: Record<string, { expected: string; actual: string }> = {
   "console-error": {
     expected: "Submitting the form should not introduce an unexpected browser console error.",
     actual: "A new error-level console message appeared after form submission.",
+  },
+  "page-error": {
+    expected: "The interaction should complete without introducing an uncaught browser runtime error.",
+    actual: "The interaction produced a new uncaught browser error.",
+  },
+  "http-failure": {
+    expected: "The interaction should not cause the server to return an HTTP 5xx response.",
+    actual: "The interaction caused the server to return a new HTTP 5xx response.",
+  },
+  "duplicate-request": {
+    expected: "A single interaction should not produce more requests than expected.",
+    actual: "A single interaction produced more matching requests than expected.",
   },
 };
 

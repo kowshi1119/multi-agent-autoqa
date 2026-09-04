@@ -2,76 +2,47 @@ import Anthropic from "@anthropic-ai/sdk";
 import { explorerDecisionSchema } from "../actions.js";
 import { EXPLORER_SYSTEM_PROMPT, formatUserMessage } from "../explorer.js";
 import type { Logger } from "../logger.js";
-import type { ExplorerDecision, ExplorerInput } from "../types.js";
+import type { ExplorerDecision, ExplorerInput, TestCandidate } from "../types.js";
 import { ModelOutputInvalidError, type ModelProvider } from "./provider.js";
 
 /**
- * Deterministic provider used for the acceptance run and tests. Returns a
- * fixed queue of decisions regardless of observation content, so the whole
- * pipeline is reproducible without any live model call.
+ * Deterministic provider used for the acceptance run and tests. Default
+ * strategy picks the first non-stop candidate every time; combined with the
+ * Planner's own priority sort + heuristic-tracking exclusion (an
+ * already-tested combo is never offered again), "always pick first" alone
+ * drives full, non-repeating coverage across cycles with no state of its
+ * own. An injectable `selectFn` lets a specific test force a particular
+ * choice (e.g. to deterministically exercise one heuristic or page).
  */
 export class MockModelProvider implements ModelProvider {
   name = "mock";
 
-  private readonly queue: ExplorerDecision[];
-  private index = 0;
-
-  constructor(queue?: ExplorerDecision[]) {
-    this.queue = queue ?? MockModelProvider.defaultQueue();
-  }
-
-  static defaultQueue(): ExplorerDecision[] {
-    return [
-      {
-        action: {
-          type: "click",
-          target: { role: "button", name: "Submit" },
-        },
-        testingIntent: "Submit the local fixture form",
-        reason: "The submit action exercises the seeded defect.",
-      },
-      {
-        action: { type: "stop", reason: "The seeded defect has already been exercised." },
-        testingIntent: "Stop after the deterministic oracle has been evaluated.",
-        reason: "No additional action is required.",
-      },
-    ];
-  }
+  constructor(
+    private readonly selectFn: (candidates: TestCandidate[]) => string = defaultSelect
+  ) {}
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async decideNextAction(_input: ExplorerInput): Promise<ExplorerDecision> {
-    const next = this.queue[this.index];
-    if (!next) {
-      return {
-        action: { type: "stop", reason: "Mock provider queue exhausted." },
-        testingIntent: "Stop; no further scripted actions remain.",
-        reason: "The deterministic action queue has been fully consumed.",
-      };
-    }
-    this.index += 1;
-    return next;
+  async decideNextAction(input: ExplorerInput): Promise<ExplorerDecision> {
+    const candidateId = this.selectFn(input.candidates);
+    return {
+      candidateId,
+      testingIntent: `Exercise candidate ${candidateId}`,
+      reason: "Deterministic mock selection.",
+    };
   }
+}
+
+function defaultSelect(candidates: TestCandidate[]): string {
+  return candidates.find((c) => c.id !== "stop")?.id ?? "stop";
 }
 
 const RESPONSE_SCHEMA_INSTRUCTIONS = `Respond with ONLY a single JSON object (no markdown fences, no prose) matching exactly this shape:
 
 {
-  "action": {
-    "type": "click" | "fill" | "press" | "reload" | "navigate" | "wait" | "stop",
-    ... fields for that action type ...
-  },
+  "candidateId": "<one id from the candidate list above, or \\"stop\\">",
   "testingIntent": "short string",
   "reason": "short string"
-}
-
-Action field requirements:
-- click: { "type": "click", "target": { "role"?, "name"?, "label"?, "text"?, "testId"? } } (at least one target field required)
-- fill: { "type": "fill", "target": {...same as click...}, "value": "string" }
-- press: { "type": "press", "target"?: {...}, "key": "string" }
-- reload: { "type": "reload" }
-- navigate: { "type": "navigate", "url": "string" }
-- wait: { "type": "wait", "milliseconds": number }
-- stop: { "type": "stop", "reason": "string" }`;
+}`;
 
 function extractJsonText(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -79,7 +50,7 @@ function extractJsonText(text: string): string {
 }
 
 /**
- * Real provider adapter. Never invoked by the Phase-0 acceptance run
+ * Real provider adapter. Never invoked by the Phase-1 acceptance run
  * (no ANTHROPIC_API_KEY is configured in this environment) but wired up
  * so a future run with credentials exercises the same interface.
  */
@@ -91,7 +62,7 @@ export class AnthropicModelProvider implements ModelProvider {
   constructor(
     apiKey: string,
     private readonly logger: Logger,
-    private readonly model = "claude-sonnet-5"
+    private readonly model: string
   ) {
     this.client = new Anthropic({ apiKey });
   }

@@ -28,11 +28,19 @@ describe("qaActionSchema", () => {
 
   it("accepts a full explorer decision", () => {
     const result = explorerDecisionSchema.safeParse({
-      action: { type: "fill", target: { label: "Username" }, value: "standard_user" },
+      candidateId: "H01|textbox:Username",
       testingIntent: "Test the form submission workflow",
       reason: "The form is the primary interactive workflow on this page.",
     });
     expect(result.success).toBe(true);
+  });
+
+  it("rejects an explorer decision missing a candidateId", () => {
+    const result = explorerDecisionSchema.safeParse({
+      testingIntent: "Test the form submission workflow",
+      reason: "The form is the primary interactive workflow on this page.",
+    });
+    expect(result.success).toBe(false);
   });
 });
 
