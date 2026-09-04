@@ -1,50 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../../src/config.js";
 import { allHeuristics } from "../../src/qa/heuristics.js";
 import { createH01EmptyInput } from "../../src/qa/heuristics/h01-empty-input.js";
 import { createH10DoubleSubmission } from "../../src/qa/heuristics/h10-double-submission.js";
 import type { InteractiveElement, Observation } from "../../src/types.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-const VALID_YAML = `
-project:
-  name: "AutoQA Demo"
-target:
-  url: "http://localhost:4173/"
-  environment: "local-fixture"
-browser:
-  engine: "chromium"
-  headless: true
-  viewport:
-    width: 1440
-    height: 900
-agent:
-  maxActions: 15
-  maxModelCalls: 15
-heuristics:
-  longTextBoundaryChars: 500
-validation:
-  attempts: 3
-  minimumSuccesses: 2
-evidence:
-  screenshots: true
-  trace: true
-  console: true
-  network: true
-safety:
-  safeMode: true
-  allowedOrigins:
-    - "http://localhost:4173"
-`;
-
-function loadTestConfig(overrides: (yaml: string) => string = (y) => y) {
-  const dir = mkdtempSync(join(tmpdir(), "autoqa-heuristics-test-"));
-  const path = join(dir, "qa.config.yaml");
-  writeFileSync(path, overrides(VALID_YAML), "utf-8");
-  return loadConfig(path);
-}
+import { loadTestConfig } from "../helpers/test-config.js";
 
 function el(partial: Partial<InteractiveElement>): InteractiveElement {
   return { widgetType: "unknown", visible: true, enabled: true, ...partial };

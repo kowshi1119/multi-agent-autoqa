@@ -24,6 +24,20 @@ heuristics:
 validation:
   attempts: 3
   minimumSuccesses: 2
+oracles:
+  console:
+    enabled: true
+    ignorePatterns: []
+  pageError:
+    enabled: true
+  httpFailure:
+    enabled: true
+  duplicateRequest:
+    enabled: true
+    patterns:
+      - method: "POST"
+        pathname: "/api/submit"
+        expectedMax: 1
 evidence:
   screenshots: true
   trace: true
@@ -96,6 +110,18 @@ describe("loadConfig", () => {
 
   it("rejects a non-positive longTextBoundaryChars", () => {
     const invalid = validYaml.replace("longTextBoundaryChars: 500", "longTextBoundaryChars: 0");
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects a duplicateRequest pattern with expectedMax below 1", () => {
+    const invalid = validYaml.replace("expectedMax: 1", "expectedMax: 0");
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects a duplicateRequest pattern whose pathname does not start with /", () => {
+    const invalid = validYaml.replace('pathname: "/api/submit"', 'pathname: "api/submit"');
     const path = writeConfig(invalid);
     expect(() => loadConfig(path)).toThrow(ConfigError);
   });

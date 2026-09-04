@@ -1,58 +1,31 @@
+import type { AppConfig } from "./config.js";
 import type { Observation, OracleResult, RecordedStep } from "./types.js";
 
 export interface Oracle {
   id: string;
-  evaluate(
-    before: Observation,
-    action: RecordedStep,
-    after: Observation
-  ): Promise<OracleResult>;
+  evaluate(before: Observation, action: RecordedStep, after: Observation): Promise<OracleResult>;
 }
+
+// Imported after the interface declaration to keep this file readable
+// top-down; the circular type-only reference each oracle module has back
+// to `Oracle` here is erased at compile time, so there is no runtime cycle.
+import { createConsoleErrorOracle } from "./oracles/console-error.js";
+import { createDuplicateRequestOracle } from "./oracles/duplicate-request.js";
+import { createHttpFailureOracle } from "./oracles/http-failure.js";
+import { createPageErrorOracle } from "./oracles/page-error.js";
 
 /**
- * Detects newly introduced error-level console messages after an action.
- * Uses a multiset diff (not a simple length compare) so a pre-existing
- * error that persists across the action is never miscounted as new.
+ * One reviewed comparison strategy (multiset diff) reused by all four
+ * oracles instead of a second untested strategy for no functional gain.
+ * Each oracle's `evaluate` is a pure function of (before, action, after) —
+ * the same method Validator calls both for live detection and clean-session
+ * replay, so "replay evaluator support" needs no separate interface method.
  */
-export class ConsoleErrorOracle implements Oracle {
-  id = "console-error";
-
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async evaluate(
-    before: Observation,
-    _action: RecordedStep,
-    after: Observation
-  ): Promise<OracleResult> {
-    const beforeErrorTexts = before.consoleMessages
-      .filter((message) => message.type === "error")
-      .map((message) => message.text);
-
-    const afterErrors = after.consoleMessages.filter((message) => message.type === "error");
-
-    const remaining = [...afterErrors];
-    for (const text of beforeErrorTexts) {
-      const index = remaining.findIndex((message) => message.text === text);
-      if (index !== -1) {
-        remaining.splice(index, 1);
-      }
-    }
-
-    const suspicious = remaining.length > 0;
-
-    return {
-      oracleId: this.id,
-      suspicious,
-      expected: "0 new unexpected error-level console messages",
-      actual: `${remaining.length} new unexpected error-level console message${
-        remaining.length === 1 ? "" : "s"
-      }`,
-      ...(suspicious
-        ? { details: { newErrors: remaining.map((message) => message.text) } }
-        : {}),
-    };
-  }
-}
-
-export function defaultOracles(): Oracle[] {
-  return [new ConsoleErrorOracle()];
+export function buildOracleRegistry(config: AppConfig): Oracle[] {
+  const registry: Oracle[] = [];
+  if (config.oracles.console.enabled) registry.push(createConsoleErrorOracle(config));
+  if (config.oracles.pageError.enabled) registry.push(createPageErrorOracle());
+  if (config.oracles.httpFailure.enabled) registry.push(createHttpFailureOracle());
+  if (config.oracles.duplicateRequest.enabled) registry.push(createDuplicateRequestOracle(config));
+  return registry;
 }

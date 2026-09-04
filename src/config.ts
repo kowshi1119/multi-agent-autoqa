@@ -47,6 +47,34 @@ const configSchema = z
       attempts: z.number().int().min(1, "validation.attempts must be >= 1"),
       minimumSuccesses: z.number().int().min(1, "validation.minimumSuccesses must be >= 1"),
     }),
+    oracles: z.object({
+      console: z.object({
+        enabled: z.boolean(),
+        ignorePatterns: z.array(z.string()),
+      }),
+      pageError: z.object({
+        enabled: z.boolean(),
+      }),
+      httpFailure: z.object({
+        enabled: z.boolean(),
+      }),
+      duplicateRequest: z.object({
+        enabled: z.boolean(),
+        patterns: z.array(
+          z.object({
+            method: z.string().min(1, "oracles.duplicateRequest.patterns[].method must not be empty"),
+            pathname: z
+              .string()
+              .min(1)
+              .startsWith("/", "oracles.duplicateRequest.patterns[].pathname must start with /"),
+            expectedMax: z
+              .number()
+              .int()
+              .min(1, "oracles.duplicateRequest.patterns[].expectedMax must be >= 1"),
+          })
+        ),
+      }),
+    }),
     evidence: z.object({
       screenshots: z.boolean(),
       trace: z.boolean(),

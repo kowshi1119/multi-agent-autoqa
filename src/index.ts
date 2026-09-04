@@ -10,7 +10,7 @@ import { Explorer } from "./explorer.js";
 import { createLogger, type Logger } from "./logger.js";
 import { AnthropicModelProvider, MockModelProvider } from "./models/provider-implementation.js";
 import type { ModelProvider } from "./models/provider.js";
-import { defaultOracles } from "./oracles.js";
+import { buildOracleRegistry } from "./oracles.js";
 import {
   buildFindingNarrative,
   buildFindingTitle,
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 
   const browserManager = new BrowserManager(config, logger, headless);
   const budget = new Budget(config.agent.maxActions, config.agent.maxModelCalls);
-  const oracles = defaultOracles();
+  const oracles = buildOracleRegistry(config);
   const recordedSteps: RecordedStep[] = [];
   const findings: Finding[] = [];
 
