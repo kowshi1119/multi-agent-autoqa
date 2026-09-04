@@ -35,6 +35,13 @@ const configSchema = z
     agent: z.object({
       maxActions: z.number().int().positive("agent.maxActions must be > 0"),
       maxModelCalls: z.number().int().positive("agent.maxModelCalls must be > 0"),
+      maxPages: z.number().int().positive("agent.maxPages must be > 0"),
+      maxFindings: z.number().int().positive("agent.maxFindings must be > 0"),
+      maxDurationMs: z
+        .number()
+        .int()
+        .positive("agent.maxDurationMs must be a positive finite integer")
+        .finite("agent.maxDurationMs must be a positive finite integer"),
     }),
     heuristics: z.object({
       longTextBoundaryChars: z
@@ -81,6 +88,10 @@ const configSchema = z
       console: z.boolean(),
       network: z.boolean(),
     }),
+    models: z.object({
+      provider: z.enum(["auto", "mock", "anthropic"]),
+      model: z.string().optional(),
+    }),
     safety: z.object({
       safeMode: z.boolean(),
       allowedOrigins: z
@@ -94,6 +105,13 @@ const configSchema = z
         code: z.ZodIssueCode.custom,
         path: ["validation", "minimumSuccesses"],
         message: "must not exceed validation.attempts",
+      });
+    }
+    if (config.models.provider === "anthropic" && !config.models.model?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["models", "model"],
+        message: 'models.model is required when models.provider is "anthropic"',
       });
     }
   });

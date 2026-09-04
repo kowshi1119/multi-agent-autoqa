@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { executeAction } from "./actions.js";
 import { BrowserLaunchError, BrowserManager } from "./browser/browser.js";
 import { observe } from "./browser/observation.js";
-import { Budget } from "./budget.js";
+import { BudgetTracker } from "./budget.js";
 import { ConfigError, loadConfig, resolveHeadless, type AppConfig } from "./config.js";
 import { ensureDir, writeFindingEvidence } from "./evidence.js";
 import { Explorer } from "./explorer.js";
@@ -117,7 +117,13 @@ async function main(): Promise<void> {
   );
 
   const browserManager = new BrowserManager(config, logger, headless);
-  const budget = new Budget(config.agent.maxActions, config.agent.maxModelCalls);
+  const budget = new BudgetTracker({
+    maxActions: config.agent.maxActions,
+    maxModelCalls: config.agent.maxModelCalls,
+    maxPages: config.agent.maxPages,
+    maxFindings: config.agent.maxFindings,
+    maxDurationMs: config.agent.maxDurationMs,
+  });
   const oracles = buildOracleRegistry(config);
   const recordedSteps: RecordedStep[] = [];
   const findings: Finding[] = [];

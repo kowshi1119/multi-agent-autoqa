@@ -19,6 +19,9 @@ browser:
 agent:
   maxActions: 15
   maxModelCalls: 15
+  maxPages: 10
+  maxFindings: 10
+  maxDurationMs: 300000
 heuristics:
   longTextBoundaryChars: 500
 validation:
@@ -43,6 +46,9 @@ evidence:
   trace: true
   console: true
   network: true
+models:
+  provider: "auto"
+  model: "claude-sonnet-5"
 safety:
   safeMode: true
   allowedOrigins:
@@ -124,6 +130,40 @@ describe("loadConfig", () => {
     const invalid = validYaml.replace('pathname: "/api/submit"', 'pathname: "api/submit"');
     const path = writeConfig(invalid);
     expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects a non-positive maxPages", () => {
+    const invalid = validYaml.replace("maxPages: 10", "maxPages: 0");
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects a non-positive maxFindings", () => {
+    const invalid = validYaml.replace("maxFindings: 10", "maxFindings: 0");
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects a non-positive maxDurationMs", () => {
+    const invalid = validYaml.replace("maxDurationMs: 300000", "maxDurationMs: 0");
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("rejects models.provider anthropic without a model configured", () => {
+    const invalid = validYaml
+      .replace('provider: "auto"', 'provider: "anthropic"')
+      .replace('model: "claude-sonnet-5"', 'model: ""');
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it("accepts models.provider mock without a model configured", () => {
+    const withMock = validYaml
+      .replace('provider: "auto"', 'provider: "mock"')
+      .replace('\n  model: "claude-sonnet-5"', "");
+    const path = writeConfig(withMock);
+    expect(() => loadConfig(path)).not.toThrow();
   });
 
   it("throws a clear error for a missing file", () => {

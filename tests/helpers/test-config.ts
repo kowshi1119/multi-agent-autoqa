@@ -18,6 +18,9 @@ browser:
 agent:
   maxActions: 15
   maxModelCalls: 15
+  maxPages: 10
+  maxFindings: 10
+  maxDurationMs: 300000
 heuristics:
   longTextBoundaryChars: 500
 validation:
@@ -42,6 +45,9 @@ evidence:
   trace: true
   console: true
   network: true
+models:
+  provider: "mock"
+  model: "claude-sonnet-5"
 safety:
   safeMode: true
   allowedOrigins:

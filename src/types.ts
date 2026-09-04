@@ -188,6 +188,18 @@ export type Finding = {
 };
 
 /**
+ * Emitted by every layer of off-origin navigation defense (§17-18). Never
+ * an application defect — page content can never cause a genuine finding
+ * merely by attempting to navigate away.
+ */
+export type SafetyEvent = {
+  code: "SAFETY_NAVIGATION_BLOCKED";
+  url: string;
+  mechanism: "route" | "post-action" | "framenavigated" | "popup";
+  timestamp: string;
+};
+
+/**
  * Distinguishes an agent/tooling mistake (bad locator, timeout) from a
  * genuine application defect. Locator failures must never be reported as
  * findings — see AGENT_ACTION_FAILED handling in the executor.

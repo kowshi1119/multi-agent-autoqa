@@ -1,6 +1,12 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { AppConfig } from "../config.js";
 import type { Logger } from "../logger.js";
+import {
+  installAsyncRedirectGuard,
+  installPopupGuard,
+  installRouteGuard,
+} from "../safety/navigation-guard.js";
+import type { SafetyEvent } from "../types.js";
 import { attachPageRecorders, createPageRecords, type PageRecords } from "./observation.js";
 
 export class BrowserLaunchError extends Error {
@@ -49,7 +55,9 @@ export class BrowserManager {
     return this.browser;
   }
 
-  async newPageSession(): Promise<PageSession> {
+  async newPageSession(
+    onSafetyEvent: (event: SafetyEvent) => void = () => {}
+  ): Promise<PageSession> {
     const browser = this.requireBrowser();
     const context = await browser.newContext({
       viewport: {
@@ -58,9 +66,20 @@ export class BrowserManager {
       },
     });
 
+    const allowedOrigins = this.config.safety.allowedOrigins;
+    await installRouteGuard(context, allowedOrigins, this.logger, onSafetyEvent);
+
+    // Our own context.newPage() call below also fires the context-level
+    // 'page' event (Playwright doesn't distinguish "we created this" from
+    // "content opened a popup"), so the popup guard is installed only
+    // *after* this page exists — otherwise it would immediately close the
+    // very session page we're about to navigate, racing with that goto().
     const page = await context.newPage();
+    installPopupGuard(context, allowedOrigins, this.logger, onSafetyEvent);
+
     const records = createPageRecords();
     attachPageRecorders(page, records);
+    installAsyncRedirectGuard(page, allowedOrigins, this.logger, onSafetyEvent);
 
     return { context, page, records };
   }

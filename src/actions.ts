@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import { redactSecrets } from "./redact.js";
-import type { ActionExecutionResult, ElementTarget, QaAction } from "./types.js";
+import type { ActionExecutionResult, ElementTarget, QaAction, SafetyEvent } from "./types.js";
 
 const elementTargetSchema = z
   .object({
@@ -82,22 +82,25 @@ export async function executeAction(
   page: Page,
   action: QaAction,
   config: AppConfig,
-  logger: Logger
+  logger: Logger,
+  onSafetyEvent: (event: SafetyEvent) => void = () => {}
 ): Promise<ActionExecutionResult> {
+  const urlBefore = page.url();
+
   try {
     switch (action.type) {
       case "click": {
         const locator = buildLocator(page, action.target);
         await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
         await locator.click({ timeout: LOCATOR_TIMEOUT_MS });
-        return { outcome: "success" };
+        break;
       }
 
       case "fill": {
         const locator = buildLocator(page, action.target);
         await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
         await locator.fill(resolveFillValue(action.value), { timeout: LOCATOR_TIMEOUT_MS });
-        return { outcome: "success" };
+        break;
       }
 
       case "press": {
@@ -108,12 +111,12 @@ export async function executeAction(
         } else {
           await page.keyboard.press(action.key);
         }
-        return { outcome: "success" };
+        break;
       }
 
       case "reload": {
         await page.reload();
-        return { outcome: "success" };
+        break;
       }
 
       case "navigate": {
@@ -128,7 +131,7 @@ export async function executeAction(
           };
         }
         await page.goto(action.url);
-        return { outcome: "success" };
+        break;
       }
 
       case "wait": {
@@ -152,4 +155,36 @@ export async function executeAction(
       reason: `AGENT_ACTION_FAILED: the requested locator could not be resolved. (${cause})`,
     };
   }
+
+  // Layer 2 of off-origin navigation defense (see src/safety/navigation-guard.ts
+  // for layers 1/3/4): even when the action itself wasn't an explicit
+  // "navigate", a click/form-submit/reload may have caused one. Verify the
+  // resulting URL and revert if it left the allowlist.
+  const urlAfter = page.url();
+  if (urlAfter !== urlBefore && !isOriginAllowed(urlAfter, config.safety.allowedOrigins)) {
+    logger.warn(
+      { from: urlBefore, to: urlAfter },
+      "SAFETY_NAVIGATION_BLOCKED: reverting off-origin navigation caused by action"
+    );
+    onSafetyEvent({
+      code: "SAFETY_NAVIGATION_BLOCKED",
+      url: urlAfter,
+      mechanism: "post-action",
+      timestamp: new Date().toISOString(),
+    });
+    try {
+      await page.goBack({ waitUntil: "domcontentloaded", timeout: 5_000 });
+    } catch {
+      /* best-effort revert */
+    }
+    if (!isOriginAllowed(page.url(), config.safety.allowedOrigins)) {
+      await page.goto(urlBefore, { waitUntil: "domcontentloaded" }).catch(() => {});
+    }
+    return {
+      outcome: "blocked",
+      reason: "Blocked navigation outside allowed origin.",
+    };
+  }
+
+  return { outcome: "success" };
 }

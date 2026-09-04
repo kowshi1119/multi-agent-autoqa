@@ -13,8 +13,11 @@ browser:
     height: 900
 
 agent:
-  maxActions: 15
-  maxModelCalls: 15
+  maxActions: 50
+  maxModelCalls: 30
+  maxPages: 10
+  maxFindings: 10
+  maxDurationMs: 300000
 
 heuristics:
   longTextBoundaryChars: 500
@@ -43,6 +46,10 @@ evidence:
   trace: true
   console: true
   network: true
+
+models:
+  provider: "auto"
+  model: "claude-sonnet-5"
 
 safety:
   safeMode: true
