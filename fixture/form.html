@@ -2,31 +2,38 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>AutoQA Fixture</title>
+  <title>AutoQA Fixture — Form</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 480px; margin: 4rem auto; }
     label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
-    input[type="text"] { width: 100%; padding: 0.5rem; margin-bottom: 1rem; box-sizing: border-box; }
+    input[type="text"], textarea { width: 100%; padding: 0.5rem; margin-bottom: 1rem; box-sizing: border-box; }
     button { padding: 0.5rem 1.5rem; }
     #result { margin-top: 1rem; color: green; }
+    nav { margin-bottom: 2rem; }
   </style>
 </head>
 <body>
-  <h1>AutoQA Demo Fixture</h1>
+  <nav><a href="/">Home</a></nav>
+  <h1>Form</h1>
   <form id="demo-form">
     <label for="username">Username</label>
     <input type="text" id="username" name="username" placeholder="Enter your username" />
+    <label for="notes">Notes (required)</label>
+    <textarea id="notes" name="notes" required></textarea>
     <button type="submit">Submit</button>
   </form>
   <p id="result" hidden>Form submitted successfully.</p>
 
   <script>
-    // Deterministic seeded defect for Phase-0 acceptance testing: submitting
-    // the form always logs an unexpected console error, giving the
-    // console-error oracle known ground truth to detect and reproduce.
+    // SEED-001 (console-error, /form): submitting always logs an
+    // unexpected console error, regardless of input value.
+    // SEED-004 (duplicate-request, /form): the submit button is never
+    // disabled after a click, so two rapid clicks produce two independent
+    // POST /api/submit requests.
     document.getElementById("demo-form").addEventListener("submit", function (event) {
       event.preventDefault();
       console.error("Seeded QA defect");
+      fetch("/api/submit", { method: "POST" });
       document.getElementById("result").hidden = false;
     });
   </script>

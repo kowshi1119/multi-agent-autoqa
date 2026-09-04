@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { executeAction } from "../actions.js";
+import { executeAction, isOriginAllowed } from "../actions.js";
 import type { BrowserManager, PageSession } from "../browser/browser.js";
 import { observe } from "../browser/observation.js";
 import type { BudgetTracker } from "../budget.js";
@@ -158,6 +158,21 @@ export class Orchestrator {
       ctx.pagesVisited += 1;
       this.deps.budget.recordPageVisit();
       this.progress(`Visited page: ${observation.page.pathname} (${pageNode.id})`);
+    }
+
+    // Feed the Planner's frontier fallback: every same-origin link seen on
+    // *any* page is remembered here, not just the current page's own links
+    // — otherwise coverage would depend on every page linking directly to
+    // every other page, rather than the app's actual (often hub-and-spoke)
+    // link graph.
+    for (const link of observation.links) {
+      if (
+        link.sameOrigin &&
+        isOriginAllowed(link.href, this.deps.config.safety.allowedOrigins) &&
+        !ctx.frontier.includes(link.href)
+      ) {
+        ctx.frontier.push(link.href);
+      }
     }
 
     this.cycle.before = observation;

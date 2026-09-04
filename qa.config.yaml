@@ -29,7 +29,12 @@ validation:
 oracles:
   console:
     enabled: true
-    ignorePatterns: []
+    # Chromium auto-logs a failed fetch/XHR as a console error too; the
+    # http-failure oracle already owns that signal (it reads the network
+    # response status directly), so console-error ignores it to avoid
+    # reporting the same underlying defect twice under different oracles.
+    ignorePatterns:
+      - "Failed to load resource:"
   pageError:
     enabled: true
   httpFailure:

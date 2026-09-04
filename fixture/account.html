@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AutoQA Fixture — Account</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 4rem auto; }
+    label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+    input[type="text"] { width: 100%; padding: 0.5rem; margin-bottom: 1rem; box-sizing: border-box; }
+    button { padding: 0.5rem 1.5rem; margin-right: 0.5rem; }
+    nav { margin-bottom: 2rem; }
+    section { margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <nav><a href="/">Home</a></nav>
+  <h1>Account</h1>
+
+  <button id="view-profile-btn" type="button">View Profile</button>
+
+  <section>
+    <form id="name-form">
+      <label for="display-name">Display Name (required)</label>
+      <input type="text" id="display-name" name="displayName" required />
+      <button type="submit" id="save-name-btn">Save</button>
+    </form>
+  </section>
+
+  <script>
+    // SEED-002 (page-error, /account): always throws an uncaught
+    // TypeError by touching a nonexistent element. Deliberately a
+    // standalone button with no associated fillable field -- Phase 1's
+    // heuristic set has no generic "click any button" heuristic, so this
+    // defect is not reachable by autonomous exploration in this build
+    // (see README Known Limitations). Kept as documented ground truth for
+    // the benchmark rather than removed, so the gap is measured, not hidden.
+    document.getElementById("view-profile-btn").addEventListener("click", function () {
+      document.getElementById("nonexistent-element").textContent = "x";
+    });
+
+    // SEED-005 (console-error, /account): a whitespace-only value in a
+    // required field is incorrectly accepted as valid -- the deterministic
+    // requirement (required + whitespace-only is invalid) lives here in
+    // the fixture, not inferred by the agent.
+    document.getElementById("name-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      var value = document.getElementById("display-name").value;
+      if (value.trim().length === 0) {
+        console.error("Seeded QA defect: whitespace-only required field accepted as valid");
+      }
+    });
+  </script>
+</body>
+</html>

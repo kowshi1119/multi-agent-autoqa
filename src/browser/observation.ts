@@ -161,9 +161,17 @@ async function collectPageStructure(page: Page): Promise<PageEvaluationResult> {
       if (tag === "textarea") return "textbox";
       if (tag === "input") {
         const type = (el as HTMLInputElement).type;
+        // Must match the browser's actual implicit ARIA role, not just a
+        // convenient label -- Playwright's getByRole() matches against the
+        // real computed role, so a wrong guess here (e.g. "textbox" for a
+        // number input, whose real role is "spinbutton") makes every
+        // locator for that element silently fail to resolve.
         if (type === "checkbox") return "checkbox";
         if (type === "radio") return "radio";
         if (type === "submit" || type === "button") return "button";
+        if (type === "number") return "spinbutton";
+        if (type === "search") return "searchbox";
+        if (type === "range") return "slider";
         return "textbox";
       }
       return tag;
@@ -272,11 +280,25 @@ function buildForms(structure: PageEvaluationResult): FormSummary[] {
   }));
 }
 
+/**
+ * Console/network/dialog events are delivered asynchronously over CDP, not
+ * synchronously with the Playwright call that triggered them. Without this,
+ * an event from one action can arrive just late enough to land in the
+ * *next* cycle's "before" snapshot instead of this cycle's "after" one,
+ * causing an oracle to attribute an anomaly to the wrong action (observed:
+ * a console error from a form's submit handler intermittently showing up
+ * as a "new" error on the next page visited, when that page logs nothing
+ * at all). A short settle wait before every snapshot makes event ordering
+ * reliable across the many observe() calls in one continuous session.
+ */
+const EVENT_SETTLE_MS = 150;
+
 export async function observe(
   page: Page,
   records: PageRecords,
   options: { screenshotPath?: string } = {}
 ): Promise<Observation> {
+  await page.waitForTimeout(EVENT_SETTLE_MS);
   const url = page.url();
   const title = await page.title();
   const pathname = normalizePathname(url);

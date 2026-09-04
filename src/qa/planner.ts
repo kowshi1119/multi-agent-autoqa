@@ -15,20 +15,33 @@ const STOP_CANDIDATE: TestCandidate = {
   actions: [{ type: "stop", reason: "" }],
 };
 
-/** Priority tiers per §15: normal workflow < required/empty validation < boundary values < state/navigation < network-sensitive. Lower sorts first. */
+/**
+ * Priority tiers per §15: required/empty validation < boundary values <
+ * state/navigation < network-sensitive < move to another page < stop.
+ *
+ * Navigation deliberately sorts AFTER every heuristic tier, not before:
+ * the Planner offers a navigation candidate for every discovered,
+ * not-yet-visited page on every cycle, so if navigation ever outranked
+ * heuristics the agent would tour the whole site first and never interact
+ * with any single page (confirmed empirically — an earlier ordering with
+ * navigation first produced exactly that: 5/5 pages "visited," 0
+ * heuristics executed, 0 findings). Fully exhausting a page's applicable
+ * heuristics before moving on is what "systematic QA tester" actually
+ * requires in practice, not just per the spec's literal tier ordering.
+ */
 const HEURISTIC_PRIORITY: Record<string, number> = {
-  H01: 2,
-  H02: 2,
-  H03: 3,
-  H04: 3,
-  H05: 3,
-  H06: 3,
-  H07: 3,
-  H08: 3,
-  H09: 4,
-  H10: 5,
+  H01: 1,
+  H02: 1,
+  H03: 2,
+  H04: 2,
+  H05: 2,
+  H06: 2,
+  H07: 2,
+  H08: 2,
+  H09: 3,
+  H10: 4,
 };
-const NAVIGATION_PRIORITY = 1;
+const NAVIGATION_PRIORITY = 5;
 const STOP_PRIORITY = 6;
 
 function priorityOf(candidate: TestCandidate): number {

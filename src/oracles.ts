@@ -20,12 +20,23 @@ import { createPageErrorOracle } from "./oracles/page-error.js";
  * Each oracle's `evaluate` is a pure function of (before, action, after) —
  * the same method Validator calls both for live detection and clean-session
  * replay, so "replay evaluator support" needs no separate interface method.
+ *
+ * Order matters: the orchestrator's EVALUATE state checks oracles in this
+ * order and stops at the first suspicious one for a given action (one
+ * finding per action, matching Phase-0's original "first suspicious wins"
+ * semantics, just scoped per-action instead of per-run). duplicate-request
+ * is deliberately checked before console-error: a double-click heuristic
+ * can trigger both a duplicate request AND a console error in the exact
+ * same action (e.g. a form whose submit handler both logs an error and
+ * fires a request every time) — checking the more specific,
+ * action-pattern-scoped oracle first prevents the general console-error
+ * oracle from permanently masking it.
  */
 export function buildOracleRegistry(config: AppConfig): Oracle[] {
   const registry: Oracle[] = [];
-  if (config.oracles.console.enabled) registry.push(createConsoleErrorOracle(config));
-  if (config.oracles.pageError.enabled) registry.push(createPageErrorOracle());
-  if (config.oracles.httpFailure.enabled) registry.push(createHttpFailureOracle());
   if (config.oracles.duplicateRequest.enabled) registry.push(createDuplicateRequestOracle(config));
+  if (config.oracles.httpFailure.enabled) registry.push(createHttpFailureOracle());
+  if (config.oracles.pageError.enabled) registry.push(createPageErrorOracle());
+  if (config.oracles.console.enabled) registry.push(createConsoleErrorOracle(config));
   return registry;
 }
