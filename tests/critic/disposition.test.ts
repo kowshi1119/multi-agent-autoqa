@@ -79,4 +79,82 @@ describe("decideDisposition", () => {
     const result = decideDisposition({ validationStatus: "validated", evidenceLevel, criticOutcome: decided("valid") });
     expect(result).toEqual({ reportDisposition: "report", criticEvidenceConflict: false });
   });
+
+  // Phase 3 A1 acceptance test: before the fix, the "disabled" branch
+  // returned "report" unconditionally, before the L6 check (which only
+  // lived inside the "decided" branch) ever ran. L6 must be a ceiling
+  // across every critic outcome kind, not just "decided".
+  it("L6 evidence + critic disabled -> needs_human (L6 ceiling applies even when the critic never ran)", () => {
+    const result = decideDisposition({ validationStatus: "validated", evidenceLevel: "L6", criticOutcome: { kind: "disabled" } });
+    expect(result).toEqual({ reportDisposition: "needs_human", criticEvidenceConflict: false });
+  });
+
+  it("L6 evidence + contradiction -> needs_human, and still preserves criticEvidenceConflict:true (the naive top-level-hoist regression this fix must avoid)", () => {
+    const result = decideDisposition({
+      validationStatus: "validated",
+      evidenceLevel: "L6",
+      criticOutcome: { kind: "contradiction", reason: "CRITIC_EVIDENCE_CONTRADICTION: ..." },
+    });
+    expect(result).toEqual({ reportDisposition: "needs_human", criticEvidenceConflict: true });
+  });
+
+  it("L6 evidence + skipped/unavailable -> needs_human, conflict:false (already true, now regression-locked)", () => {
+    expect(
+      decideDisposition({ validationStatus: "validated", evidenceLevel: "L6", criticOutcome: { kind: "skipped" } })
+    ).toEqual({ reportDisposition: "needs_human", criticEvidenceConflict: false });
+    expect(
+      decideDisposition({
+        validationStatus: "validated",
+        evidenceLevel: "L6",
+        criticOutcome: { kind: "unavailable", reason: "timeout" },
+      })
+    ).toEqual({ reportDisposition: "needs_human", criticEvidenceConflict: false });
+  });
+
+  describe("full policy matrix: validationStatus=validated x evidenceLevel x criticOutcome.kind", () => {
+    const evidenceLevels: EvidenceLevel[] = ["L1", "L2", "L3", "L6"];
+    const outcomes: Array<{ label: string; outcome: CriticOutcome }> = [
+      { label: "disabled", outcome: { kind: "disabled" } },
+      { label: "skipped", outcome: { kind: "skipped" } },
+      { label: "unavailable", outcome: { kind: "unavailable", reason: "x" } },
+      { label: "contradiction", outcome: { kind: "contradiction", reason: "x" } },
+      { label: "decided-valid", outcome: decided("valid") },
+      { label: "decided-invalid", outcome: decided("invalid") },
+      { label: "decided-needs_human", outcome: decided("needs_human") },
+    ];
+
+    function expected(evidenceLevel: EvidenceLevel, label: string): { reportDisposition: string; criticEvidenceConflict: boolean } {
+      if (label === "disabled") {
+        return evidenceLevel === "L6"
+          ? { reportDisposition: "needs_human", criticEvidenceConflict: false }
+          : { reportDisposition: "report", criticEvidenceConflict: false };
+      }
+      if (label === "skipped" || label === "unavailable") {
+        return { reportDisposition: "needs_human", criticEvidenceConflict: false };
+      }
+      if (label === "contradiction") {
+        return { reportDisposition: "needs_human", criticEvidenceConflict: true };
+      }
+      if (label === "decided-valid") {
+        return evidenceLevel === "L6"
+          ? { reportDisposition: "needs_human", criticEvidenceConflict: false }
+          : { reportDisposition: "report", criticEvidenceConflict: false };
+      }
+      if (label === "decided-invalid") {
+        if (evidenceLevel === "L1") return { reportDisposition: "needs_human", criticEvidenceConflict: true };
+        return { reportDisposition: "suppress", criticEvidenceConflict: false };
+      }
+      // decided-needs_human
+      return { reportDisposition: "needs_human", criticEvidenceConflict: false };
+    }
+
+    for (const evidenceLevel of evidenceLevels) {
+      for (const { label, outcome } of outcomes) {
+        it(`evidenceLevel=${evidenceLevel} outcome=${label}`, () => {
+          const result = decideDisposition({ validationStatus: "validated", evidenceLevel, criticOutcome: outcome });
+          expect(result).toEqual(expected(evidenceLevel, label));
+        });
+      }
+    }
+  });
 });

@@ -315,7 +315,7 @@ export class Orchestrator {
       reproduction: { attempts: 0, successes: 0 },
       occurrenceCount: 1,
       evidence: [],
-      evidenceLevel: evidenceLevelForOracle(suspicious.oracleId),
+      evidenceLevel: evidenceLevelForOracle(suspicious.oracleId, this.deps.logger),
       reportDisposition: "needs_human",
     };
 

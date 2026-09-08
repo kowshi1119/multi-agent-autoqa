@@ -1,8 +1,40 @@
 # AutoQA — Progress
 
-Phase 1 is COMPLETE. Phase 2 is COMPLETE. This file is kept for
-historical/resumability reference; see README.md for the actual system
-documentation.
+Phase 1 is COMPLETE. Phase 2 is COMPLETE. Phase 3 is IN PROGRESS. This
+file is kept for historical/resumability reference; see README.md for the
+actual system documentation.
+
+**Continuity rule (Phase 3):** if this session is interrupted or runs low
+on context, the checklist below must reflect the exact sub-milestone
+reached — never mark a box done unless its listed tests are green and
+`npm run typecheck` passes. A sub-milestone landed only partially must be
+described as partial, with the specific unmet acceptance bullet named.
+
+## Phase 3 — Reliability and Research Evidence (plan: see the three
+confirmed bugs and full milestone breakdown this session's plan-mode
+output produced; summarized progress below)
+
+- [x] A1 — Evidence invariants (`disposition.ts` L6-vs-disabled ordering
+      bug, `evidence-level.ts` unknown-oracle fallback). Fixed by
+      computing disposition-for-validated first, then applying an L6
+      ceiling to its result (preserves criticEvidenceConflict from the
+      contradiction branch, unlike a naive top-level hoist).
+      `evidenceLevelForOracle` now defaults unknown oracle ids to L6
+      (never L3) with a diagnostic log, never throws. 212/212 tests pass
+      (+40: full policy matrix + evidence-level tests), typecheck clean.
+- [ ] A2 — Evidence aligned with successful reproduction (validator
+      capture policy + failure-signature matching + evidence-scope
+      disclosure + README Trace-Capture Policy rewrite)
+- [ ] A3 — Shared review path (`phase2-experiment.ts` import-side-effect
+      fix + `ReviewService` extraction + structured claim checks)
+- [ ] B — Conservative cross-finding grouping
+- [ ] C1 — Phase 3 experiment harness (descriptive-ID conditions, manifest
+      capture/replay)
+- [ ] C2 — Benchmark versioning + duplicate-aware matcher
+- [ ] C3 — Challenge corpus (≥12 distinct-defect + ≥8 non-defect cases)
+- [ ] C4 — Blind human review export/import
+- [ ] D — Verification and handoff (README/PROGRESS updates, full
+      command-output capture, security re-scan)
 
 ## Phase 1 — all 10 milestones complete
 
