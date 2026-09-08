@@ -11,6 +11,7 @@ import type {
   Finding,
   FindingStatus,
   NetworkRecord,
+  PageErrorRecord,
   RecordedStep,
 } from "./types.js";
 
@@ -34,6 +35,9 @@ export type ValidationOutcome = {
     tracePath?: string;
     consoleMessages: ConsoleRecord[];
     networkRequests: NetworkRecord[];
+    pageErrors: PageErrorRecord[];
+    /** First 500 chars of visible page text at attempt-1's "after" observation -- what the Critic uses to judge documented UI text (§76's "uiTextExcerpt"). */
+    visibleTextExcerpt: string;
   };
 };
 
@@ -78,9 +82,12 @@ export class Validator {
 
     const totalAttempts = config.validation.attempts;
     const attempts: ValidationAttemptResult[] = [];
+    const VISIBLE_TEXT_EXCERPT_CHARS = 500;
     let representativeEvidence: ValidationOutcome["representativeEvidence"] = {
       consoleMessages: [],
       networkRequests: [],
+      pageErrors: [],
+      visibleTextExcerpt: "",
     };
 
     logger.info(
@@ -156,6 +163,8 @@ export class Validator {
             ...(tracePath ? { tracePath } : {}),
             consoleMessages: after.consoleMessages,
             networkRequests: after.networkRequests,
+            pageErrors: after.pageErrors,
+            visibleTextExcerpt: after.visibleText.slice(0, VISIBLE_TEXT_EXCERPT_CHARS),
           };
         }
       } finally {

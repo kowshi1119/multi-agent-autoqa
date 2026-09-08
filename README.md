@@ -39,6 +39,136 @@ Phase 1 turns that into a genuine, if small, exploration engine:
   dialog auto-dismissal, and wall-clock-aware budgets on top of the
   existing action/model-call caps.
 
+## Phase 2
+
+Phase 1 answers "can this reproduce?" Phase 2 adds a second, independent
+question on top: **even though it reproduces, is it actually a product
+defect worth reporting?** A reproducible anomaly can still be intended
+behavior, documented failure handling, or a duplicate manifestation of
+something already found — "reproducible ≠ automatically a defect" is the
+research question this phase exists to answer, without materially hurting
+recall.
+
+- **Provider-role separation.** `ExplorerProvider` and `CriticProvider` are
+  now distinct interfaces composed by a `ModelRouter` (critic is nullable
+  — `models.critic.enabled: false` is a first-class mode, Experiment
+  Condition A, not a stub). `MockModelProvider`/`AnthropicModelProvider`
+  are joined by `ExplabsModelProvider`/`ExplabsCriticProvider` (an
+  OpenAI-API-compatible third-party gateway); role-scoped credentials
+  resolve via `resolveProviderCredential(provider, role)`
+  (`EXPLABS_EXPLORER_API_KEY`/`EXPLABS_CRITIC_API_KEY`, each falling back
+  to `EXPLABS_API_KEY`). `MODEL_ROLE_CONFIGURATION_ERROR` rejects
+  `critic.requireIndependentProvider: true` when explorer and critic
+  resolve to the **same providerId** — two different Explabs credentials
+  do **not** make them independent providers, since both still report
+  `providerId: "explabs"` (see `tests/config.test.ts`).
+- **Evidence-level taxonomy** (`src/critic/evidence-level.ts`): every
+  oracle result is code-assigned one of `L1` (deterministic domain
+  invariant — `duplicate-request`, `ui-api-consistency`) / `L2` (explicit
+  requirement violation) / `L3` (runtime/network anomaly —
+  `page-error`/`http-failure`/`console-error`, strong evidence but not
+  automatic proof) / `L6` (AI-suspicion-only, never auto-reported
+  regardless of critic confidence). The Critic receives a level; it never
+  assigns its own.
+- **`ReportDisposition`** (`report`/`suppress`/`needs_human`) is
+  independent of `FindingStatus` — a `validated` (reproducible) finding
+  can still be `suppress`ed. The full policy table lives in
+  `src/critic/disposition.ts#decideDisposition` (pure function, no model
+  call): rejected → suppress; needs_human validation → needs_human;
+  critic disabled → report (Condition-A parity); critic
+  unavailable/skipped → needs_human (conservative default, never silently
+  auto-reports on failure); an evidence contradiction → needs_human +
+  flagged; `L6` → needs_human regardless of verdict; `L1` + an `invalid`
+  verdict → needs_human + flagged (an invariant and the critic
+  disagreeing is itself worth a human look, never silently resolved
+  either way); otherwise the critic's own verdict maps directly to
+  report/suppress/needs_human.
+- **`MockCriticProvider`** (`src/critic/mock-critic-provider.ts`) is a
+  deterministic, architecture-proving critic — it reasons generically over
+  `CriticInput` fields only (`evidenceLevel`, scoped `requirementContext`,
+  reproduction strength) and never reads `finding.id` or ground truth
+  (both structurally absent from `CriticInput`). `AnthropicCriticProvider`
+  and `ExplabsCriticProvider` mirror the same one-repair-attempt JSON
+  contract (`src/critic/schema.ts`, a `.strict()` Zod schema plus a
+  verbatim adversarial system prompt instructing the critic to *attempt
+  to disprove* the finding). Use MockCriticProvider only to prove the
+  interface and disposition wiring — it does not establish live-LLM
+  critic quality.
+- **`CRITIC_EVIDENCE_CONTRADICTION`** (`src/critic/contradiction-check.ts`)
+  is a best-effort text-pattern check (e.g. a critic claiming "only one
+  request occurred" when the evidence shows more) — not a general
+  fact-checker. A caught contradiction forces `needs_human` regardless of
+  the critic's stated verdict.
+- **H11 (safe control activation)** closes Phase 1's one documented
+  coverage gap — SEED-002 (`/account`'s standalone "View Profile" button,
+  unreachable by any Phase-1 heuristic) — with a *generic* `<button
+  type="button">` click, gated by a destructive-keyword name filter
+  (defense-in-depth, not a security boundary) plus
+  `target.environment === "local-fixture"` or an explicit
+  `heuristics.safeControlClick.allowedControls` allowlist entry. The
+  specific control that closes SEED-002 is never hardcoded anywhere in
+  H11's own code.
+- **`ui-api-consistency` oracle** (`src/oracles/ui-api-consistency.ts`) is
+  a generic, config-driven check (`oracles.uiApiConsistency.rules`): did a
+  configured request newly fail (status ≥ `failureStatusMin`) while the
+  page still shows the rule's forbidden (success-implying) text? Checked
+  **first** in the oracle registry — every violation is also an
+  `http-failure` (same underlying ≥500 fact), and `EVALUATE` stops at the
+  first suspicious oracle per action, so `http-failure` checked first
+  would always win and this oracle could never fire.
+- **SEED-006** (new, genuine defect): a second form on `/payment`
+  ("Submit Payment" → `POST /api/payment-consistency`, always 500, but the
+  UI incorrectly shows "Payment successful" anyway) — the
+  `ui-api-consistency` oracle's real target.
+- **The false-positive challenge** (`/expected-failure`, new page):
+  "Simulate Service Failure" → `POST /api/simulated-outage`, always 500,
+  and the UI *correctly* shows a documented "Service temporarily
+  unavailable" message. This reproduces 3/3 every time — a genuine,
+  deliberately reproducible anomaly — and is **never added to
+  `fixture/ground-truth.json`**. `fixture/requirements.json` (a
+  structurally separate file/type from ground truth, scoped to the
+  Critic only, never Explorer/Planner/Oracle/Validator-reachable) states
+  the documented behavior; `MockCriticProvider` suppresses it by matching
+  observed evidence against that requirement, not by any hardcoded ID.
+  Verified end-to-end: `reportDisposition: "suppress"` on a `validated`
+  (3/3) finding — see Two-Level Benchmark below.
+- **Two-level benchmark** (`src/reporting/phase2-metrics.ts`): the same
+  `matchFindings()` matcher (never modified, never tuned per level) run
+  twice — detection (`status === "validated"`, Phase-1/Condition-A
+  semantics) and final-report (`reportDisposition === "report"`,
+  Condition B). A representative run against this fixture:
+
+  | Level | Precision | Recall | F1 | False positives |
+  |---|---|---|---|---|
+  | Detection | 0.667 | 1.000 | 0.800 | 3 |
+  | Final report | 0.750 | 1.000 | 0.857 | 2 |
+
+  The critic suppressed 1 of 3 detection-level false positives (the
+  false-positive challenge) with **zero recall loss** — the two remaining
+  false positives are duplicate manifestations of already-found defects
+  via a different control (H10's double-click artifacts), which the
+  critic correctly does **not** suppress: it has no cross-finding
+  awareness, only single-finding judgment, and duplicate-manifestation
+  detection was never in scope for Phase 2 (see Known Limitations).
+- **Phase 2 experiment harness** (`src/phase2-experiment.ts`,
+  `npm run experiment:phase2`): Condition A is one real browser run
+  against the local fixture with the critic forced off. Condition B
+  **reuses Condition A's already-recorded findings and re-applies the
+  critic/disposition post-hoc, entirely in-process** — from each finding's
+  already-persisted evidence files (`console.json`/`network.json`/
+  `page-errors.json`/`visible-text.json`), never by re-running the
+  browser. This keeps the comparison fair (detection held constant, only
+  the critic layer varies) and materially cheaper. Condition C
+  (cross-provider Explorer/Critic pairing) needs a second live provider
+  credential unavailable in this environment — reported as an honest
+  `conditionC: null`, never fabricated.
+- **Live Experiential Labs (`explabs`) provider**: a real OpenAI-compatible
+  gateway, verified end-to-end for configuration/credential resolution.
+  Live completion calls returned `HTTP 429` (rate-limited) both times
+  attempted; per policy this is **not** retried repeatedly and is reported
+  as exactly that — a provider/runtime limitation, not an application
+  defect, not a fabricated success.
+
 ## Architecture
 
 ```
@@ -160,6 +290,7 @@ data — purely "is this the same page state a human would recognize."
 | H08 | Large numeric value | number fields | moderate |
 | H09 | Reload / state preservation | any fillable field | safe |
 | H10 | Double submission | submit buttons, local-fixture + safeMode only | moderate |
+| H11 | Safe control activation | plain buttons, non-destructive-looking names, local-fixture or allowlisted | safe |
 
 H09 has no bespoke "did this value persist" oracle — that would need
 app-specific ground truth AutoQA can't infer generically. It relies on
@@ -193,10 +324,14 @@ isolation.
 ## Oracles
 
 `src/oracles.ts` builds a registry from `src/oracles/*.ts`, gated by
-`oracles.<id>.enabled` in config. All four share one reviewed multiset-diff
+`oracles.<id>.enabled` in config. All five share one reviewed multiset-diff
 comparison (`src/oracles/multiset-diff.ts`) instead of a second untested
 strategy:
 
+- **ui-api-consistency** (Phase 2): generic, config-driven
+  (`oracles.uiApiConsistency.rules`) — did a configured request newly fail
+  while the page still shows the rule's forbidden success-implying text?
+  See the Phase 2 section above.
 - **console-error**: new error-level console messages, filtered by
   `oracles.console.ignorePatterns` (regex source strings). Chromium
   auto-logs a failed fetch/XHR as a console error too, which is redundant
@@ -212,11 +347,14 @@ strategy:
   never LLM interpretation.
 
 **Order matters.** `EVALUATE` stops at the first suspicious oracle per
-action (one finding per action). The registry checks
-`duplicateRequest`/`httpFailure` before `pageError`/`consoleError`: a
-double-click can trigger both a duplicate request and a console error in
-the exact same action, and checking the more specific, pattern-scoped
-oracle first stops it from permanently masking the other.
+action (one finding per action). The registry checks `uiApiConsistency`
+first of all — every violation is also an `http-failure` at heart, so
+checking the general oracle first would permanently mask the more
+specific one — then `duplicateRequest`/`httpFailure` before
+`pageError`/`consoleError`: a double-click can trigger both a duplicate
+request and a console error in the exact same action, and checking the
+more specific, pattern-scoped oracle first stops it from permanently
+masking the other.
 
 ## Validation
 
@@ -254,16 +392,29 @@ Same per-finding layout as Phase 0
 (`runs/RUN-<timestamp>/findings/FINDING-00N/{finding,oracle,reproduction}.json`,
 `console.json`, `network.json`, `screenshot.png`, `trace.zip`, each gated
 by `evidence.*` config and noted as "skipped" rather than silently
-omitted), plus run-level artifacts:
+omitted), plus (Phase 2) `page-errors.json` and `visible-text.json`
+(both written unconditionally — small, redacted, and needed to
+reconstruct a `CriticInput` post-hoc even when the critic never ran, see
+the experiment harness above) and `critic.json` (only written when the
+critic actually reached a decision — never for disabled/unavailable/
+contradiction outcomes, which have no real decision to persist and are
+already captured in `finding.json`'s `critic.summary`). Run-level
+artifacts:
 
 - `application-map.json` — pages and edges discovered.
 - `report.json` — run metadata, application map, coverage, findings,
-  oracle breakdown, budget snapshot, the trace-policy statement, benchmark
-  (when `target.environment` is `local-fixture`), safety event count.
+  oracle breakdown, report-disposition breakdown, budget snapshot, the
+  trace-policy statement, benchmark (when `target.environment` is
+  `local-fixture`), Phase 2 detection-vs-final-report metrics (when the
+  critic is enabled), safety event count.
 - `report.md` — the same data as a deterministic Markdown document —
   generated by pure string templating, zero model calls.
 - `benchmark.json` — written whenever the run targets the local fixture
   (both `npm run qa` and the dedicated `npm run benchmark`).
+- `phase2-metrics.json` — written whenever the run targets the local
+  fixture with the critic enabled.
+- `runs/experiments/EXPERIMENT-<timestamp>/phase2-experiment.json` — the
+  full Condition A/B/C comparison (`npm run experiment:phase2`).
 
 ## Benchmark Matcher
 
@@ -384,6 +535,18 @@ heuristic in the Phase-1 set targets a dialog deliberately.
   `destructive`) classifies every candidate; H10 (the only
   `state_changing`-risk heuristic AutoQA runs) is additionally gated to
   `safety.safeMode === true AND target.environment === "local-fixture"`.
+  H11 (Phase 2) adds a destructive-keyword name filter on top of the same
+  environment/allowlist gate — explicitly documented as defense-in-depth,
+  not a security boundary (a button's *label* is not a reliable signal on
+  its own; see Phase 2 above).
+- **Critic permission boundary**: the Critic (Phase 2) only ever reads a
+  `CriticInput` — sanitized console/network/page-error summaries, a
+  redacted UI text excerpt, and scoped requirement facts. It never
+  receives credentials, cookies, raw trace bytes, storage state, ground
+  truth, or the Explorer's own reasoning, and its system prompt states
+  plainly that all captured application content is untrusted data, never
+  instructions (same `<untrusted_application_data>` wrapping convention
+  as the Explorer's prompt).
 
 ## Requirements
 
@@ -409,18 +572,41 @@ browser or writes a partial run — re-verified for Phase 1.
 
 ## AI Provider Setup
 
-Copy `.env.example` to `.env`. `models.provider` in `qa.config.yaml`
-controls selection: `"auto"` (default) uses `AnthropicModelProvider` if
+Copy `.env.example` to `.env`. `models.explorer.provider` and
+`models.critic.provider` in `qa.config.yaml` select each role
+independently (a `ModelRouter` composes the two — see Phase 2 above):
+`"auto"` (explorer only) uses `AnthropicModelProvider` if
 `ANTHROPIC_API_KEY` is set, else falls back to `MockModelProvider`;
-`"mock"`/`"anthropic"` force a specific provider. `models.model` is
-required when `provider` is `"anthropic"`.
+`"mock"`/`"anthropic"`/`"explabs"` force a specific provider per role.
+`"openai"`/`"ollama"` are interface-ready (`CriticProvider`/
+`ExplorerProvider` conformance only needs a class, not a rewrite) but
+**not implemented** in this build — selecting either throws a clear,
+actionable `ConfigError` rather than silently falling back to mock.
+`models.<role>.model` is required for any non-mock, non-auto provider.
 
-**In this build/verification session no provider credentials were
-available**, so:
+`npm run provider:check` (optionally `-- --live` to attempt one real
+completion) prints each configured role's provider/model/credential
+status without ever printing a secret value ("Secrets exposed in
+output: NO").
 
-> Phase-1 architecture was verified using MockModelProvider. The real
-> Anthropic provider remains implemented against the same `ModelProvider`
-> interface but was not executed because credentials were unavailable.
+**In this build/verification session:**
+
+> Phase 1 architecture was verified using `MockModelProvider` (no
+> `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/reachable Ollama available).
+> `AnthropicModelProvider`/`AnthropicCriticProvider` remain implemented
+> against the same interfaces but were not exercised live.
+>
+> The `explabs` (Experiential Labs) provider **was** configured with a
+> live credential and its configuration/credential-resolution path was
+> verified end-to-end. A live chat-completion call was attempted twice
+> and both returned `HTTP 429` (rate-limited) — classified as a
+> provider/runtime limitation, not an application defect, and not
+> retried further per policy. All Phase 2 acceptance verification
+> (typecheck/test/`npm run qa`/`npm run benchmark`/
+> `npm run experiment:phase2`) therefore used `qa.config.mock.yaml`
+> (`MockModelProvider` + `MockCriticProvider`, both deterministic) rather
+> than the live `qa.config.yaml`, exactly mirroring Phase 1's own
+> verification approach.
 
 ## Running AutoQA
 
@@ -448,6 +634,23 @@ node dist/src/index.js --config path/to/other.config.yaml
 node dist/src/benchmark.js --config path/to/other.config.yaml
 ```
 
+```bash
+npm run experiment:phase2
+```
+
+Runs the Phase 2 false-positive-challenge experiment (Condition A: one
+real browser pass, critic forced off; Condition B: post-hoc critic
+re-disposition from Condition A's own recorded evidence, no second
+browser run; Condition C: honestly `null`, unavailable here). Also
+respects `--config`. Refuses to run against anything but
+`target.environment: "local-fixture"`.
+
+`qa.config.mock.yaml` is a second, fully deterministic config
+(`MockModelProvider` + `MockCriticProvider`, critic enabled) kept
+alongside the live `qa.config.yaml` (which points at the live `explabs`
+provider) specifically for reproducible verification — pass it via
+`--config` to any of the three commands above.
+
 ## Debugging
 
 - `run.log` (per run, JSON lines via pino) — structured audit trail:
@@ -471,10 +674,13 @@ npm test
 
 Vitest over `tests/` — config validation, action schema/origin checks,
 state-signature/mapper/heuristic-tracker/dedup/benchmark exact-key tests,
-all four oracles, budget tests (five independent caps, injectable clock),
-FSM transition table, and four real-browser safety tests (a real Chromium
+all five oracles, the critic contract (schema/mock-provider/disposition/
+contradiction-check), H11, requirements loading/scoping, provider-
+credential resolution, secret redaction, the Phase 2 experiment harness's
+pure helpers, budget tests (six independent caps, injectable clock), FSM
+transition table, and four real-browser safety tests (a real Chromium
 instance + a local HTTP server, no fixture/network dependency). No paid
-model calls anywhere.
+model calls anywhere. 172/172 passing at last verification.
 
 ## Troubleshooting
 
@@ -514,20 +720,47 @@ model calls anywhere.
   `AnthropicModelProvider` is implemented and wired through
   `models.provider: "anthropic"` but has not been exercised against the
   live API.
-- **SEED-002** (`page-error`, `/account`, the "View Profile" button) is
-  **not detected** by autonomous exploration: it's a standalone button
-  with no associated fillable field, and Phase 1's 10 heuristics have no
-  generic "click any button" heuristic — only H10 clicks a button, and
-  only a `submit_button`. This is a heuristic-coverage gap, not an oracle
-  or fixture bug (kept in `ground-truth.json` as measured, honest ground
-  truth rather than removed to inflate the score).
-- **One expected false positive** in the benchmark: H10's double-click on
-  the Payment page's submit button produces a second `http-failure`
-  finding distinct (by the finer dedup key) from the one H06 already
-  found, but both map to the same coarser `(http-failure, /payment)`
-  ground-truth entry — see "Benchmark Matcher" above. Typical single-run
-  scores against this fixture: precision 0.8 / recall 0.8 / F1 0.8 (4
-  true positives, 1 false positive, 1 false negative).
+- **SEED-002** (`page-error`, `/account`, the "View Profile" button) —
+  **closed in Phase 2** by H11 (safe control activation), which clicks
+  any visible, enabled, non-destructive-looking plain button. Phase 1's
+  own note (a heuristic-coverage gap, not an oracle/fixture bug) is
+  historical now; kept here for continuity of the record.
+- **Detection-level false positives are expected to rise, not fall, in
+  Phase 2** before the critic brings the final-report number back down —
+  this is the whole point of the two-level benchmark, never "fixed" by
+  touching the shared matcher. Typical single-run detection-level scores
+  against the Phase 2 fixture: precision 0.667 / recall 1.0 / F1 0.8 (6
+  true positives, 3 false positives, 0 false negatives); final-report
+  level: precision 0.75 / recall 1.0 / F1 0.857 (see Phase 2 above for the
+  full breakdown). The critic suppresses the false-positive challenge but
+  intentionally does **not** suppress the two duplicate-manifestation
+  false positives (H10's double-click artifacts on `/payment`) — it has
+  no cross-finding awareness, only single-finding judgment; cross-finding
+  duplicate-manifestation suppression was never in Phase 2's scope.
+- **`MODEL_ROLE_CONFIGURATION_ERROR` is a literal same-provider check
+  only.** `config.ts` stays environment-free (so a config error never
+  starts a browser or writes a run artifact), so it compares
+  `models.explorer.provider === models.critic.provider` as written —
+  it cannot see the runtime `"auto"` → provider resolution
+  `ANTHROPIC_API_KEY` availability drives in `run-pipeline.ts`. A
+  documented, disclosed gap, not a silent one.
+- **`CRITIC_EVIDENCE_CONTRADICTION` is a best-effort text-pattern
+  matcher**, not a general fact-checker — it catches a specific class of
+  claim (a stated request count that doesn't match the evidence), not
+  arbitrary creative phrasing a live LLM critic might produce.
+- **`MockCriticProvider` proves the critic architecture, not critic
+  quality.** It reasons generically over `CriticInput` alone (never
+  ground truth, never `finding.id`), but a deterministic rule-based critic
+  is not a substitute for evaluating a real LLM critic's judgment —
+  `AnthropicCriticProvider`/`ExplabsCriticProvider` exist for that, but
+  were not exercised live in this build (see AI Provider Setup).
+- **Condition C (cross-provider Explorer/Critic pairing) in the
+  experiment harness is unavailable in this environment** — reported as
+  an honest `null`, never fabricated.
+- **No dedicated orchestrator-level integration test for the critic
+  wiring** inside `validateFinding()` — matches Phase 1's own precedent of
+  relying on the full acceptance run plus isolated unit tests for
+  hard-to-mock FSM integration points; disclosed, not hidden.
 - **Off-origin defense is main-frame only**; iframes are out of scope for
   Phase 1.
 - **Single-tab exploration**: every popup/new tab is closed, same-origin
@@ -548,20 +781,28 @@ model calls anywhere.
   or in normal `npm test` usage). Left unpatched to avoid an unrelated
   breaking upgrade to Vitest 4.
 
-## TODO: Phase 2
+## TODO: Phase 3 (recommend-only — not started)
 
-- Independent critic agent; cross-provider validation (Claude + OpenAI/Codex)
-- Domain-specific money/business invariants beyond generic oracles
+- Live cross-provider Condition C (a second, independently-hosted
+  Explorer+Critic pairing) once two live credentials are available
+- OpenAI/Ollama `ExplorerProvider`/`CriticProvider` implementations
+  (interface-ready, not built)
+- Cross-finding duplicate-manifestation suppression (the critic currently
+  judges one finding at a time, with no awareness that two findings may
+  describe the same underlying defect via different controls)
+- Domain-specific money/business invariants beyond generic
+  `ui-api-consistency` rules
 - Persistent storage (PostgreSQL/pgvector), job queue (Redis/BullMQ)
 - Dashboard (React/Next.js), Chrome extension
 - CI/CD integration (GitHub Actions), Jira integration, GitHub PR bot
 - Multi-user authentication
 - Full accessibility engine (axe), visual regression testing
-- Regression-test generation from validated findings
+- Regression-test generation from validated, reported findings
 - Cross-browser grid (Firefox/WebKit)
 - Semantic/embedding-based finding deduplication
 - Origin-allowlist enforcement inside iframes; multi-tab exploration
-- A generic "click any interactive control" heuristic (would close the
-  SEED-002-style coverage gap above)
 - Dedicated debug-artifacts dump (`observations/`, `fsm-transitions.json`,
   `heuristic-decisions.json`)
+- A general NLP fact-checker for critic evidence contradictions (today's
+  `CRITIC_EVIDENCE_CONTRADICTION` check is a disclosed, best-effort
+  text-pattern matcher only)

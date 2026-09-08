@@ -1,0 +1,11 @@
+{
+  "rules": [
+    {
+      "id": "REQ-001",
+      "pathname": "/expected-failure",
+      "description": "When POST /api/simulated-outage fails, the UI is documented to show a 'Service temporarily unavailable' message. This is intended failure-handling behavior, not a defect.",
+      "triggerRequestPathname": "/api/simulated-outage",
+      "expectedVisibleText": "Service temporarily unavailable"
+    }
+  ]
+}

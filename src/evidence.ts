@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppConfig } from "./config.js";
-import type { ConsoleRecord, NetworkRecord, OracleResult } from "./types.js";
+import { redactSecrets } from "./redact.js";
+import type { CriticArtifact, ConsoleRecord, NetworkRecord, OracleResult, PageErrorRecord } from "./types.js";
 import type { ValidationAttemptResult } from "./validator.js";
 
 export function ensureDir(path: string): void {
@@ -9,7 +10,7 @@ export function ensureDir(path: string): void {
 }
 
 function writeJson(dir: string, filename: string, data: unknown): string {
-  writeFileSync(join(dir, filename), JSON.stringify(data, null, 2), "utf-8");
+  writeFileSync(join(dir, filename), redactSecrets(JSON.stringify(data, null, 2)), "utf-8");
   return filename;
 }
 
@@ -32,6 +33,9 @@ export function writeFindingEvidence(
     reproduction: { attempts: number; successes: number };
     consoleMessages: ConsoleRecord[];
     networkRequests: NetworkRecord[];
+    pageErrors: PageErrorRecord[];
+    /** Persisted unconditionally (not gated by evidence.* flags): small, redacted, and needed to reconstruct a CriticInput post-hoc even when the critic never ran here (see src/phase2-experiment.ts Condition B). */
+    visibleTextExcerpt: string;
     screenshotPath?: string;
     tracePath?: string;
   }
@@ -49,6 +53,7 @@ export function writeFindingEvidence(
       results: input.attempts,
     })
   );
+  filenames.push(writeJson(evidenceDir, "visible-text.json", { excerpt: input.visibleTextExcerpt }));
 
   if (config.evidence.console) {
     filenames.push(writeJson(evidenceDir, "console.json", input.consoleMessages));
@@ -61,6 +66,8 @@ export function writeFindingEvidence(
   } else {
     skipped.push("network.json (disabled by evidence.network: false)");
   }
+
+  filenames.push(writeJson(evidenceDir, "page-errors.json", input.pageErrors));
 
   if (config.evidence.screenshots) {
     if (input.screenshotPath) {
@@ -83,4 +90,16 @@ export function writeFindingEvidence(
   }
 
   return { filenames, skipped };
+}
+
+/**
+ * Written only when the critic actually reached a decision (never for
+ * disabled/unavailable/contradiction outcomes -- those have no real
+ * decision to persist, and are already captured in finding.critic.summary).
+ * Never contains hidden reasoning -- only the same structured fields as
+ * CriticDecision plus provider/model.
+ */
+export function writeCriticArtifact(evidenceDir: string, artifact: CriticArtifact): string {
+  ensureDir(evidenceDir);
+  return writeJson(evidenceDir, "critic.json", artifact);
 }

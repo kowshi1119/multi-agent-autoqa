@@ -3,43 +3,113 @@ import { join } from "node:path";
 import { BrowserManager } from "./browser/browser.js";
 import { BudgetTracker } from "./budget.js";
 import { ConfigError, type AppConfig } from "./config.js";
+import { AnthropicCriticProvider } from "./critic/anthropic-critic-provider.js";
+import { ExplabsCriticProvider } from "./critic/explabs-critic-provider.js";
+import { MockCriticProvider } from "./critic/mock-critic-provider.js";
 import type { Logger } from "./logger.js";
 import { PageMapper } from "./mapping/mapper.js";
-import { AnthropicModelProvider, MockModelProvider } from "./models/provider-implementation.js";
-import type { ModelProvider } from "./models/provider.js";
+import type { CriticProvider } from "./models/critic-provider.js";
+import { ModelRouter } from "./models/model-router.js";
+import { resolveProviderCredential } from "./models/provider-credentials.js";
+import { AnthropicModelProvider, ExplabsModelProvider, MockModelProvider } from "./models/provider-implementation.js";
+import type { ExplorerProvider } from "./models/provider.js";
 import { buildOracleRegistry } from "./oracles.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
 import { createRunContext, type RunContext } from "./orchestrator/run-context.js";
 import { allHeuristics } from "./qa/heuristics.js";
-import type { SafetyEvent } from "./types.js";
+import { loadRequirements } from "./requirements.js";
+import type { RequirementRule, SafetyEvent } from "./types.js";
 import { startFixtureServer, type FixtureServer } from "../fixture/server.js";
 
+const UNIMPLEMENTED_PROVIDERS = new Set(["openai", "ollama"]);
+
 /** Shared by both `qa` and `benchmark` entry points so the pipeline exists in exactly one place. */
-export function selectProvider(config: AppConfig, logger: Logger): ModelProvider {
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  const wantsAnthropic = config.models.provider === "anthropic" || (config.models.provider === "auto" && Boolean(apiKey));
+export function selectProvider(config: AppConfig, logger: Logger): ExplorerProvider {
+  const apiKey = resolveProviderCredential("anthropic", "explorer");
+  const wantsAnthropic =
+    config.models.explorer.provider === "anthropic" || (config.models.explorer.provider === "auto" && Boolean(apiKey));
+
+  if (UNIMPLEMENTED_PROVIDERS.has(config.models.explorer.provider)) {
+    throw new ConfigError(
+      `AutoQA configuration error\n\nmodels.explorer.provider "${config.models.explorer.provider}" is not implemented in this build; supported: mock, anthropic — see README Known Limitations.`
+    );
+  }
 
   if (wantsAnthropic) {
     if (!apiKey) {
       throw new ConfigError(
-        'AutoQA configuration error\n\nmodels.provider is "anthropic" but ANTHROPIC_API_KEY is not set.'
+        'AutoQA configuration error\n\nmodels.explorer.provider is "anthropic" but ANTHROPIC_API_KEY is not set.'
       );
     }
-    const model = config.models.model as string; // schema requires this when provider is "anthropic"
+    const model = config.models.explorer.model as string; // schema requires this for a non-mock/auto provider
     logger.info({ provider: "anthropic", model }, "Using AnthropicModelProvider");
     return new AnthropicModelProvider(apiKey, logger, model);
+  }
+
+  if (config.models.explorer.provider === "explabs") {
+    const explabsKey = resolveProviderCredential("explabs", "explorer");
+    if (!explabsKey) {
+      throw new ConfigError('MODEL_CONFIGURATION_ERROR: models.explorer.provider is "explabs" but EXPLABS_API_KEY is not set.');
+    }
+    const model = config.models.explorer.model as string;
+    logger.info({ provider: "explabs", model, credentialAvailable: true }, "Using ExplabsModelProvider");
+    return new ExplabsModelProvider(explabsKey, logger, model);
   }
 
   logger.info({ provider: "mock" }, "Using deterministic MockModelProvider");
   return new MockModelProvider();
 }
 
+/**
+ * Mirrors selectProvider()'s exact idiom for the critic role. Returns null
+ * when the critic is disabled by config — not a no-op stub (see
+ * ModelRouter's doc comment for why nullable is the deliberate choice).
+ */
+export function selectCriticProvider(config: AppConfig, logger: Logger): CriticProvider | null {
+  if (!config.models.critic.enabled) {
+    logger.info({}, "Critic disabled by config (models.critic.enabled=false)");
+    return null;
+  }
+
+  if (UNIMPLEMENTED_PROVIDERS.has(config.models.critic.provider)) {
+    throw new ConfigError(
+      `AutoQA configuration error\n\nmodels.critic.provider "${config.models.critic.provider}" is not implemented in this build; supported: mock, anthropic — see README Known Limitations.`
+    );
+  }
+
+  if (config.models.critic.provider === "anthropic") {
+    const apiKey = resolveProviderCredential("anthropic", "critic");
+    if (!apiKey) {
+      throw new ConfigError(
+        'AutoQA configuration error\n\nmodels.critic.provider is "anthropic" but ANTHROPIC_API_KEY is not set.'
+      );
+    }
+    const model = config.models.critic.model as string; // schema requires this for a non-mock provider
+    logger.info({ provider: "anthropic", model }, "Using AnthropicCriticProvider");
+    return new AnthropicCriticProvider(apiKey, logger, model);
+  }
+
+  if (config.models.critic.provider === "explabs") {
+    const apiKey = resolveProviderCredential("explabs", "critic");
+    if (!apiKey) {
+      throw new ConfigError('MODEL_CONFIGURATION_ERROR: models.critic.provider is "explabs" but EXPLABS_API_KEY is not set.');
+    }
+    const model = config.models.critic.model as string;
+    logger.info({ provider: "explabs", model, credentialAvailable: true }, "Using ExplabsCriticProvider");
+    return new ExplabsCriticProvider(apiKey, logger, model);
+  }
+
+  logger.info({ provider: "mock" }, "Using deterministic MockCriticProvider");
+  return new MockCriticProvider();
+}
+
 export type PipelineResult = {
   finalCtx: RunContext;
   mapper: PageMapper;
-  provider: ModelProvider;
+  modelRouter: ModelRouter;
   budget: BudgetTracker;
   safetyEvents: SafetyEvent[];
+  requirements: RequirementRule[];
 };
 
 export type PipelineOptions = {
@@ -60,7 +130,7 @@ export type PipelineOptions = {
 export async function runPipeline(options: PipelineOptions): Promise<PipelineResult> {
   const { config, runId, runDir, logger, headless, onProgress } = options;
 
-  const provider = selectProvider(config, logger);
+  const modelRouter = new ModelRouter(selectProvider(config, logger), selectCriticProvider(config, logger));
   const browserManager = new BrowserManager(config, logger, headless);
   const budget = new BudgetTracker({
     maxActions: config.agent.maxActions,
@@ -68,10 +138,12 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     maxPages: config.agent.maxPages,
     maxFindings: config.agent.maxFindings,
     maxDurationMs: config.agent.maxDurationMs,
+    maxCriticCalls: config.agent.maxCriticCalls,
   });
   const mapper = new PageMapper();
   const oracles = buildOracleRegistry(config);
   const heuristics = allHeuristics(config);
+  const requirements = config.requirements.enabled ? loadRequirements(config.requirements.path) : [];
 
   let fixtureServer: FixtureServer | null = null;
 
@@ -89,13 +161,14 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     const orchestrator = new Orchestrator({
       browserManager,
       config,
-      provider,
+      modelRouter,
       logger,
       oracles,
       heuristics,
       budget,
       mapper,
       runDir,
+      requirements,
       ...(onProgress ? { onProgress } : {}),
     });
 
@@ -106,7 +179,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
 
     writeFileSync(join(runDir, "application-map.json"), JSON.stringify(mapper.toJSON(), null, 2), "utf-8");
 
-    return { finalCtx, mapper, provider, budget, safetyEvents };
+    return { finalCtx, mapper, modelRouter, budget, safetyEvents, requirements };
   } finally {
     await browserManager.close();
     if (fixtureServer) {

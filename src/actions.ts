@@ -56,17 +56,31 @@ export function isOriginAllowed(url: string, allowedOrigins: string[]): boolean 
  * come from untyped model output validated only at runtime by Playwright
  * itself (it throws on an unsupported role). This cast is the sole `any`
  * in the codebase, isolated to this one call.
+ *
+ * Every name-based locator is built with { exact: true }. Playwright's
+ * default string matching is a case-insensitive *substring* match, which
+ * silently makes any two controls whose accessible names are one a
+ * substring of the other (e.g. "Amount" and "Payment Amount") mutually
+ * ambiguous -- getByRole(...).fill() then throws a strict-mode violation
+ * every single time either is targeted. Confirmed by actually running the
+ * fixture: a candidate whose action fails is never marked executed (see
+ * Orchestrator.execute()), so it gets re-offered every cycle and silently
+ * burns the entire model-call budget without ever reaching most of the
+ * app. `name`/`label`/`text` in ElementTarget are always populated from
+ * the exact accessible name the observation step already captured, so
+ * requiring an exact match here costs nothing when names are unambiguous
+ * and turns this whole failure class into a normal, resolvable locator.
  */
 function buildLocator(page: Page, target: ElementTarget): Locator {
   if (target.testId) return page.getByTestId(target.testId);
   if (target.role) {
-    const options = target.name ? { name: target.name } : undefined;
+    const options = target.name ? { name: target.name, exact: true } : undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return page.getByRole(target.role as any, options);
   }
-  if (target.label) return page.getByLabel(target.label);
-  if (target.text) return page.getByText(target.text);
-  if (target.name) return page.getByText(target.name);
+  if (target.label) return page.getByLabel(target.label, { exact: true });
+  if (target.text) return page.getByText(target.text, { exact: true });
+  if (target.name) return page.getByText(target.name, { exact: true });
   throw new Error("ElementTarget requires at least one locator field");
 }
 

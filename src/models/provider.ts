@@ -7,7 +7,7 @@ export class ModelOutputInvalidError extends Error {
   }
 }
 
-export interface ModelProvider {
+export interface ExplorerProvider {
   name: string;
 
   /**

@@ -18,6 +18,12 @@ export type RunSummary = {
   validatedFindings: number;
   rejectedFindings: number;
   needsHuman: number;
+  /** Every finding's reportDisposition (independent of FindingStatus -- see the type's doc comment). */
+  reportDispositionBreakdown: {
+    report: number;
+    suppress: number;
+    needs_human: number;
+  };
   coverage: {
     pagesDiscovered: number;
     pagesVisited: number;

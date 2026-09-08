@@ -3,7 +3,8 @@ import { explorerDecisionSchema } from "../actions.js";
 import { EXPLORER_SYSTEM_PROMPT, formatUserMessage } from "../explorer.js";
 import type { Logger } from "../logger.js";
 import type { ExplorerDecision, ExplorerInput, TestCandidate } from "../types.js";
-import { ModelOutputInvalidError, type ModelProvider } from "./provider.js";
+import { ExplabsClient } from "./explabs-client.js";
+import { ModelOutputInvalidError, type ExplorerProvider } from "./provider.js";
 
 /**
  * Deterministic provider used for the acceptance run and tests. Default
@@ -14,7 +15,7 @@ import { ModelOutputInvalidError, type ModelProvider } from "./provider.js";
  * own. An injectable `selectFn` lets a specific test force a particular
  * choice (e.g. to deterministically exercise one heuristic or page).
  */
-export class MockModelProvider implements ModelProvider {
+export class MockModelProvider implements ExplorerProvider {
   name = "mock";
 
   constructor(
@@ -54,7 +55,7 @@ function extractJsonText(text: string): string {
  * (no ANTHROPIC_API_KEY is configured in this environment) but wired up
  * so a future run with credentials exercises the same interface.
  */
-export class AnthropicModelProvider implements ModelProvider {
+export class AnthropicModelProvider implements ExplorerProvider {
   name = "anthropic";
 
   private readonly client: Anthropic;
@@ -107,6 +108,44 @@ export class AnthropicModelProvider implements ModelProvider {
     try {
       const json = JSON.parse(extractJsonText(text));
       const result = explorerDecisionSchema.safeParse(json);
+      return result.success ? result.data : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export class ExplabsModelProvider implements ExplorerProvider {
+  name = "explabs";
+
+  private readonly client: ExplabsClient;
+
+  constructor(apiKey: string, private readonly logger: Logger, private readonly model: string) {
+    this.client = new ExplabsClient(apiKey, model);
+  }
+
+  async decideNextAction(input: ExplorerInput): Promise<ExplorerDecision> {
+    const userMessage = `${formatUserMessage(input)}\n\n${RESPONSE_SCHEMA_INSTRUCTIONS}`;
+    const first = await this.client.complete(EXPLORER_SYSTEM_PROMPT, userMessage);
+    const firstParsed = this.tryParse(first);
+    if (firstParsed) return firstParsed;
+
+    this.logger.warn({ code: "MODEL_OUTPUT_INVALID" }, "Explorer model output failed validation; attempting one repair call.");
+    const repaired = await this.client.complete(
+      EXPLORER_SYSTEM_PROMPT,
+      `Your previous response was not valid JSON matching the required schema. Your previous response was:\n\n${first}\n\nRespond again with ONLY a corrected JSON object matching the schema below.\n\n${RESPONSE_SCHEMA_INSTRUCTIONS}`
+    );
+    const repairedParsed = this.tryParse(repaired);
+    if (repairedParsed) return repairedParsed;
+
+    throw new ModelOutputInvalidError(
+      "Explorer model output did not match the required schema after one repair attempt."
+    );
+  }
+
+  private tryParse(text: string): ExplorerDecision | null {
+    try {
+      const result = explorerDecisionSchema.safeParse(JSON.parse(extractJsonText(text)));
       return result.success ? result.data : null;
     } catch {
       return null;

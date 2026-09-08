@@ -7,6 +7,7 @@ const GENEROUS: BudgetLimits = {
   maxPages: 1000,
   maxFindings: 1000,
   maxDurationMs: 1_000_000,
+  maxCriticCalls: 1000,
 };
 
 describe("BudgetTracker", () => {

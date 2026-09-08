@@ -39,6 +39,7 @@ const HEURISTIC_PRIORITY: Record<string, number> = {
   H07: 2,
   H08: 2,
   H09: 3,
+  H11: 3,
   H10: 4,
 };
 const NAVIGATION_PRIORITY = 5;

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AutoQA Fixture — Expected Failure</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 4rem auto; }
+    button { padding: 0.5rem 1.5rem; }
+    nav { margin-bottom: 2rem; }
+    #outage-status { margin-top: 1rem; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <nav><a href="/">Home</a></nav>
+  <h1>Expected Failure Demo</h1>
+  <p>This page deliberately, and correctly, simulates a documented service outage.</p>
+  <button id="simulate-outage-btn" type="button">Simulate Service Failure</button>
+  <p id="outage-status"></p>
+
+  <script>
+    // False-positive challenge (requirement REQ-001, fixture/requirements.json):
+    // this request always fails with HTTP 500, and the UI correctly and
+    // intentionally shows a documented "Service temporarily unavailable"
+    // message -- this is NOT a defect. It reproduces every single time, on
+    // purpose: a deliberately reproducible anomaly the Critic must learn to
+    // suppress using scoped requirement context (never a hardcoded ID
+    // lookup). Never added to the fixture's seeded-defect answer key file --
+    // suppressing it correctly is what Phase 2 is meant to prove.
+    document.getElementById("simulate-outage-btn").addEventListener("click", function () {
+      fetch("/api/simulated-outage", { method: "POST" }).finally(function () {
+        document.getElementById("outage-status").textContent =
+          "Service temporarily unavailable. Please try again later.";
+      });
+    });
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ export type BudgetLimits = {
   maxPages: number;
   maxFindings: number;
   maxDurationMs: number;
+  maxCriticCalls: number;
 };
 
 export type BudgetSnapshot = BudgetLimits & {
@@ -12,6 +13,7 @@ export type BudgetSnapshot = BudgetLimits & {
   pagesUsed: number;
   findingsUsed: number;
   durationMs: number;
+  criticCallsUsed: number;
 };
 
 /**
@@ -25,6 +27,7 @@ export class BudgetTracker {
   private modelCallsUsed = 0;
   private pagesUsed = 0;
   private findingsUsed = 0;
+  private criticCallsUsed = 0;
   private readonly startedAtMs: number;
 
   constructor(
@@ -62,6 +65,10 @@ export class BudgetTracker {
     return this.findingsUsed < this.limits.maxFindings;
   }
 
+  canCallCritic(): boolean {
+    return this.criticCallsUsed < this.limits.maxCriticCalls && !this.isDurationExceeded();
+  }
+
   recordAction(): void {
     this.actionsUsed += 1;
   }
@@ -76,6 +83,10 @@ export class BudgetTracker {
 
   recordFinding(): void {
     this.findingsUsed += 1;
+  }
+
+  recordCriticCall(): void {
+    this.criticCallsUsed += 1;
   }
 
   get actionsPerformed(): number {
@@ -94,6 +105,10 @@ export class BudgetTracker {
     return this.findingsUsed;
   }
 
+  get criticCalls(): number {
+    return this.criticCallsUsed;
+  }
+
   snapshot(): BudgetSnapshot {
     return {
       ...this.limits,
@@ -102,6 +117,7 @@ export class BudgetTracker {
       pagesUsed: this.pagesUsed,
       findingsUsed: this.findingsUsed,
       durationMs: this.elapsedMs(),
+      criticCallsUsed: this.criticCallsUsed,
     };
   }
 }

@@ -3,6 +3,8 @@ dist/
 runs/*
 !runs/.gitkeep
 .env
+.env.*
+!.env.example
 *.log
 .DS_Store
 playwright-report/

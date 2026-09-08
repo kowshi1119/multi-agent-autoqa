@@ -24,6 +24,8 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     reproduction: { attempts: 3, successes: 3 },
     occurrenceCount: 1,
     evidence: [],
+    evidenceLevel: "L1",
+    reportDisposition: "report",
     ...overrides,
   };
 }

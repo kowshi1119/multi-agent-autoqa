@@ -1,10 +1,11 @@
-# AutoQA Phase 1 — Progress
+# AutoQA — Progress
 
-Phase 1 is COMPLETE. All 10 milestones landed and verified. This file is
-kept for historical/resumability reference; see README.md for the actual
-system documentation.
+Phase 1 is COMPLETE. Phase 2 is COMPLETE. This file is kept for
+historical/resumability reference; see README.md for the actual system
+documentation.
 
-## Milestones (10) — all complete
+## Phase 1 — all 10 milestones complete
+
 - [x] M1 — Phase-0 verification + architecture assessment
 - [x] M2 — Explicit orchestrator FSM (states.ts, run-context.ts)
 - [x] M3 — Enhanced Observation + page/module mapping
@@ -18,44 +19,88 @@ system documentation.
 - [x] M9 — Run-level reporting (report.json/report.md) + coverage metrics
 - [x] M10 — Full Phase-1 acceptance run + README + final verification
 
-## Final acceptance result (representative run)
+### Phase 1 final acceptance result (representative run)
 - 5/5 fixture pages visited, 100% heuristic coverage (25/25 offered combos)
 - 5 findings, all validated (3/3 or better reproduction)
 - Benchmark: precision 0.80 / recall 0.80 / F1 0.80 (4 TP, 1 documented FP,
-  1 documented FN — see README Known Limitations)
-- 105/105 tests pass, strict typecheck clean, `npm run qa` and
-  `npm run benchmark` both verified end-to-end from a clean state
+  1 documented FN — SEED-002, since closed in Phase 2 by H11)
+- 105/105 tests pass, strict typecheck clean
 
-## Real bugs found and fixed by actually running this (not just unit tests)
-1. Navigation priority ordering: navigation candidates outranking heuristic
-   candidates meant the agent toured every page with zero interactions and
-   never found anything. Fixed by sorting all heuristic tiers before
-   navigation.
-2. `installPopupGuard` installed before AutoQA's own `context.newPage()`
-   closed AutoQA's own exploring page (Playwright's `page` event doesn't
-   distinguish "we created this" from "content opened a popup").
-3. A popup's first navigation request can throw from `request.frame()`
-   (frame not yet constructed) inside the route guard.
-4. `InteractiveElement.role` classifier labeled every non-checkbox/radio/
-   button input "textbox" — including number inputs (real ARIA role:
-   spinbutton) and search inputs (real role: searchbox) — so every locator
-   for a number field silently failed via Playwright's `getByRole()`.
-5. Console/network/dialog events arrive asynchronously over CDP; snapshots
-   taken without a settle wait let an event from one action leak into the
-   next cycle's diff, misattributing anomalies to the wrong page/action.
-6. H10 (double submission) never filled required fields first, so native
-   HTML5 form validation could silently block both submit attempts,
-   meaning the double-submit scenario was never actually exercised.
-7. Oracle registry order mattered: EVALUATE stops at the first suspicious
-   oracle per action, and a double-click can trigger two oracles at once;
-   reordered so the more specific, pattern-scoped oracle wins.
-8. `RunContext.heuristicsApplicableCount` was an incrementing counter
-   bumped on every *offer* across every cycle (an unexecuted candidate is
-   re-offered every cycle until chosen), over-counting by roughly a
-   triangular-number factor. Replaced with a Set of distinct offered keys.
+## Phase 2 — all 10 milestones complete
+
+- [x] M1 — Baseline verification (105/105 tests, clean typecheck)
+- [x] M2 — Provider-role separation (`ExplorerProvider`/`CriticProvider`/
+      `ModelRouter`), config migration (`models.explorer`/`models.critic`),
+      `MODEL_ROLE_CONFIGURATION_ERROR`. Reconciled with a concurrently
+      developed, independently authorized Experiential Labs (`explabs`)
+      provider integration — see below.
+- [x] M3 — Critic contract/schemas (`src/critic/schema.ts`),
+      `MockCriticProvider`, evidence-level taxonomy
+      (`src/critic/evidence-level.ts`)
+- [x] M4 — Disposition model (`src/critic/disposition.ts`), evidence
+      contradiction check (`src/critic/contradiction-check.ts`)
+- [x] M5 — H11 (safe control activation), closing SEED-002
+- [x] M6 — `ui-api-consistency` oracle (checked first in the registry),
+      SEED-006 (`/payment` second form), the false-positive-challenge
+      fixture (`/expected-failure` + `fixture/requirements.json`), scoped
+      requirement loader (`src/requirements.ts`)
+- [x] M7 — Critic pipeline integrated into `Orchestrator.validateFinding()`
+      after clean-session validation
+- [x] M8 — Phase 2 experiment harness (`src/phase2-experiment.ts`,
+      `npm run experiment:phase2`) — Condition A (real run, critic off),
+      Condition B (post-hoc re-disposition from persisted evidence, no
+      second browser run), Condition C (honest `null` — no live
+      cross-provider credential available)
+- [x] M9 — Two-level benchmark metrics (`src/reporting/phase2-metrics.ts`),
+      report-disposition breakdown, `report.json`/`report.md` Phase 2
+      sections
+- [x] M10 — Full acceptance run, README Phase 2 section, security
+      re-verification, local commits only (never pushed)
+
+### Reconciliation note (concurrent editing incident)
+
+Mid-M2, a second, user-operated tool was independently editing the same
+working tree (adding the `explabs` provider, role-scoped credential
+resolution, secret-redaction hardening, and a `provider:check` diagnostic
+script). Both efforts were reconciled rather than one overwriting the
+other: the Explabs work was preserved and merged with Phase 2's
+provider-role architecture (both providers/credentials route through the
+same `ModelRouter`/`resolveProviderCredential` design), and
+`MODEL_ROLE_CONFIGURATION_ERROR`'s same-provider check was verified (with
+a dedicated test) to correctly reject `requireIndependentProvider: true`
+when Explorer and Critic both resolve to `providerId: "explabs"`, even
+via two different role-scoped credentials.
+
+### Real bugs found and fixed by actually running Phase 2 (not just unit tests)
+1. Playwright's `getByRole(role, { name })` defaults to a case-insensitive
+   *substring* match. Adding a second "Amount" field for SEED-006 made two
+   controls mutually ambiguous ("Amount" is a substring of "Payment
+   Amount"); every `fill` on either threw a strict-mode violation, the
+   candidate was never marked executed (a failed action doesn't reach
+   `markExecuted`), and it was silently re-offered every cycle, burning
+   the entire model-call budget before the run could reach most of the
+   app. Fixed at the root by requiring `{ exact: true }` on every
+   name-based locator in `src/actions.ts` — this closes the whole failure
+   class for any current or future fixture/target, not just this one
+   collision.
+
+### Phase 2 final acceptance result (representative run, `qa.config.mock.yaml`)
+- 6/6 fixture pages visited, 100% heuristic coverage
+- 9 findings, all validated
+- Detection-level benchmark: precision 0.667 / recall 1.0 / F1 0.8
+  (6 true positives, 3 false positives, 0 false negatives)
+- Final-report-level benchmark: precision 0.75 / recall 1.0 / F1 0.857
+  (1 false positive suppressed by the critic, 0% recall loss)
+- 172/172 tests pass, strict typecheck clean, `npm run qa` /
+  `npm run benchmark` / `npm run experiment:phase2` / `npm run
+  provider:check` all verified end-to-end from a clean state
 
 ## Environment
-No ANTHROPIC_API_KEY / OPENAI_API_KEY / reachable Ollama in this
-environment (reconfirmed throughout Phase 1). All verification used
-MockModelProvider; AnthropicModelProvider is implemented against the same
-interface but has not been exercised live.
+
+No `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/reachable Ollama in this
+environment (reconfirmed throughout both phases). A live `EXPLABS_API_KEY`
+was configured and its configuration/credential-resolution path verified
+end-to-end; two live chat-completion attempts both returned HTTP 429
+(rate-limited), not retried further per policy. All committed
+verification used `MockModelProvider`/`MockCriticProvider` via
+`qa.config.mock.yaml`.

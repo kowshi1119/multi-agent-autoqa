@@ -1,4 +1,4 @@
-import { ModelOutputInvalidError, type ModelProvider } from "./models/provider.js";
+import { ModelOutputInvalidError, type ExplorerProvider } from "./models/provider.js";
 import type { Logger } from "./logger.js";
 import type { ExplorerDecision, ExplorerInput, TestCandidate } from "./types.js";
 
@@ -89,7 +89,7 @@ export type ExplorerOutcome =
 
 export class Explorer {
   constructor(
-    private readonly provider: ModelProvider,
+    private readonly provider: ExplorerProvider,
     private readonly logger: Logger
   ) {}
 

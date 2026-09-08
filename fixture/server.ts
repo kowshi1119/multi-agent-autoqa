@@ -16,6 +16,7 @@ const PAGES: Record<string, string> = {
   "/payment": readPage("payment.html"),
   "/account": readPage("account.html"),
   "/help": readPage("help.html"),
+  "/expected-failure": readPage("expected-failure.html"),
 };
 
 export type FixtureServer = {
@@ -23,10 +24,12 @@ export type FixtureServer = {
 };
 
 /**
- * A tiny multi-page static server for the seeded-bug fixture (5 pages, 5
- * deterministic seeded defects — see fixture/ground-truth.json). Two POST
- * routes back the duplicate-request and http-failure oracles. Never
- * contacts any external system.
+ * A tiny multi-page static server for the seeded-bug fixture (6 pages, 6
+ * deterministic seeded defects — see fixture/ground-truth.json — plus one
+ * deliberately reproducible non-defect on /expected-failure, documented in
+ * fixture/requirements.json and never added to ground truth). POST routes
+ * back the duplicate-request, http-failure, and ui-api-consistency
+ * oracles. Never contacts any external system.
  */
 export function startFixtureServer(port: number): Promise<FixtureServer> {
   return new Promise((resolve, reject) => {
@@ -59,6 +62,25 @@ export function startFixtureServer(port: number): Promise<FixtureServer> {
       if (method === "POST" && url === "/api/pay-fail") {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end('{"ok":false,"error":"simulated payment failure"}');
+        return;
+      }
+
+      // SEED-006: always fails, but payment.html's second form incorrectly
+      // shows "Payment successful" regardless -- the ui-api-consistency
+      // oracle's genuine target.
+      if (method === "POST" && url === "/api/payment-consistency") {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end('{"ok":false,"error":"simulated payment consistency failure"}');
+        return;
+      }
+
+      // False-positive challenge surface (fixture/requirements.json REQ-001):
+      // always fails, and expected-failure.html correctly shows a documented
+      // "Service temporarily unavailable" message -- reproducible, but not a
+      // defect. Never added to ground-truth.json.
+      if (method === "POST" && url === "/api/simulated-outage") {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end('{"ok":false,"error":"simulated service outage"}');
         return;
       }
 

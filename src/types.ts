@@ -181,6 +181,117 @@ export type FindingStatus =
 
 export type FindingCategory = "console" | "runtime" | "network" | "validation" | "state" | "functional";
 
+/**
+ * L1 = deterministic domain/business invariant (very strong, e.g.
+ * duplicate-request, ui-api-consistency). L2 = explicit requirement
+ * violation (strong). L3 = runtime/network failure (strong anomaly
+ * evidence, not automatic proof of a defect — page-error/http-failure/
+ * console-error). L4 = deterministic standards/a11y violation (unused in
+ * Phase 2). L5 = repeatable UX/visual anomaly (unused in Phase 2). L6 =
+ * AI-suspicion-only — never auto-reported regardless of critic confidence.
+ * Code assigns this from oracleId; the Critic only ever receives it, never
+ * chooses its own (see src/critic/evidence-level.ts).
+ */
+export type EvidenceLevel = "L1" | "L2" | "L3" | "L4" | "L5" | "L6";
+
+/**
+ * Independent of FindingStatus: status answers "did this reproduce?",
+ * disposition answers "should we report it as a defect?" A validated
+ * (reproducible) finding can still be suppress/needs_human.
+ */
+export type ReportDisposition = "report" | "suppress" | "needs_human";
+
+export type CriticVerdict = "valid" | "invalid" | "needs_human";
+
+/**
+ * A scoped product-behavior fact available to QA (never a seeded-defect
+ * answer key — see fixture/ground-truth.json vs fixture/requirements.json).
+ * `triggerRequestPathname`/`expectedVisibleText` are optional machine-
+ * checkable hints a deterministic matcher (MockCriticProvider) can compare
+ * against observed evidence — not natural-language parsing.
+ */
+export type RequirementRule = {
+  id: string;
+  pathname: string;
+  description: string;
+  triggerRequestPathname?: string;
+  expectedVisibleText?: string;
+};
+
+/**
+ * What a Critic call actually receives — scoped to the relevant pathname,
+ * never the full rule set (see scopeRequirements). Includes the matcher
+ * hint fields (triggerRequestPathname/expectedVisibleText): these are
+ * still general behavioral facts ("if X fails, UI should show Y"), not a
+ * seeded-defect answer key, so there's nothing to strip — ground truth is
+ * a structurally separate file/type entirely (see GroundTruthDefect in
+ * src/reporting/benchmark.ts), never reachable from this type.
+ */
+export type RequirementContext = RequirementRule;
+
+export type CriticFindingSummary = {
+  title: string;
+  category: FindingCategory;
+  pathname: string;
+  expected: string;
+  actual: string;
+  controlKey?: string;
+};
+
+export type SanitizedConsoleEvidence = { type: string; text: string };
+export type SanitizedNetworkEvidence = { method: string; pathname: string; status?: number };
+export type SanitizedPageErrorEvidence = { message: string };
+
+/**
+ * What the Critic sees. Deliberately excludes API keys/passwords/cookies/
+ * Authorization headers/raw trace bytes/storage state/ground truth/hidden
+ * model reasoning/the benchmark answer — only the minimum evidence needed
+ * to judge whether a reproducible anomaly is a genuine defect.
+ */
+export type CriticInput = {
+  finding: CriticFindingSummary;
+  evidenceLevel: EvidenceLevel;
+  requirementContext?: RequirementContext[];
+  reproduction: { attempts: number; successes: number };
+  oracle: OracleResult;
+  evidence: {
+    console: SanitizedConsoleEvidence[];
+    network: SanitizedNetworkEvidence[];
+    pageErrors: SanitizedPageErrorEvidence[];
+    screenshotPaths: string[];
+    traceAvailable: boolean;
+    /**
+     * Deliberate extension beyond the spec's literal evidence list: without
+     * some rendered-text signal, the Critic has no way to confirm the UI
+     * actually showed the documented expected message (or a forbidden
+     * success message) — necessary for both the false-positive challenge
+     * and the ui-api-consistency scenario to be judgeable at all. Redacted,
+     * truncated (see src/critic/critic-runner.ts), never raw HTML.
+     */
+    uiTextExcerpt?: string;
+  };
+  environment: {
+    targetEnvironment: string;
+    browser: string;
+    pathname: string;
+  };
+};
+
+export type CriticDecision = {
+  verdict: CriticVerdict;
+  confidence: number;
+  summary: string;
+  evidenceReferences: string[];
+  alternativeExplanation?: string;
+  missingEvidence: string[];
+  requirementConflict?: string;
+};
+
+export type CriticArtifact = CriticDecision & {
+  provider: string;
+  model?: string;
+};
+
 export type Finding = {
   id: string;
   title: string;
@@ -218,6 +329,20 @@ export type Finding = {
   /** Run-level dedup count (§25) -- starts at 1, incremented instead of creating a duplicate finding. */
   occurrenceCount: number;
   evidence: string[];
+  /** Code-assigned from oracleId (never chosen by the Critic) -- see src/critic/evidence-level.ts. */
+  evidenceLevel: EvidenceLevel;
+  /** Independent of `status` -- see ReportDisposition doc comment. Computed by src/critic/disposition.ts. */
+  reportDisposition: ReportDisposition;
+  /** Absent when the critic is disabled (Condition-A/Phase-1 parity) or never ran (validation didn't reach "validated"). */
+  critic?: {
+    verdict: CriticVerdict;
+    confidence: number;
+    summary: string;
+    provider: string;
+    model?: string;
+    /** Set when the critic's stated facts contradicted deterministic evidence (CRITIC_EVIDENCE_CONTRADICTION) or an L1 invariant conflicted with an "invalid" verdict. */
+    criticEvidenceConflict?: boolean;
+  };
 };
 
 /**

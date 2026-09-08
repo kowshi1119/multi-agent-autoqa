@@ -21,12 +21,32 @@
     <button type="submit" id="pay-fail-btn">Simulate Payment Error</button>
   </form>
 
+  <hr />
+
+  <form id="payment-consistency-form">
+    <label for="pc-amount">Payment Amount</label>
+    <input type="number" id="pc-amount" name="amount" />
+    <button type="submit" id="pc-submit-btn">Submit Payment</button>
+  </form>
+  <p id="payment-consistency-status"></p>
+
   <script>
     // SEED-003 (http-failure, /payment): submitting always triggers a
     // server-side 500 on POST /api/pay-fail, regardless of amount.
     document.getElementById("payment-form").addEventListener("submit", function (event) {
       event.preventDefault();
       fetch("/api/pay-fail", { method: "POST" });
+    });
+
+    // SEED-006 (ui-api-consistency, /payment): POST /api/payment-consistency
+    // always returns HTTP 500, but the UI incorrectly shows "Payment
+    // successful" regardless -- a genuine UI/API consistency defect,
+    // distinct from SEED-003 (which correctly shows nothing on failure).
+    document.getElementById("payment-consistency-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      fetch("/api/payment-consistency", { method: "POST" }).finally(function () {
+        document.getElementById("payment-consistency-status").textContent = "Payment successful";
+      });
     });
   </script>
 </body>

@@ -2,8 +2,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const FORBIDDEN_DIRS = ["src/qa", "src/models"];
-const FORBIDDEN_FILES = ["src/explorer.ts"];
+const FORBIDDEN_DIRS = ["src/qa", "src/models", "src/critic", "src/oracles"];
+const FORBIDDEN_FILES = ["src/explorer.ts", "src/requirements.ts"];
 
 function allTsFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });

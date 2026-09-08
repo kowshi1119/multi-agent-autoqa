@@ -16,17 +16,30 @@ agent:
   maxActions: 80
   maxModelCalls: 60
   maxPages: 10
-  maxFindings: 10
+  maxFindings: 15
   maxDurationMs: 300000
+  maxCriticCalls: 15
 
 heuristics:
   longTextBoundaryChars: 500
+  safeControlClick:
+    enabled: true
+    allowedControls: []
 
 validation:
   attempts: 3
   minimumSuccesses: 2
 
 oracles:
+  uiApiConsistency:
+    enabled: true
+    rules:
+      - id: "payment-consistency"
+        request:
+          method: "POST"
+          pathname: "/api/payment-consistency"
+        failureStatusMin: 500
+        forbiddenVisibleText: "Payment successful"
   console:
     enabled: true
     # Chromium auto-logs a failed fetch/XHR as a console error too; the
@@ -53,8 +66,19 @@ evidence:
   network: true
 
 models:
-  provider: "auto"
-  model: "claude-sonnet-5"
+  explorer:
+    provider: "explabs"
+    model: "qwen3.8-27b"
+  critic:
+    enabled: false
+    provider: "mock"
+    requireIndependentProvider: false
+    maxCallsPerFinding: 1
+  providerTimeoutMs: 30000
+
+requirements:
+  enabled: true
+  path: "fixture/requirements.json"
 
 safety:
   safeMode: true

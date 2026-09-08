@@ -42,6 +42,7 @@ const configSchema = z
         .int()
         .positive("agent.maxDurationMs must be a positive finite integer")
         .finite("agent.maxDurationMs must be a positive finite integer"),
+      maxCriticCalls: z.number().int().positive("agent.maxCriticCalls must be > 0"),
     }),
     heuristics: z.object({
       longTextBoundaryChars: z
@@ -49,12 +50,39 @@ const configSchema = z
         .int()
         .positive("heuristics.longTextBoundaryChars must be > 0")
         .max(5_000, "heuristics.longTextBoundaryChars must stay well below attack-scale lengths"),
+      safeControlClick: z.object({
+        enabled: z.boolean(),
+        allowedControls: z.array(z.string()),
+      }),
     }),
     validation: z.object({
       attempts: z.number().int().min(1, "validation.attempts must be >= 1"),
       minimumSuccesses: z.number().int().min(1, "validation.minimumSuccesses must be >= 1"),
     }),
     oracles: z.object({
+      uiApiConsistency: z.object({
+        enabled: z.boolean(),
+        rules: z.array(
+          z.object({
+            id: z.string().min(1, "oracles.uiApiConsistency.rules[].id must not be empty"),
+            request: z.object({
+              method: z.string().min(1, "oracles.uiApiConsistency.rules[].request.method must not be empty"),
+              pathname: z
+                .string()
+                .min(1)
+                .startsWith("/", "oracles.uiApiConsistency.rules[].request.pathname must start with /"),
+            }),
+            failureStatusMin: z
+              .number()
+              .int()
+              .min(400, "oracles.uiApiConsistency.rules[].failureStatusMin must be >= 400")
+              .max(599, "oracles.uiApiConsistency.rules[].failureStatusMin must be <= 599"),
+            forbiddenVisibleText: z
+              .string()
+              .min(1, "oracles.uiApiConsistency.rules[].forbiddenVisibleText must not be empty"),
+          })
+        ),
+      }),
       console: z.object({
         enabled: z.boolean(),
         ignorePatterns: z.array(z.string()),
@@ -89,9 +117,25 @@ const configSchema = z
       network: z.boolean(),
     }),
     models: z.object({
-      provider: z.enum(["auto", "mock", "anthropic"]),
-      model: z.string().optional(),
+      explorer: z.object({
+        provider: z.enum(["auto", "mock", "anthropic", "openai", "ollama", "explabs"]),
+        model: z.string().optional(),
+      }),
+      critic: z.object({
+        enabled: z.boolean(),
+        provider: z.enum(["mock", "anthropic", "openai", "ollama", "explabs"]),
+        model: z.string().optional(),
+        requireIndependentProvider: z.boolean(),
+        maxCallsPerFinding: z.number().int().positive("models.critic.maxCallsPerFinding must be > 0"),
+      }),
+      providerTimeoutMs: z.number().int().positive("models.providerTimeoutMs must be > 0"),
     }),
+    requirements: z
+      .object({
+        enabled: z.boolean(),
+        path: z.string().min(1, "requirements.path must not be empty"),
+      })
+      .default({ enabled: false, path: "requirements.yaml" }),
     safety: z.object({
       safeMode: z.boolean(),
       allowedOrigins: z
@@ -107,11 +151,41 @@ const configSchema = z
         message: "must not exceed validation.attempts",
       });
     }
-    if (config.models.provider === "anthropic" && !config.models.model?.trim()) {
+    if (config.models.explorer.provider !== "auto" && config.models.explorer.provider !== "mock" && !config.models.explorer.model?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["models", "model"],
-        message: 'models.model is required when models.provider is "anthropic"',
+        path: ["models", "explorer", "model"],
+        message: `models.explorer.model is required when models.explorer.provider is "${config.models.explorer.provider}"`,
+      });
+    }
+    if (
+      config.models.critic.enabled &&
+      config.models.critic.provider !== "mock" &&
+      !config.models.critic.model?.trim()
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["models", "critic", "model"],
+        message: `models.critic.model is required when models.critic.provider is "${config.models.critic.provider}"`,
+      });
+    }
+    // Literal string comparison only — this cannot see the runtime "auto" ->
+    // provider resolution ANTHROPIC_API_KEY drives (that happens later, in
+    // run-pipeline.ts). A config-time check that read process.env would
+    // break config.ts's current purity and make "no run artifacts on this
+    // error" harder to guarantee (index.ts creates runDir/run.log before
+    // runPipeline() runs). Documented, disclosed gap: only literal
+    // explorer.provider === critic.provider is caught here.
+    if (
+      config.models.critic.enabled &&
+      config.models.critic.requireIndependentProvider &&
+      config.models.explorer.provider === config.models.critic.provider
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["models", "critic", "requireIndependentProvider"],
+        message:
+          "MODEL_ROLE_CONFIGURATION_ERROR: critic.requireIndependentProvider=true but explorer and critic use the same provider.",
       });
     }
   });
@@ -133,6 +207,27 @@ function formatZodError(error: z.ZodError): string {
   return `AutoQA configuration error\n\n${lines.join("\n\n")}`;
 }
 
+function findInlineCredential(value: unknown, path: string[] = []): string | undefined {
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findInlineCredential(item, [...path, String(index)]);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (!value || typeof value !== "object") return undefined;
+
+  for (const [key, nested] of Object.entries(value)) {
+    const nestedPath = [...path, key];
+    if (/^(api_?key|authorization|token|secret|password)$/i.test(key) && typeof nested === "string" && nested) {
+      return nestedPath.join(".");
+    }
+    const found = findInlineCredential(nested, nestedPath);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 export function loadConfig(configPath: string): AppConfig {
   let raw: string;
   try {
@@ -151,6 +246,13 @@ export function loadConfig(configPath: string): AppConfig {
     const cause = error instanceof Error ? error.message : String(error);
     throw new ConfigError(
       `AutoQA configuration error\n\nInvalid YAML in ${configPath}\n${cause}`
+    );
+  }
+
+  const inlineCredentialPath = findInlineCredential(parsed);
+  if (inlineCredentialPath) {
+    throw new ConfigError(
+      `MODEL_CONFIGURATION_ERROR: inline credential at ${inlineCredentialPath} is not allowed; use a local environment variable.`
     );
   }
 

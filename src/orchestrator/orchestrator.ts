@@ -4,18 +4,20 @@ import type { BrowserManager, PageSession } from "../browser/browser.js";
 import { observe } from "../browser/observation.js";
 import type { BudgetTracker } from "../budget.js";
 import type { AppConfig } from "../config.js";
+import { Critic } from "../critic/critic-runner.js";
+import { evidenceLevelForOracle } from "../critic/evidence-level.js";
 import { ensureDir, writeFindingEvidence } from "../evidence.js";
 import { Explorer } from "../explorer.js";
 import type { Logger } from "../logger.js";
 import { PageMapper } from "../mapping/mapper.js";
-import type { ModelProvider } from "../models/provider.js";
+import type { ModelRouter } from "../models/model-router.js";
 import type { Oracle } from "../oracles.js";
 import { markExecuted } from "../qa/heuristic-tracker.js";
 import type { QaHeuristic } from "../qa/heuristics.js";
 import { Planner } from "../qa/planner.js";
 import { buildFindingNarrative, buildFindingTitle, categoryForOracle, generateFindingId, writeFindingJson } from "../report.js";
 import { dedupKeyForFinding, findExistingFinding } from "../reporting/dedup.js";
-import type { Finding, Observation, OracleResult, RecordedStep, SafetyEvent, TestCandidate } from "../types.js";
+import type { Finding, Observation, OracleResult, RecordedStep, RequirementRule, SafetyEvent, TestCandidate } from "../types.js";
 import { Validator } from "../validator.js";
 import { assertValidTransition, type QaState } from "./states.js";
 import type { RunContext } from "./run-context.js";
@@ -23,13 +25,14 @@ import type { RunContext } from "./run-context.js";
 export type OrchestratorDeps = {
   browserManager: BrowserManager;
   config: AppConfig;
-  provider: ModelProvider;
+  modelRouter: ModelRouter;
   logger: Logger;
   oracles: Oracle[];
   heuristics: QaHeuristic[];
   budget: BudgetTracker;
   mapper: PageMapper;
   runDir: string;
+  requirements: RequirementRule[];
   /** Human-readable progress line for the terminal narrative — never raw model chain-of-thought, only structured decisions/results. */
   onProgress?: (message: string) => void;
 };
@@ -66,7 +69,7 @@ export class Orchestrator {
   private cycle: CycleState = freshCycle();
 
   constructor(private readonly deps: OrchestratorDeps) {
-    this.explorer = new Explorer(deps.provider, deps.logger);
+    this.explorer = new Explorer(deps.modelRouter.getExplorer(), deps.logger);
     this.planner = new Planner(deps.heuristics, deps.config);
   }
 
@@ -312,6 +315,8 @@ export class Orchestrator {
       reproduction: { attempts: 0, successes: 0 },
       occurrenceCount: 1,
       evidence: [],
+      evidenceLevel: evidenceLevelForOracle(suspicious.oracleId),
+      reportDisposition: "needs_human",
     };
 
     const candidateKey = dedupKeyForFinding(candidateFinding);
@@ -357,6 +362,8 @@ export class Orchestrator {
       reproduction: validation.finding.reproduction,
       consoleMessages: validation.representativeEvidence.consoleMessages,
       networkRequests: validation.representativeEvidence.networkRequests,
+      pageErrors: validation.representativeEvidence.pageErrors,
+      visibleTextExcerpt: validation.representativeEvidence.visibleTextExcerpt,
       ...(validation.representativeEvidence.screenshotPath
         ? { screenshotPath: validation.representativeEvidence.screenshotPath }
         : {}),
@@ -364,14 +371,22 @@ export class Orchestrator {
     });
 
     const finalizedFinding: Finding = { ...validation.finding, evidence: evidenceResult.filenames };
-    writeFindingJson(evidenceDir, finalizedFinding);
+    const critic = new Critic({
+      criticProvider: this.deps.modelRouter.getCritic(),
+      config: this.deps.config,
+      logger: this.deps.logger,
+      requirements: this.deps.requirements,
+      budget: this.deps.budget,
+    });
+    const reviewedFinding = (await critic.review(finalizedFinding, validation, evidenceDir)).finding;
+    writeFindingJson(evidenceDir, reviewedFinding);
     this.progress(
-      `Finding ${finalizedFinding.id} ${finalizedFinding.status.toUpperCase()} (${validation.finding.reproduction.successes}/${validation.finding.reproduction.attempts} reproductions)`
+      `Finding ${reviewedFinding.id} ${reviewedFinding.status.toUpperCase()} (${validation.finding.reproduction.successes}/${validation.finding.reproduction.attempts} reproductions)`
     );
 
     this.deps.budget.recordFinding();
     this.cycle.wasDuplicate = false;
-    this.cycle.recordedFinding = finalizedFinding;
+    this.cycle.recordedFinding = reviewedFinding;
 
     return this.transition(ctx, "RECORD_FINDING");
   }

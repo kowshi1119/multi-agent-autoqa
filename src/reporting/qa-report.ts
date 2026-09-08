@@ -4,6 +4,7 @@ import type { BudgetSnapshot } from "../budget.js";
 import type { ApplicationMap } from "../mapping/types.js";
 import type { Finding } from "../types.js";
 import type { BenchmarkResult } from "./benchmark.js";
+import type { Phase2Metrics } from "./phase2-metrics.js";
 
 export const TRACE_POLICY_STATEMENT =
   "Validator trace capture: first replay attempt only. Screenshot, console, and network evidence may be captured according to the existing evidence policy.";
@@ -27,9 +28,12 @@ export type QaReport = {
   };
   findings: Finding[];
   oracleBreakdown: Record<string, number>;
+  reportDispositionBreakdown: { report: number; suppress: number; needs_human: number };
   budget: BudgetSnapshot;
   tracePolicy: string;
   benchmark?: BenchmarkResult;
+  /** Only present when target.environment === "local-fixture" and models.critic.enabled -- the detection/final-report comparison this whole phase exists to make (see reporting/phase2-metrics.ts). */
+  phase2?: Phase2Metrics;
   safetyEventCount: number;
   errorClassification?: string;
 };
@@ -112,8 +116,14 @@ export function buildReportMarkdown(report: QaReport): string {
   lines.push("## Safety", "");
   lines.push(`Safety events recorded: ${report.safetyEventCount}`, "");
 
+  lines.push("## Report disposition (all findings)", "");
+  const rd = report.reportDispositionBreakdown;
+  lines.push(`Report: ${rd.report}`, "");
+  lines.push(`Suppress: ${rd.suppress}`, "");
+  lines.push(`Needs human: ${rd.needs_human}`, "");
+
   if (report.benchmark) {
-    lines.push("## Benchmark (local fixture)", "");
+    lines.push("## Benchmark (local fixture, detection level)", "");
     const bm = report.benchmark;
     lines.push(`Matched on: ${bm.matchedOn}`, "");
     lines.push(`Seeded defects: ${bm.seededDefects}`, "");
@@ -123,6 +133,26 @@ export function buildReportMarkdown(report: QaReport): string {
     lines.push(`Precision: ${bm.precision.toFixed(3)}`, "");
     lines.push(`Recall: ${bm.recall.toFixed(3)}`, "");
     lines.push(`F1: ${bm.f1.toFixed(3)}`, "");
+  }
+
+  if (report.phase2) {
+    lines.push("## Phase 2 — critic effectiveness", "");
+    lines.push(
+      "Detection asks \"did AutoQA find every seeded defect?\"; final-report asks \"of what AutoQA found, how much would a human actually see reported?\" -- the same matcher, run against two different filters of the same findings (validated vs reportDisposition===\"report\").",
+      ""
+    );
+    const p2 = report.phase2;
+    lines.push(
+      `Detection: precision ${p2.detection.precision.toFixed(3)} / recall ${p2.detection.recall.toFixed(3)} / F1 ${p2.detection.f1.toFixed(3)} (${p2.detection.falsePositives.length} false positives)`,
+      ""
+    );
+    lines.push(
+      `Final report: precision ${p2.finalReport.precision.toFixed(3)} / recall ${p2.finalReport.recall.toFixed(3)} / F1 ${p2.finalReport.f1.toFixed(3)} (${p2.finalReport.falsePositives.length} false positives)`,
+      ""
+    );
+    lines.push(`False positives suppressed by critic: ${p2.falsePositivesSuppressed}`, "");
+    lines.push(`False positive reduction rate: ${(p2.falsePositiveReductionRate * 100).toFixed(1)}%`, "");
+    lines.push(`Recall lost to critic suppression: ${(p2.recallLoss * 100).toFixed(1)}%`, "");
   }
 
   lines.push("## Evidence policy", "");

@@ -9,6 +9,7 @@ import { normalizePathname } from "./mapping/state-signature.js";
 import { generateRunId, writeRunSummary, type RunSummary } from "./report.js";
 import { loadGroundTruth, matchFindings } from "./reporting/benchmark.js";
 import { computeHeuristicCoverage } from "./reporting/coverage.js";
+import { computePhase2Metrics } from "./reporting/phase2-metrics.js";
 import {
   buildOracleBreakdown,
   buildReportMarkdown,
@@ -18,6 +19,13 @@ import {
   type QaReport,
 } from "./reporting/qa-report.js";
 import { runPipeline } from "./run-pipeline.js";
+import type { Finding } from "./types.js";
+
+function reportDispositionBreakdown(findings: Finding[]): { report: number; suppress: number; needs_human: number } {
+  const breakdown = { report: 0, suppress: 0, needs_human: 0 };
+  for (const finding of findings) breakdown[finding.reportDisposition] += 1;
+  return breakdown;
+}
 
 function parseArgs(argv: string[]): { configPath: string } {
   const flagIndex = argv.indexOf("--config");
@@ -77,7 +85,8 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  const { finalCtx, provider, budget, mapper, safetyEvents } = result;
+  const { finalCtx, modelRouter, budget, mapper, safetyEvents } = result;
+  const provider = modelRouter.getExplorer();
   const failed = finalCtx.state === "FAILED";
 
   if (failed) {
@@ -120,21 +129,41 @@ async function main(): Promise<void> {
     validatedFindings: finalCtx.findings.filter((f) => f.status === "validated").length,
     rejectedFindings: finalCtx.findings.filter((f) => f.status === "rejected").length,
     needsHuman: finalCtx.findings.filter((f) => f.status === "needs_human").length,
+    reportDispositionBreakdown: reportDispositionBreakdown(finalCtx.findings),
     coverage,
     budget: budgetSnapshot,
     tokenUsage: null,
   };
   writeRunSummary(runDir, summary);
 
-  const benchmark =
-    config.target.environment === "local-fixture"
-      ? matchFindings(
-          finalCtx.findings.filter((f) => f.status === "validated"),
-          loadGroundTruth(resolve("fixture", "ground-truth.json")).defects
-        )
-      : undefined;
+  const groundTruthDefects =
+    config.target.environment === "local-fixture" ? loadGroundTruth(resolve("fixture", "ground-truth.json")).defects : undefined;
+  const benchmark = groundTruthDefects
+    ? matchFindings(
+        finalCtx.findings.filter((f) => f.status === "validated"),
+        groundTruthDefects
+      )
+    : undefined;
   if (benchmark) {
     writeFileSync(join(runDir, "benchmark.json"), JSON.stringify(benchmark, null, 2), "utf-8");
+  }
+
+  // Detection asks "did AutoQA find it?" (status === "validated", Phase-1
+  // semantics / Condition A); final-report asks "would a human actually see
+  // it reported?" (reportDisposition === "report", Condition B). Same
+  // matchFindings() matcher for both -- see reporting/phase2-metrics.ts.
+  const phase2 =
+    groundTruthDefects && config.models.critic.enabled
+      ? computePhase2Metrics(
+          benchmark as NonNullable<typeof benchmark>,
+          matchFindings(
+            finalCtx.findings.filter((f) => f.reportDisposition === "report"),
+            groundTruthDefects
+          )
+        )
+      : undefined;
+  if (phase2) {
+    writeFileSync(join(runDir, "phase2-metrics.json"), JSON.stringify(phase2, null, 2), "utf-8");
   }
 
   const report: QaReport = {
@@ -149,9 +178,11 @@ async function main(): Promise<void> {
     coverage,
     findings: finalCtx.findings,
     oracleBreakdown: buildOracleBreakdown(finalCtx.findings),
+    reportDispositionBreakdown: reportDispositionBreakdown(finalCtx.findings),
     budget: budgetSnapshot,
     tracePolicy: TRACE_POLICY_STATEMENT,
     ...(benchmark ? { benchmark } : {}),
+    ...(phase2 ? { phase2 } : {}),
     safetyEventCount: safetyEvents.length,
     ...(failed ? { errorClassification: finalCtx.stopReason } : {}),
   };
@@ -177,7 +208,15 @@ async function main(): Promise<void> {
   console.log(`Safety events:\n${safetyEvents.length}\n`);
   if (benchmark) {
     console.log(
-      `Benchmark:\nprecision ${benchmark.precision.toFixed(2)} / recall ${benchmark.recall.toFixed(2)} / F1 ${benchmark.f1.toFixed(2)}\n`
+      `Benchmark (detection):\nprecision ${benchmark.precision.toFixed(2)} / recall ${benchmark.recall.toFixed(2)} / F1 ${benchmark.f1.toFixed(2)}\n`
+    );
+  }
+  if (phase2) {
+    console.log(
+      `Benchmark (final report):\nprecision ${phase2.finalReport.precision.toFixed(2)} / recall ${phase2.finalReport.recall.toFixed(2)} / F1 ${phase2.finalReport.f1.toFixed(2)}\n`
+    );
+    console.log(
+      `Critic false-positive reduction:\n${phase2.falsePositivesSuppressed} suppressed (${(phase2.falsePositiveReductionRate * 100).toFixed(1)}%), recall loss ${(phase2.recallLoss * 100).toFixed(1)}%\n`
     );
   }
   console.log(`Stop reason:\n${finalCtx.stopReason ?? "(none recorded)"}\n`);

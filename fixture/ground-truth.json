@@ -4,6 +4,7 @@
     { "id": "SEED-002", "oracleId": "page-error", "pathname": "/account" },
     { "id": "SEED-003", "oracleId": "http-failure", "pathname": "/payment" },
     { "id": "SEED-004", "oracleId": "duplicate-request", "pathname": "/form" },
-    { "id": "SEED-005", "oracleId": "console-error", "pathname": "/account" }
+    { "id": "SEED-005", "oracleId": "console-error", "pathname": "/account" },
+    { "id": "SEED-006", "oracleId": "ui-api-consistency", "pathname": "/payment" }
   ]
 }

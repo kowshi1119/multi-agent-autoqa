@@ -25,6 +25,7 @@ import { createH07NegativeNumeric } from "./heuristics/h07-negative-numeric.js";
 import { createH08LargeNumeric } from "./heuristics/h08-large-numeric.js";
 import { createH09ReloadState } from "./heuristics/h09-reload-state.js";
 import { createH10DoubleSubmission } from "./heuristics/h10-double-submission.js";
+import { createH11SafeControl } from "./heuristics/h11-safe-control.js";
 
 export function allHeuristics(config: AppConfig): QaHeuristic[] {
   return [
@@ -38,5 +39,6 @@ export function allHeuristics(config: AppConfig): QaHeuristic[] {
     createH08LargeNumeric(),
     createH09ReloadState(),
     createH10DoubleSubmission(config),
+    createH11SafeControl(config),
   ];
 }

@@ -21,12 +21,19 @@ agent:
   maxPages: 10
   maxFindings: 10
   maxDurationMs: 300000
+  maxCriticCalls: 10
 heuristics:
   longTextBoundaryChars: 500
+  safeControlClick:
+    enabled: true
+    allowedControls: []
 validation:
   attempts: 3
   minimumSuccesses: 2
 oracles:
+  uiApiConsistency:
+    enabled: true
+    rules: []
   console:
     enabled: true
     ignorePatterns: []
@@ -46,8 +53,14 @@ evidence:
   console: true
   network: true
 models:
-  provider: "mock"
-  model: "claude-sonnet-5"
+  explorer:
+    provider: "mock"
+  critic:
+    enabled: false
+    provider: "mock"
+    requireIndependentProvider: false
+    maxCallsPerFinding: 1
+  providerTimeoutMs: 30000
 safety:
   safeMode: true
   allowedOrigins:

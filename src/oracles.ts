@@ -13,6 +13,7 @@ import { createConsoleErrorOracle } from "./oracles/console-error.js";
 import { createDuplicateRequestOracle } from "./oracles/duplicate-request.js";
 import { createHttpFailureOracle } from "./oracles/http-failure.js";
 import { createPageErrorOracle } from "./oracles/page-error.js";
+import { createUiApiConsistencyOracle } from "./oracles/ui-api-consistency.js";
 
 /**
  * One reviewed comparison strategy (multiset diff) reused by all four
@@ -31,9 +32,15 @@ import { createPageErrorOracle } from "./oracles/page-error.js";
  * fires a request every time) — checking the more specific,
  * action-pattern-scoped oracle first prevents the general console-error
  * oracle from permanently masking it.
+ *
+ * ui-api-consistency is checked before every other oracle for the same
+ * reason, one level up: every ui-api-consistency violation is also an
+ * http-failure (same underlying >=500 status), so http-failure would
+ * always win first and this oracle could never fire otherwise.
  */
 export function buildOracleRegistry(config: AppConfig): Oracle[] {
   const registry: Oracle[] = [];
+  if (config.oracles.uiApiConsistency.enabled) registry.push(createUiApiConsistencyOracle(config));
   if (config.oracles.duplicateRequest.enabled) registry.push(createDuplicateRequestOracle(config));
   if (config.oracles.httpFailure.enabled) registry.push(createHttpFailureOracle());
   if (config.oracles.pageError.enabled) registry.push(createPageErrorOracle());

@@ -65,7 +65,7 @@ describe("QaHeuristic applicability", () => {
     expect(h.isApplicable(observation, el({ role: "button", widgetType: "submit_button" }))).toBe(false);
   });
 
-  it("allHeuristics(config) returns exactly the 10 documented heuristics", () => {
+  it("allHeuristics(config) returns exactly the 11 documented heuristics", () => {
     const config = loadTestConfig();
     const heuristics = allHeuristics(config);
     expect(heuristics.map((h) => h.id).sort()).toEqual([
@@ -79,6 +79,7 @@ describe("QaHeuristic applicability", () => {
       "H08",
       "H09",
       "H10",
+      "H11",
     ]);
   });
 

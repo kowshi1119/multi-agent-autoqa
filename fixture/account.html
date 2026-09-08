@@ -30,10 +30,11 @@
     // SEED-002 (page-error, /account): always throws an uncaught
     // TypeError by touching a nonexistent element. Deliberately a
     // standalone button with no associated fillable field -- Phase 1's
-    // heuristic set has no generic "click any button" heuristic, so this
-    // defect is not reachable by autonomous exploration in this build
-    // (see README Known Limitations). Kept as documented ground truth for
-    // the benchmark rather than removed, so the gap is measured, not hidden.
+    // heuristic set had no generic "click any button" heuristic, so this
+    // defect was unreachable by autonomous exploration in that build.
+    // Phase 2's H11 (safe control activation) closes this gap by clicking
+    // any visible, enabled, non-destructive-looking button -- this control
+    // is not special-cased anywhere in H11's own code.
     document.getElementById("view-profile-btn").addEventListener("click", function () {
       document.getElementById("nonexistent-element").textContent = "x";
     });

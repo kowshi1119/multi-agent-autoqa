@@ -22,12 +22,19 @@ agent:
   maxPages: 10
   maxFindings: 10
   maxDurationMs: 300000
+  maxCriticCalls: 10
 heuristics:
   longTextBoundaryChars: 500
+  safeControlClick:
+    enabled: true
+    allowedControls: []
 validation:
   attempts: 3
   minimumSuccesses: 2
 oracles:
+  uiApiConsistency:
+    enabled: true
+    rules: []
   console:
     enabled: true
     ignorePatterns: []
@@ -47,8 +54,14 @@ evidence:
   console: true
   network: true
 models:
-  provider: "auto"
-  model: "claude-sonnet-5"
+  explorer:
+    provider: "auto"
+  critic:
+    enabled: false
+    provider: "mock"
+    requireIndependentProvider: false
+    maxCallsPerFinding: 1
+  providerTimeoutMs: 30000
 safety:
   safeMode: true
   allowedOrigins:
@@ -152,17 +165,39 @@ describe("loadConfig", () => {
 
   it("rejects models.provider anthropic without a model configured", () => {
     const invalid = validYaml
-      .replace('provider: "auto"', 'provider: "anthropic"')
-      .replace('model: "claude-sonnet-5"', 'model: ""');
+      .replace('provider: "auto"', 'provider: "anthropic"');
     const path = writeConfig(invalid);
     expect(() => loadConfig(path)).toThrow(ConfigError);
   });
 
   it("accepts models.provider mock without a model configured", () => {
     const withMock = validYaml
-      .replace('provider: "auto"', 'provider: "mock"')
-      .replace('\n  model: "claude-sonnet-5"', "");
+      .replace('provider: "auto"', 'provider: "mock"');
     const path = writeConfig(withMock);
+    expect(() => loadConfig(path)).not.toThrow();
+  });
+
+  it("rejects inline credentials", () => {
+    const path = writeConfig(`${validYaml}\ncredentials:\n  apiKey: "test_key_DO_NOT_USE_12345"\n`);
+    expect(() => loadConfig(path)).toThrow(/inline credential/);
+  });
+
+  it("rejects requireIndependentProvider:true when explorer and critic both use the explabs provider, even with role-scoped credentials", () => {
+    const invalid = validYaml
+      .replace('provider: "auto"', 'provider: "explabs"\n    model: "qwen3.8-27b"')
+      .replace("enabled: false", "enabled: true")
+      .replace('provider: "mock"\n    requireIndependentProvider: false', 'provider: "explabs"\n    model: "qwen3.8-27b"\n    requireIndependentProvider: true');
+    const path = writeConfig(invalid);
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+    expect(() => loadConfig(path)).toThrow(/MODEL_ROLE_CONFIGURATION_ERROR/);
+  });
+
+  it("accepts requireIndependentProvider:true when explorer and critic use different providers", () => {
+    const valid = validYaml
+      .replace('provider: "auto"', 'provider: "anthropic"\n    model: "claude-3-5-sonnet-latest"')
+      .replace("enabled: false", "enabled: true")
+      .replace('provider: "mock"\n    requireIndependentProvider: false', 'provider: "mock"\n    requireIndependentProvider: true');
+    const path = writeConfig(valid);
     expect(() => loadConfig(path)).not.toThrow();
   });
 
