@@ -167,7 +167,26 @@ output produced; summarized progress below)
       `splitGroup` so pairs never split. `npm run challenge-corpus:
       validate` confirmed clean end-to-end. 284/284 tests pass, typecheck
       clean.
-- [ ] C4 — Blind human review export/import
+- [x] C4 — Blind human review export/import. New `src/human-review/`
+      (`types.ts`, `export.ts`, `import.ts`, `export-cli.ts`/
+      `import-cli.ts`), `npm run human-review:export` /
+      `human-review:import`. Export strips ground truth/critic verdict/
+      reportDisposition, uses an opaque random `itemId` (never the
+      finding id), writes the id mapping to a SEPARATE file the rater
+      never sees. `computeAgreement()` returns
+      `{status:"unavailable",reason}` -- never a fabricated number --
+      whenever no real labels are imported; negative/inconclusive
+      agreement passes through as a valid outcome. **Honest status: no
+      live human rater was available in this session.** The
+      export/import/agreement machinery itself was verified end-to-end
+      against a real `report.json` (9 items exported correctly, no
+      ground-truth/verdict/disposition leakage) plus a synthetic,
+      single-rater label file for smoke-testing the plumbing only --
+      explicitly NOT a genuine human-review result, never presented as
+      one. This is the sub-milestone the plan itself flagged as safest to
+      leave "complete but unexercised" -- the spec explicitly treats
+      `{status:"unavailable"}` as a valid, honest outcome. 296/296 tests
+      pass, typecheck clean.
 - [ ] D — Verification and handoff (README/PROGRESS updates, full
       command-output capture, security re-scan)
 

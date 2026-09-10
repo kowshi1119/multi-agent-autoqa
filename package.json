@@ -17,7 +17,9 @@
     "benchmark": "tsc && node dist/src/benchmark.js",
     "experiment:phase2": "tsc && node dist/src/phase2-experiment.js",
     "experiment:phase3": "tsc && node dist/src/phase3-experiment.js",
-    "challenge-corpus:validate": "tsc && node dist/src/experiments/challenge-corpus-validate.js"
+    "challenge-corpus:validate": "tsc && node dist/src/experiments/challenge-corpus-validate.js",
+    "human-review:export": "tsc && node dist/src/human-review/export-cli.js",
+    "human-review:import": "tsc && node dist/src/human-review/import-cli.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

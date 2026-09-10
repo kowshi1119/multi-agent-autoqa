@@ -355,6 +355,27 @@ and explicitly prefers a smaller, correctly-labeled corpus over a larger,
 rushed one; inventing 6+ new browser-executable pages was the time sink
 this design avoids.
 
+**Milestone C4 — blind human review** (`src/human-review/`,
+`npm run human-review:export -- --report <report.json> --out <dir>` /
+`npm run human-review:import -- --labels <path> --mapping <path> --report
+<report.json>`): export strips ground truth, critic verdict, and
+`reportDisposition` from every item, replacing the finding id with an
+opaque random `itemId` — the mapping back to real finding ids is written
+to a **separate** file the rater is never given. `computeAgreement()`
+returns `{status:"unavailable", reason}` — never a fabricated number —
+whenever no independent human labels have actually been imported;
+negative or inconclusive agreement values pass through as-is, since a
+weak or zero score is a valid, reportable outcome, not something to tune
+away. **No live human rater was available in this session**: the
+export/import/agreement machinery was verified end-to-end against a real
+`report.json` (9 items exported correctly, ground truth/verdict/
+disposition absent from the rater-facing file) plus a synthetic,
+single-rater label file for smoke-testing the plumbing only — that
+synthetic run is explicitly **not** a genuine human-review result and
+must never be cited as one; `computeAgreement` honestly reports
+`{status:"unavailable"}` whenever this machinery is invoked without any
+real rater's labels.
+
 ## Architecture
 
 ```
