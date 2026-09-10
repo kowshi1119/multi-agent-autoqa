@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isMainModule } from "../main-module-guard.js";
+import { redactSecrets } from "../redact.js";
 import type { Finding } from "../types.js";
 import { exportForBlindReview } from "./export.js";
 
@@ -23,8 +24,8 @@ function main(): void {
   mkdirSync(outDir, { recursive: true });
   const exportPath = join(outDir, "blind-review-export.json");
   const mappingPath = join(outDir, "item-mapping.json");
-  writeFileSync(exportPath, JSON.stringify(blindExport, null, 2), "utf-8");
-  writeFileSync(mappingPath, JSON.stringify(itemIdToFindingId, null, 2), "utf-8");
+  writeFileSync(exportPath, redactSecrets(JSON.stringify(blindExport, null, 2)), "utf-8");
+  writeFileSync(mappingPath, redactSecrets(JSON.stringify(itemIdToFindingId, null, 2)), "utf-8");
 
   console.log(`Exported ${blindExport.items.length} items for blind review.`);
   console.log(`Rater-facing file (share this): ${exportPath}`);

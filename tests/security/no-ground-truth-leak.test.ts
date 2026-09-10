@@ -2,8 +2,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const FORBIDDEN_DIRS = ["src/qa", "src/models", "src/critic", "src/oracles"];
-const FORBIDDEN_FILES = ["src/explorer.ts", "src/requirements.ts"];
+// src/experiments and src/human-review are deliberately NOT forbidden:
+// both legitimately take ground truth as an explicit function parameter
+// for evaluation purposes (computing a per-condition benchmark, scoring
+// human-rater agreement), exactly like src/reporting/benchmark.ts and
+// src/index.ts already do -- ground truth flowing through evaluation code
+// is fine; the invariant this test protects is that it never reaches
+// anything Planner/Explorer/Oracles/Validator/Critic/grouping-adjacent.
+const FORBIDDEN_DIRS = ["src/qa", "src/models", "src/critic", "src/oracles", "src/grouping"];
+const FORBIDDEN_FILES = ["src/explorer.ts", "src/requirements.ts", "src/validator.ts", "src/orchestrator/orchestrator.ts"];
 
 function allTsFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });
@@ -14,8 +21,8 @@ function allTsFiles(dir: string): string[] {
   });
 }
 
-describe("ground truth never reaches the Explorer/model path", () => {
-  it("contains no reference to ground-truth in src/qa/, src/models/, or src/explorer.ts", () => {
+describe("ground truth never reaches the Explorer/model/grouping path", () => {
+  it("contains no reference to ground-truth in any forbidden directory or file", () => {
     const files = [...FORBIDDEN_DIRS.flatMap(allTsFiles), ...FORBIDDEN_FILES];
     expect(files.length).toBeGreaterThan(0);
 

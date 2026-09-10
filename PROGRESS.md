@@ -1,18 +1,11 @@
 # AutoQA — Progress
 
-Phase 1 is COMPLETE. Phase 2 is COMPLETE. Phase 3 is IN PROGRESS. This
+Phase 1 is COMPLETE. Phase 2 is COMPLETE. Phase 3 is COMPLETE. This
 file is kept for historical/resumability reference; see README.md for the
 actual system documentation.
 
-**Continuity rule (Phase 3):** if this session is interrupted or runs low
-on context, the checklist below must reflect the exact sub-milestone
-reached — never mark a box done unless its listed tests are green and
-`npm run typecheck` passes. A sub-milestone landed only partially must be
-described as partial, with the specific unmet acceptance bullet named.
-
-## Phase 3 — Reliability and Research Evidence (plan: see the three
-confirmed bugs and full milestone breakdown this session's plan-mode
-output produced; summarized progress below)
+## Phase 3 — Reliability and Research Evidence — all 9 sub-milestones
+complete (A1, A2, A3, B, C1, C2, C3, C4, D)
 
 - [x] A1 — Evidence invariants (`disposition.ts` L6-vs-disabled ordering
       bug, `evidence-level.ts` unknown-oracle fallback). Fixed by
@@ -37,9 +30,6 @@ output produced; summarized progress below)
       trusting the fix. New `tests/phase2-experiment-import.test.ts`
       regression-locks it. 213/213 tests pass. (A3's remaining piece —
       the shared ReviewService extraction — tracked separately below.)
-- [ ] A2 — Evidence aligned with successful reproduction (validator
-      capture policy + failure-signature matching + evidence-scope
-      disclosure + README Trace-Capture Policy rewrite)
 - [x] A2 — Evidence aligned with successful reproduction. New
       `src/oracles/signature.ts#sameFailure()` gates `reproduced` on
       matching the ORIGINAL finding's structural failure signature, not
@@ -187,8 +177,56 @@ output produced; summarized progress below)
       leave "complete but unexercised" -- the spec explicitly treats
       `{status:"unavailable"}` as a valid, honest outcome. 296/296 tests
       pass, typecheck clean.
-- [ ] D — Verification and handoff (README/PROGRESS updates, full
-      command-output capture, security re-scan)
+- [x] D — Verification and handoff. Extended
+      `tests/security/no-ground-truth-leak.test.ts` (added `src/grouping`,
+      `src/validator.ts`, `src/orchestrator/orchestrator.ts` --
+      deliberately did NOT add `src/experiments`/`src/human-review`,
+      since both legitimately take ground truth as an explicit evaluation
+      parameter, same precedent as `src/reporting/benchmark.ts`/
+      `src/index.ts`). Extended `tests/security/secret-redaction.test.ts`
+      for the new artifact writers -- found and fixed a real gap in the
+      process: `phase3-experiment.ts`'s manifest/conditions writes and
+      `human-review/export-cli.ts`'s export write didn't apply
+      `redactSecrets()` the way `evidence.ts#writeJson` does; fixed both
+      for defense-in-depth consistency. README's `TODO: Phase 3` section
+      rewritten to `TODO: Phase 4` reflecting what's actually still open.
+      Full verification sweep re-run on the final committed state: 298/298
+      tests, clean typecheck, `provider:check` (no live calls),
+      `npm run qa`/`benchmark` against `qa.config.mock.yaml` (identical
+      results to every prior milestone's check), `experiment:phase2`
+      confirmed unmodified, `experiment:phase3` capture+replay
+      (byte-identical, integrity VALID), `challenge-corpus:validate`
+      (20/20 cases valid). Final secret scan across all git-tracked files:
+      no stray credential patterns, `.env` confirmed untracked.
+
+### Phase 3 final acceptance result (representative run, `qa.config.mock.yaml`)
+- 9 commits on top of Phase 2 (`d1ef412`), one per sub-milestone, each
+  independently verified before committing
+- 298/298 tests pass, strict typecheck clean
+- Detection-level benchmark unchanged from Phase 2: precision 0.667 /
+  recall 1.0 / F1 0.8
+- Final-report-level (critic only): precision 0.750 / recall 1.0 / F1
+  0.857
+- `grouping.json` (grouping only, canonical findings): precision 0.857 /
+  recall 1.0 / F1 0.923
+- Phase 3 experiment harness, critic + grouping combined
+  (`critic_on_grouping_on`): precision **1.000** / recall 1.0 / F1
+  **1.000** — a clean, reproducible result across all four descriptive
+  conditions from a single browser capture, replayed with confirmed
+  integrity
+- Challenge corpus: 20/20 cases valid (12 distinct-defect, 8 non-defect,
+  7 executable-fixture, 13 offline-evidence-record)
+- Real bug found and fixed by actually running the grouping pipeline
+  against the fixture (not just unit tests): `oracles/signature.ts`
+  needed to deduplicate repeated identical failure tuples, or H10's own
+  known duplicate-manifestation artifacts didn't actually group
+- Two sub-milestones honestly left partial/unexercised rather than
+  overclaimed: A3's `ReviewService` class extraction was skipped once the
+  underlying duplication it would have fixed turned out not to exist
+  (the shared `buildCriticInput`/`decideDisposition` functions already
+  served both call paths); C4's blind-human-review machinery is fully
+  built and verified with synthetic data, but no live human rater was
+  available in this session
 
 ## Phase 1 — all 10 milestones complete
 

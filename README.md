@@ -1030,28 +1030,45 @@ model calls anywhere. 172/172 passing at last verification.
   or in normal `npm test` usage). Left unpatched to avoid an unrelated
   breaking upgrade to Vitest 4.
 
-## TODO: Phase 3 (recommend-only — not started)
+## TODO: Phase 4 (recommend-only — not started)
 
-- Live cross-provider Condition C (a second, independently-hosted
-  Explorer+Critic pairing) once two live credentials are available
+Phase 3 (reliability + research evidence: L6 evidence-strength ceiling
+fix, successful-attempt evidence capture, structured claim checks,
+cross-finding grouping, the offline experiment harness, the
+duplicate-aware benchmark, the 20-case challenge corpus, and blind
+human-review scaffolding) is complete — see the Phase 3 section above and
+`PROGRESS.md`. What's still open:
+
+- **A 30–50 defect real-application study** (the spec's own explicitly
+  deferred item) — everything in Phase 3 was verified against the local
+  fixture and a 20-case synthetic corpus, not a real production app.
+- **Live cross-provider Condition C** (a second, independently-hosted
+  Explorer+Critic pairing) and a live run of any Phase-3 condition beyond
+  the deterministic mock — `src/experiments/conditions.ts` is wired
+  through the real `selectCriticProvider()` path and ready for this, but
+  no live comparison has actually been exercised.
+- **A live human rater** — `src/human-review/` is fully built and
+  verified end-to-end with synthetic data; `computeAgreement()` has never
+  been exercised with a real independent rater's labels.
+- **Real provider-request/token usage and wall-clock cost accounting** —
+  `DuplicateAwareBenchmarkResult.actualRequests`/`wallClockMs` are
+  honestly `null`; no per-call usage counter exists yet.
 - OpenAI/Ollama `ExplorerProvider`/`CriticProvider` implementations
-  (interface-ready, not built)
-- Cross-finding duplicate-manifestation suppression (the critic currently
-  judges one finding at a time, with no awareness that two findings may
-  describe the same underlying defect via different controls)
+  (interface-ready, not built).
 - Domain-specific money/business invariants beyond generic
-  `ui-api-consistency` rules
-- Persistent storage (PostgreSQL/pgvector), job queue (Redis/BullMQ)
-- Dashboard (React/Next.js), Chrome extension
-- CI/CD integration (GitHub Actions), Jira integration, GitHub PR bot
-- Multi-user authentication
-- Full accessibility engine (axe), visual regression testing
-- Regression-test generation from validated, reported findings
-- Cross-browser grid (Firefox/WebKit)
-- Semantic/embedding-based finding deduplication
-- Origin-allowlist enforcement inside iframes; multi-tab exploration
+  `ui-api-consistency` rules.
+- Persistent storage (PostgreSQL/pgvector), job queue (Redis/BullMQ).
+- Dashboard (React/Next.js), Chrome extension.
+- CI/CD integration (GitHub Actions), Jira integration, GitHub PR bot.
+- Multi-user authentication.
+- Full accessibility engine (axe), visual regression testing.
+- Regression-test generation from validated, reported findings.
+- Cross-browser grid (Firefox/WebKit).
+- Semantic/embedding-based finding deduplication (Phase 3's grouping is
+  deliberately structural/fingerprint-based, never embeddings).
+- Origin-allowlist enforcement inside iframes; multi-tab exploration.
 - Dedicated debug-artifacts dump (`observations/`, `fsm-transitions.json`,
-  `heuristic-decisions.json`)
+  `heuristic-decisions.json`).
 - A general NLP fact-checker for critic evidence contradictions (today's
   `CRITIC_EVIDENCE_CONTRADICTION` check only verifies a bounded set of
-  structured, code-checkable claims)
+  structured, code-checkable claims).

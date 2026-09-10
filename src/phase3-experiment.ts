@@ -9,10 +9,16 @@ import { replayExperiment } from "./experiments/replay.js";
 import { ensureDir } from "./evidence.js";
 import { createLogger } from "./logger.js";
 import { isMainModule } from "./main-module-guard.js";
+import { redactSecrets } from "./redact.js";
 import { generateRunId } from "./report.js";
 import { loadGroundTruth } from "./reporting/benchmark.js";
 import { loadRequirements } from "./requirements.js";
 import { runPipeline } from "./run-pipeline.js";
+
+/** Same defense-in-depth idiom as evidence.ts#writeJson -- applied even though sanitizedConfig/findings are already credential-free by construction. */
+function writeJsonRedacted(path: string, data: unknown): void {
+  writeFileSync(path, redactSecrets(JSON.stringify(data, null, 2)), "utf-8");
+}
 
 function parseArgs(argv: string[]): { subcommand: "capture" | "replay"; configPath: string; manifestPath?: string } {
   const subcommand: "capture" | "replay" = argv[0] === "replay" ? "replay" : "capture";
@@ -149,7 +155,7 @@ async function main(): Promise<void> {
   const experimentDir = resolve("runs", "experiments", experimentId);
   ensureDir(experimentDir);
   const manifestPathOut = join(experimentDir, "manifest.json");
-  writeFileSync(manifestPathOut, JSON.stringify(manifest, null, 2), "utf-8");
+  writeJsonRedacted(manifestPathOut, manifest);
   console.log(`\n✓ Manifest captured: runs/experiments/${experimentId}/manifest.json`);
 
   console.log("\nRunning all four conditions...\n");
@@ -160,7 +166,7 @@ async function main(): Promise<void> {
     printConditionResult(conditionResult);
   }
 
-  writeFileSync(join(experimentDir, "conditions.json"), JSON.stringify(results, null, 2), "utf-8");
+  writeJsonRedacted(join(experimentDir, "conditions.json"), results);
 
   console.log(`\nArtifacts:\nruns/experiments/${experimentId}`);
   console.log(`\nReplay with:\nnode dist/src/phase3-experiment.js replay --manifest ${manifestPathOut}`);
