@@ -105,10 +105,25 @@ export function formatCriticUserMessage(input: CriticInput): string {
   }
 
   if (input.evidence.console.length > 0) {
-    lines.push("", "Console messages:", ...input.evidence.console.map((c) => `  [${c.type}] ${c.text}`));
+    lines.push(
+      "",
+      formatUntrusted(
+        "Console messages",
+        input.evidence.console.map((c) => `[${c.type}] ${c.text}`).join("\n")
+      )
+    );
   }
+  const { consoleScope } = input.evidence;
+  lines.push(
+    "",
+    `Console evidence scope: ${consoleScope.included} of ${consoleScope.totalCaptured} captured messages shown (${consoleScope.omitted} omitted, most recent kept) -- an empty list above means genuinely zero captured, not "not shown".`
+  );
+
   if (input.evidence.pageErrors.length > 0) {
-    lines.push("", "Page errors:", ...input.evidence.pageErrors.map((e) => `  ${e.message}`));
+    lines.push(
+      "",
+      formatUntrusted("Page errors", input.evidence.pageErrors.map((e) => e.message).join("\n"))
+    );
   }
   if (input.evidence.network.length > 0) {
     lines.push(
@@ -117,9 +132,22 @@ export function formatCriticUserMessage(input: CriticInput): string {
       ...input.evidence.network.map((n) => `  ${n.method} ${n.pathname} -> ${n.status ?? "(no response)"}`)
     );
   }
+  const { networkScope } = input.evidence;
+  lines.push(
+    "",
+    `Network evidence scope: ${networkScope.matchedForTriggeringEndpoint} of ${networkScope.totalPageRequests} page-wide requests matched the triggering endpoint; ${networkScope.included} of ${networkScope.totalPageRequests} total requests shown above (${networkScope.omitted} omitted, most recent kept). Never compare the triggering-endpoint count against total page traffic as if they were the same denominator.`
+  );
+
   if (input.evidence.uiTextExcerpt) {
     lines.push("", formatUntrusted("Visible page text at time of evidence capture", input.evidence.uiTextExcerpt));
   }
+
+  const { attemptScope } = input.evidence;
+  lines.push(
+    "",
+    `Evidence attempt: #${attemptScope.representativeAttempt} of ${attemptScope.totalAttempts} (${attemptScope.completeness}). "diagnostic-no-success" means no replay attempt actually reproduced the finding -- this evidence is a snapshot, not proof of reproduction.`
+  );
+
   lines.push(
     "",
     `Screenshots available: ${input.evidence.screenshotPaths.length}`,

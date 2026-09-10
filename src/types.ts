@@ -243,6 +243,17 @@ export type SanitizedNetworkEvidence = { method: string; pathname: string; statu
 export type SanitizedPageErrorEvidence = { message: string };
 
 /**
+ * "representative-success": the finding's representative evidence comes
+ * from a Validator attempt that actually reproduced it (matched its
+ * failure signature). "diagnostic-no-success": no attempt reproduced it,
+ * and the evidence shown is the last attempt's snapshot, kept purely as a
+ * diagnostic, not proof of reproduction. Defined here (not in
+ * validator.ts) so both validator.ts and types.ts's own CriticInput can
+ * reference it without a circular import.
+ */
+export type EvidenceCompleteness = "representative-success" | "diagnostic-no-success";
+
+/**
  * What the Critic sees. Deliberately excludes API keys/passwords/cookies/
  * Authorization headers/raw trace bytes/storage state/ground truth/hidden
  * model reasoning/the benchmark answer — only the minimum evidence needed
@@ -256,7 +267,11 @@ export type CriticInput = {
   oracle: OracleResult;
   evidence: {
     console: SanitizedConsoleEvidence[];
+    /** Discloses how much console evidence was actually captured vs. shown -- missing evidence must never look like an observed-empty list. */
+    consoleScope: { totalCaptured: number; included: number; omitted: number };
     network: SanitizedNetworkEvidence[];
+    /** matchedForTriggeringEndpoint is a count among totalPageRequests, never a substitute denominator for it. */
+    networkScope: { totalPageRequests: number; matchedForTriggeringEndpoint: number; included: number; omitted: number };
     pageErrors: SanitizedPageErrorEvidence[];
     screenshotPaths: string[];
     traceAvailable: boolean;
@@ -269,6 +284,8 @@ export type CriticInput = {
      * truncated (see src/critic/critic-runner.ts), never raw HTML.
      */
     uiTextExcerpt?: string;
+    /** Which Validator attempt this evidence bundle actually came from, and whether it represents a genuine reproduction or only a diagnostic snapshot. */
+    attemptScope: { representativeAttempt: number; totalAttempts: number; completeness: EvidenceCompleteness };
   };
   environment: {
     targetEnvironment: string;

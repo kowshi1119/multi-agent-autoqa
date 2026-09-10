@@ -10,10 +10,13 @@ function input(networkCount: number): CriticInput {
     oracle: { oracleId: "duplicate-request", suspicious: true, expected: "e", actual: "a" },
     evidence: {
       console: [],
+      consoleScope: { totalCaptured: 0, included: 0, omitted: 0 },
       network: Array.from({ length: networkCount }, () => ({ method: "POST", pathname: "/api/submit", status: 200 })),
+      networkScope: { totalPageRequests: networkCount, matchedForTriggeringEndpoint: networkCount, included: networkCount, omitted: 0 },
       pageErrors: [],
       screenshotPaths: [],
       traceAvailable: false,
+      attemptScope: { representativeAttempt: 1, totalAttempts: 3, completeness: "representative-success" },
     },
     environment: { targetEnvironment: "local-fixture", browser: "chromium", pathname: "/form" },
   };

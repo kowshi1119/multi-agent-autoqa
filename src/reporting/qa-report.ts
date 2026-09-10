@@ -7,7 +7,7 @@ import type { BenchmarkResult } from "./benchmark.js";
 import type { Phase2Metrics } from "./phase2-metrics.js";
 
 export const TRACE_POLICY_STATEMENT =
-  "Validator trace capture: first replay attempt only. Screenshot, console, and network evidence may be captured according to the existing evidence policy.";
+  "Validator trace capture (Phase 3 policy, reverses Phase 0/2's attempt-1-only rule): evidence is captured from the first attempt that actually reproduces the original finding's failure signature, not always attempt 1. When no attempt reproduces, evidence is captured from the last attempt and labeled diagnostic-no-success. Exactly one trace.zip and one screenshot.png are still persisted per finding regardless of how many attempts ran.";
 
 export type QaReport = {
   runId: string;

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BrowserLaunchError } from "./browser/browser.js";
 import { ConfigError, loadConfig, resolveHeadless, type AppConfig } from "./config.js";
-import { buildCriticInput, type CriticEvidenceBundle } from "./critic/critic-runner.js";
+import { buildCriticInput, type CriticAttemptScope, type CriticEvidenceBundle } from "./critic/critic-runner.js";
 import { decideDisposition } from "./critic/disposition.js";
 import { MockCriticProvider } from "./critic/mock-critic-provider.js";
 import { ensureDir } from "./evidence.js";
@@ -13,7 +13,7 @@ import { loadGroundTruth, matchFindings, type BenchmarkResult } from "./reportin
 import { computePhase2Metrics, type Phase2Metrics } from "./reporting/phase2-metrics.js";
 import { isMainModule } from "./main-module-guard.js";
 import { runPipeline } from "./run-pipeline.js";
-import type { ConsoleRecord, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "./types.js";
+import type { ConsoleRecord, EvidenceCompleteness, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "./types.js";
 
 function parseArgs(argv: string[]): { configPath: string } {
   const flagIndex = argv.indexOf("--config");
@@ -51,6 +51,19 @@ export function readEvidenceBundle(evidenceDir: string): CriticEvidenceBundle {
   };
 }
 
+/** Rebuilds the same CriticAttemptScope the live run computed, from reproduction.json's persisted representativeAttempt/evidenceCompleteness -- so Condition B's review agrees exactly with what the live path would have produced (see tests/review/... normal-vs-replay parity). */
+function readAttemptScope(evidenceDir: string): CriticAttemptScope {
+  const reproduction = readJsonIfPresent<{ attempts: number; representativeAttempt?: number; evidenceCompleteness?: EvidenceCompleteness }>(
+    join(evidenceDir, "reproduction.json"),
+    { attempts: 0 }
+  );
+  return {
+    representativeAttempt: reproduction.representativeAttempt ?? 0,
+    totalAttempts: reproduction.attempts,
+    completeness: reproduction.evidenceCompleteness ?? "diagnostic-no-success",
+  };
+}
+
 type ConditionResult = {
   findings: Finding[];
   benchmark: BenchmarkResult;
@@ -81,10 +94,14 @@ export async function runConditionB(
 
     const evidenceDir = join(conditionARunDir, "findings", finding.id);
     const evidence = readEvidenceBundle(evidenceDir);
-    const input = buildCriticInput(finding, evidence, requirements, {
-      targetEnvironment: config.target.environment,
-      browser: config.browser.engine,
-    });
+    const attemptScope = readAttemptScope(evidenceDir);
+    const input = buildCriticInput(
+      finding,
+      evidence,
+      requirements,
+      { targetEnvironment: config.target.environment, browser: config.browser.engine },
+      attemptScope
+    );
 
     const decision = await critic.critique(input);
     const { reportDisposition, criticEvidenceConflict } = decideDisposition({

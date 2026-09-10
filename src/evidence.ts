@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppConfig } from "./config.js";
 import { redactSecrets } from "./redact.js";
-import type { CriticArtifact, ConsoleRecord, NetworkRecord, OracleResult, PageErrorRecord } from "./types.js";
+import type { CriticArtifact, ConsoleRecord, EvidenceCompleteness, NetworkRecord, OracleResult, PageErrorRecord } from "./types.js";
 import type { ValidationAttemptResult } from "./validator.js";
 
 export function ensureDir(path: string): void {
@@ -31,6 +31,9 @@ export function writeFindingEvidence(
     oracle: OracleResult;
     attempts: ValidationAttemptResult[];
     reproduction: { attempts: number; successes: number };
+    /** Which attempt representativeEvidence below actually came from, and whether it's a genuine reproduction or a diagnostic-only snapshot -- persisted so Condition B's post-hoc reconstruction (src/phase2-experiment.ts) can rebuild the exact same CriticInput.evidence.attemptScope the live run saw. */
+    representativeAttempt: number;
+    evidenceCompleteness: EvidenceCompleteness;
     consoleMessages: ConsoleRecord[];
     networkRequests: NetworkRecord[];
     pageErrors: PageErrorRecord[];
@@ -51,6 +54,8 @@ export function writeFindingEvidence(
       attempts: input.reproduction.attempts,
       successes: input.reproduction.successes,
       results: input.attempts,
+      representativeAttempt: input.representativeAttempt,
+      evidenceCompleteness: input.evidenceCompleteness,
     })
   );
   filenames.push(writeJson(evidenceDir, "visible-text.json", { excerpt: input.visibleTextExcerpt }));

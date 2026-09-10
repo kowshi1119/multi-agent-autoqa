@@ -40,6 +40,34 @@ output produced; summarized progress below)
 - [ ] A2 — Evidence aligned with successful reproduction (validator
       capture policy + failure-signature matching + evidence-scope
       disclosure + README Trace-Capture Policy rewrite)
+- [x] A2 — Evidence aligned with successful reproduction. New
+      `src/oracles/signature.ts#sameFailure()` gates `reproduced` on
+      matching the ORIGINAL finding's structural failure signature, not
+      just the oracle firing again (a different status/endpoint/error no
+      longer counts as reproducing). `Validator.validate()` restructured
+      to capture every attempt to a temp file until a reproducing attempt
+      locks in (or the last attempt, labeled "diagnostic-no-success", if
+      none ever does) -- exactly one `trace.zip`/`screenshot.png` still
+      persisted per finding, verified via real-browser tests asserting
+      exact tracing-invocation counts (1 for immediate success, 2 for
+      fail-then-pass, 3 for never-reproduces). New
+      `src/critic/evidence-scope.ts` replaces the bare `.slice(-20)`
+      console/network truncation with force-include-the-triggering-facts
+      + disclosed totalCaptured/omitted/matchedForTriggeringEndpoint
+      counts (an endpoint-specific count is never silently compared
+      against total page traffic). `schema.ts`'s prompt now wraps console
+      messages and page errors in `<untrusted_application_data>` (a real
+      gap found during exploration -- they weren't wrapped before, unlike
+      `uiTextExcerpt`) and discloses the new scope fields. README's
+      Trace-Capture Policy section rewritten to match (previously claimed
+      "not a limitation... unchanged since Phase 0," which is now false).
+      Full end-to-end acceptance run (`qa.config.mock.yaml`) confirmed
+      identical detection/critic results to pre-A2, with exactly one
+      trace.zip/screenshot.png per finding directory and no leftover temp
+      files. 237/237 tests pass, typecheck clean.
+- [x] A3a done above; A3 remainder (shared `ReviewService` extraction +
+      structured claim checks, replacing `contradiction-check.ts`'s narrow
+      regex) still pending below.
 - [ ] A3 — Shared review path (`phase2-experiment.ts` import-side-effect
       fix + `ReviewService` extraction + structured claim checks)
 - [ ] B — Conservative cross-finding grouping

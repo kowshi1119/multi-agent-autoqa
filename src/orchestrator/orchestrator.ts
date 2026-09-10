@@ -360,6 +360,8 @@ export class Orchestrator {
       oracle: candidateFinding.oracle,
       attempts: validation.attempts,
       reproduction: validation.finding.reproduction,
+      representativeAttempt: validation.representativeAttempt,
+      evidenceCompleteness: validation.evidenceCompleteness,
       consoleMessages: validation.representativeEvidence.consoleMessages,
       networkRequests: validation.representativeEvidence.networkRequests,
       pageErrors: validation.representativeEvidence.pageErrors,

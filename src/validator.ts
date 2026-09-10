@@ -1,3 +1,4 @@
+import { existsSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { executeAction } from "./actions.js";
 import type { BrowserManager } from "./browser/browser.js";
@@ -6,8 +7,10 @@ import type { BudgetTracker } from "./budget.js";
 import type { AppConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import type { Oracle } from "./oracles.js";
+import { sameFailure } from "./oracles/signature.js";
 import type {
   ConsoleRecord,
+  EvidenceCompleteness,
   Finding,
   FindingStatus,
   NetworkRecord,
@@ -17,7 +20,16 @@ import type {
 
 export type ValidationAttemptResult = {
   attempt: number;
+  /**
+   * True only when this attempt's oracle result is suspicious AND matches
+   * the ORIGINAL triggering finding's failure signature (see
+   * oracles/signature.ts#sameFailure) -- a different failure from the
+   * same oracle does not count as reproducing THIS finding. This is what
+   * decideStatus() counts toward `successes`.
+   */
   reproduced: boolean;
+  /** True whenever the oracle fired at all, regardless of signature match -- diagnostic only, never fed into decideStatus(). */
+  oracleSuspicious: boolean;
   oracleResult: {
     oracleId: string;
     suspicious: boolean;
@@ -29,6 +41,9 @@ export type ValidationAttemptResult = {
 export type ValidationOutcome = {
   finding: Finding;
   attempts: ValidationAttemptResult[];
+  /** 1-based attempt number representativeEvidence was captured from; 0 if validation never completed a single attempt (budget exhausted immediately). */
+  representativeAttempt: number;
+  evidenceCompleteness: EvidenceCompleteness;
   /** Native-capture evidence Playwright can only write straight to disk. */
   representativeEvidence: {
     screenshotPath?: string;
@@ -36,7 +51,7 @@ export type ValidationOutcome = {
     consoleMessages: ConsoleRecord[];
     networkRequests: NetworkRecord[];
     pageErrors: PageErrorRecord[];
-    /** First 500 chars of visible page text at attempt-1's "after" observation -- what the Critic uses to judge documented UI text (§76's "uiTextExcerpt"). */
+    /** First 500 chars of visible page text at the representative attempt's "after" observation -- what the Critic uses to judge documented UI text. */
     visibleTextExcerpt: string;
   };
 };
@@ -65,10 +80,48 @@ export type ValidatorDeps = {
   budget?: BudgetTracker;
 };
 
+function deleteIfExists(path?: string): void {
+  if (!path || !existsSync(path)) return;
+  try {
+    unlinkSync(path);
+  } catch {
+    /* best-effort cleanup of a superseded temp capture */
+  }
+}
+
+function promoteToCanonical(
+  evidence: ValidationOutcome["representativeEvidence"],
+  evidenceDir: string
+): ValidationOutcome["representativeEvidence"] {
+  const result = { ...evidence };
+  if (result.screenshotPath) {
+    const canonical = join(evidenceDir, "screenshot.png");
+    renameSync(result.screenshotPath, canonical);
+    result.screenshotPath = canonical;
+  }
+  if (result.tracePath) {
+    const canonical = join(evidenceDir, "trace.zip");
+    renameSync(result.tracePath, canonical);
+    result.tracePath = canonical;
+  }
+  return result;
+}
+
 /**
  * Reproduces a suspected finding in fresh, isolated browser contexts. Never
  * asks the model whether the bug reproduced — success is decided purely by
  * re-running the same deterministic oracle against a clean replay.
+ *
+ * Phase 3 change: evidence is captured from the FIRST attempt that
+ * actually reproduces the original finding (matches its failure
+ * signature), not always attempt 1. Every attempt is captured to a
+ * temporary per-attempt file until a reproducing attempt is found and
+ * "locks in" -- capture stops for every attempt after that, and the
+ * locked-in candidate's temp files are renamed to the canonical
+ * screenshot.png/trace.zip at the end. Exactly one of each is ever
+ * persisted per finding regardless of how many attempts ran. If no
+ * attempt reproduces, the LAST attempt's capture is kept, labeled
+ * "diagnostic-no-success".
  */
 export class Validator {
   constructor(private readonly deps: ValidatorDeps) {}
@@ -83,12 +136,18 @@ export class Validator {
     const totalAttempts = config.validation.attempts;
     const attempts: ValidationAttemptResult[] = [];
     const VISIBLE_TEXT_EXCERPT_CHARS = 500;
+
+    let representativeAttempt = 0;
+    let evidenceCompleteness: EvidenceCompleteness = "diagnostic-no-success";
     let representativeEvidence: ValidationOutcome["representativeEvidence"] = {
       consoleMessages: [],
       networkRequests: [],
       pageErrors: [],
       visibleTextExcerpt: "",
     };
+    // Once a reproducing attempt is captured, every later attempt skips
+    // capture entirely -- this is the whole cost-bounding mechanism.
+    let locked = false;
 
     logger.info(
       { findingId: finding.id, attempts: totalAttempts },
@@ -104,11 +163,11 @@ export class Validator {
         break;
       }
 
-      const captureEvidence = attempt === 1;
+      const captureThisAttempt = !locked;
       const session = await browserManager.newPageSession();
 
       try {
-        if (captureEvidence) {
+        if (captureThisAttempt) {
           await browserManager.startTracing(session.context);
         }
 
@@ -126,19 +185,21 @@ export class Validator {
             timestamp: new Date().toISOString(),
           };
 
-        const screenshotPath =
-          captureEvidence && config.evidence.screenshots
-            ? join(evidenceDir, "screenshot.png")
+        const tempScreenshotPath =
+          captureThisAttempt && config.evidence.screenshots
+            ? join(evidenceDir, `screenshot.tmp-${attempt}.png`)
             : undefined;
 
         const after = await observe(session.page, session.records, {
-          ...(screenshotPath ? { screenshotPath } : {}),
+          ...(tempScreenshotPath ? { screenshotPath: tempScreenshotPath } : {}),
         });
 
         const oracleResult = await oracle.evaluate(before, lastStep, after);
+        const reproduced = oracleResult.suspicious && sameFailure(oracleResult, finding.oracle);
         attempts.push({
           attempt,
-          reproduced: oracleResult.suspicious,
+          reproduced,
+          oracleSuspicious: oracleResult.suspicious,
           oracleResult: {
             oracleId: oracleResult.oracleId,
             suspicious: oracleResult.suspicious,
@@ -148,35 +209,48 @@ export class Validator {
         });
 
         logger.info(
-          { findingId: finding.id, attempt, of: totalAttempts, reproduced: oracleResult.suspicious },
-          `Attempt ${attempt}/${totalAttempts}: ${oracleResult.suspicious ? "reproduced" : "not reproduced"}`
+          { findingId: finding.id, attempt, of: totalAttempts, reproduced, oracleSuspicious: oracleResult.suspicious },
+          `Attempt ${attempt}/${totalAttempts}: ${reproduced ? "reproduced" : "not reproduced"}`
         );
 
-        if (captureEvidence) {
-          let tracePath: string | undefined;
+        if (captureThisAttempt) {
+          let tempTracePath: string | undefined;
           if (config.evidence.trace) {
-            tracePath = join(evidenceDir, "trace.zip");
-            await browserManager.stopTracing(session.context, tracePath);
+            tempTracePath = join(evidenceDir, `trace.tmp-${attempt}.zip`);
+            await browserManager.stopTracing(session.context, tempTracePath);
           }
+
+          // !locked guaranteed captureThisAttempt===true, so any existing
+          // candidate here is necessarily still "diagnostic-no-success" --
+          // always safe to supersede it with this attempt's evidence.
+          deleteIfExists(representativeEvidence.screenshotPath);
+          deleteIfExists(representativeEvidence.tracePath);
+
+          representativeAttempt = attempt;
+          evidenceCompleteness = reproduced ? "representative-success" : "diagnostic-no-success";
           representativeEvidence = {
-            ...(screenshotPath ? { screenshotPath } : {}),
-            ...(tracePath ? { tracePath } : {}),
+            ...(tempScreenshotPath ? { screenshotPath: tempScreenshotPath } : {}),
+            ...(tempTracePath ? { tracePath: tempTracePath } : {}),
             consoleMessages: after.consoleMessages,
             networkRequests: after.networkRequests,
             pageErrors: after.pageErrors,
             visibleTextExcerpt: after.visibleText.slice(0, VISIBLE_TEXT_EXCERPT_CHARS),
           };
+
+          if (reproduced) locked = true;
         }
       } finally {
         await browserManager.closeSession(session);
       }
     }
 
+    representativeEvidence = promoteToCanonical(representativeEvidence, evidenceDir);
+
     const successes = attempts.filter((result) => result.reproduced).length;
     const status = decideStatus(successes, config.validation.minimumSuccesses);
 
     logger.info(
-      { findingId: finding.id, successes, of: totalAttempts, status },
+      { findingId: finding.id, successes, of: totalAttempts, status, representativeAttempt, evidenceCompleteness },
       `Finding ${status.toUpperCase()}.`
     );
 
@@ -186,6 +260,6 @@ export class Validator {
       reproduction: { attempts: attempts.length, successes },
     };
 
-    return { finding: validatedFinding, attempts, representativeEvidence };
+    return { finding: validatedFinding, attempts, representativeAttempt, evidenceCompleteness, representativeEvidence };
   }
 }

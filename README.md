@@ -379,12 +379,47 @@ validation.
 
 ## Trace-Capture Policy
 
-**Validator trace capture: first replay attempt only.** Screenshot,
-console, and network evidence may be captured according to the existing
-evidence policy. This is an intentional, unchanged decision from Phase 0
-(cheaper than capturing all three attempts, preserves one `trace.zip` per
-finding, still representative) — not a limitation. It's stated verbatim
-in every `report.md`.
+**Phase 3 change — reverses the Phase 0/2 "attempt 1 only" rule.**
+Evidence (trace/screenshot/console/network/page errors/visible text) is
+now captured from the **first attempt that actually reproduces** the
+original finding's failure signature (see "Failure Signatures" below),
+not always attempt 1. Every attempt is captured to a temporary file until
+a reproducing attempt is found — capture stops for every attempt after
+that (the cost-bounding mechanism: a reproducing attempt "locks in" and
+no further attempts are captured). If no attempt reproduces, the **last**
+attempt's capture is kept, explicitly labeled `"diagnostic-no-success"`
+(a snapshot, not proof of reproduction) rather than silently presented as
+if attempt 1 had succeeded.
+
+Exactly one `trace.zip` and one `screenshot.png` are still persisted per
+finding regardless of how many attempts ran — this was the actual
+"don't inflate cost" constraint the old policy was protecting, not the
+choice of attempt 1 specifically. `finding.json`'s validation record and
+the Critic's evidence (`evidence.attemptScope` in `CriticInput`) both
+disclose which attempt number the kept evidence came from and its
+completeness, so nothing downstream can mistake a diagnostic snapshot for
+a genuine reproduction. `TRACE_POLICY_STATEMENT` states this verbatim in
+every `report.md`.
+
+Leaving the old "not a limitation, unchanged since Phase 0" framing in
+place after changing the code underneath it would itself be a defect —
+this section is the rewrite that keeps documentation and behavior in
+sync.
+
+### Failure Signatures
+
+`src/oracles/signature.ts#sameFailure()` decides whether a replay
+attempt reproduces the *original* finding, not merely whether the same
+oracle fired again: a structural fingerprint (oracleId plus a normalized
+projection of `OracleResult.details` — endpoint+status tuples for
+network oracles, normalized error text for console/page-error oracles,
+excluding volatile fields like `duplicate-request`'s exact retry count)
+is compared, never full narrative-string equality (which would treat
+incidental prose differences as different failures) and never raw
+`details` equality (which would treat a volatile field changing as a
+different failure). A different failure from the same oracle — e.g. a
+503 where the original finding was a 500 — correctly does **not** count
+as reproducing the finding, even though the oracle itself still fires.
 
 ## Evidence
 

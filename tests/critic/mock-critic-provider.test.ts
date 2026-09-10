@@ -8,7 +8,16 @@ function input(overrides: Partial<CriticInput> = {}): CriticInput {
     evidenceLevel: "L3",
     reproduction: { attempts: 3, successes: 3 },
     oracle: { oracleId: "http-failure", suspicious: true, expected: "e", actual: "a" },
-    evidence: { console: [], network: [], pageErrors: [], screenshotPaths: [], traceAvailable: false },
+    evidence: {
+      console: [],
+      consoleScope: { totalCaptured: 0, included: 0, omitted: 0 },
+      network: [],
+      networkScope: { totalPageRequests: 0, matchedForTriggeringEndpoint: 0, included: 0, omitted: 0 },
+      pageErrors: [],
+      screenshotPaths: [],
+      traceAvailable: false,
+      attemptScope: { representativeAttempt: 1, totalAttempts: 3, completeness: "representative-success" },
+    },
     environment: { targetEnvironment: "local-fixture", browser: "chromium", pathname: "/payment" },
     ...overrides,
   };
@@ -38,11 +47,14 @@ describe("MockCriticProvider", () => {
         ],
         evidence: {
           console: [],
+          consoleScope: { totalCaptured: 0, included: 0, omitted: 0 },
           network: [{ method: "POST", pathname: "/api/simulated-outage", status: 500 }],
+          networkScope: { totalPageRequests: 1, matchedForTriggeringEndpoint: 1, included: 1, omitted: 0 },
           pageErrors: [],
           screenshotPaths: [],
           traceAvailable: false,
           uiTextExcerpt: "Service temporarily unavailable. Please try again later.",
+          attemptScope: { representativeAttempt: 1, totalAttempts: 3, completeness: "representative-success" },
         },
       })
     );

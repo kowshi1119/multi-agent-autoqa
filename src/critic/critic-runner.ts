@@ -1,10 +1,11 @@
 import type { BudgetTracker } from "../budget.js";
 import type { AppConfig } from "../config.js";
+import { selectConsoleEvidence, selectNetworkEvidence } from "./evidence-scope.js";
 import { writeCriticArtifact } from "../evidence.js";
 import type { Logger } from "../logger.js";
 import { normalizePathname } from "../mapping/state-signature.js";
 import { CriticUnavailableError, type CriticProvider } from "../models/critic-provider.js";
-import type { ConsoleRecord, CriticInput, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "../types.js";
+import type { ConsoleRecord, CriticInput, EvidenceCompleteness, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "../types.js";
 import type { ValidationOutcome } from "../validator.js";
 import { scopeRequirements } from "../requirements.js";
 import { detectEvidenceContradiction } from "./contradiction-check.js";
@@ -23,6 +24,8 @@ export type CriticEvidenceBundle = {
   tracePath?: string;
 };
 
+export type CriticAttemptScope = { representativeAttempt: number; totalAttempts: number; completeness: EvidenceCompleteness };
+
 /**
  * Pure mapping from a finding + its evidence to the exact shape a
  * CriticProvider receives -- shared by the live per-run Critic (below) and
@@ -33,9 +36,12 @@ export function buildCriticInput(
   finding: Finding,
   evidence: CriticEvidenceBundle,
   requirements: RequirementRule[],
-  environment: { targetEnvironment: string; browser: string }
+  environment: { targetEnvironment: string; browser: string },
+  attemptScope: CriticAttemptScope
 ): CriticInput {
   const scoped = requirements.length > 0 ? scopeRequirements(requirements, finding.pathname) : [];
+  const console = selectConsoleEvidence(evidence.consoleMessages, finding.oracle, CONSOLE_EVIDENCE_LIMIT);
+  const network = selectNetworkEvidence(evidence.networkRequests, finding.oracle, NETWORK_EVIDENCE_LIMIT);
 
   return {
     finding: {
@@ -51,14 +57,24 @@ export function buildCriticInput(
     reproduction: finding.reproduction,
     oracle: finding.oracle,
     evidence: {
-      console: evidence.consoleMessages.slice(-CONSOLE_EVIDENCE_LIMIT).map((m) => ({ type: m.type, text: m.text })),
-      network: evidence.networkRequests
-        .slice(-NETWORK_EVIDENCE_LIMIT)
-        .map((n) => ({ method: n.method, pathname: normalizePathname(n.url), ...(n.status !== undefined ? { status: n.status } : {}) })),
+      console: console.selected.map((m) => ({ type: m.type, text: m.text })),
+      consoleScope: { totalCaptured: console.totalCaptured, included: console.selected.length, omitted: console.omitted },
+      network: network.selected.map((n) => ({
+        method: n.method,
+        pathname: normalizePathname(n.url),
+        ...(n.status !== undefined ? { status: n.status } : {}),
+      })),
+      networkScope: {
+        totalPageRequests: network.totalPageRequests,
+        matchedForTriggeringEndpoint: network.matchedForTriggeringEndpoint,
+        included: network.selected.length,
+        omitted: network.omitted,
+      },
       pageErrors: evidence.pageErrors.map((e) => ({ message: e.message })),
       screenshotPaths: evidence.screenshotPath ? [evidence.screenshotPath] : [],
       traceAvailable: Boolean(evidence.tracePath),
       ...(evidence.visibleTextExcerpt ? { uiTextExcerpt: evidence.visibleTextExcerpt } : {}),
+      attemptScope,
     },
     environment: {
       targetEnvironment: environment.targetEnvironment,
@@ -117,10 +133,17 @@ export class Critic {
       );
       outcome = { kind: "unavailable", reason: "BUDGET_EXHAUSTED: maxCriticCalls or maxDurationMs" };
     } else {
-      const input = buildCriticInput(finding, validation.representativeEvidence, requirements, {
-        targetEnvironment: config.target.environment,
-        browser: config.browser.engine,
-      });
+      const input = buildCriticInput(
+        finding,
+        validation.representativeEvidence,
+        requirements,
+        { targetEnvironment: config.target.environment, browser: config.browser.engine },
+        {
+          representativeAttempt: validation.representativeAttempt,
+          totalAttempts: validation.attempts.length,
+          completeness: validation.evidenceCompleteness,
+        }
+      );
       budget.recordCriticCall();
       try {
         const decision = await withTimeout(criticProvider.critique(input), config.models.providerTimeoutMs);
