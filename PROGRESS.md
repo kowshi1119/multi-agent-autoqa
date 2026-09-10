@@ -134,7 +134,22 @@ output produced; summarized progress below)
       integrity VALID, byte-identical results, confirmed via a dedicated
       test that replay never touches `BrowserManager`. 266/266 tests
       pass, typecheck clean.
-- [ ] C2 — Benchmark versioning + duplicate-aware matcher
+- [x] C2 — Benchmark versioning + duplicate-aware matcher. New
+      `src/reporting/benchmark-v2.ts`; `benchmark.ts` itself **unchanged**
+      (parity test confirms identical TP/FP/FN id sets on the original
+      fixture). `matchFindingsV2` adds an explicit `evaluatorVersion`:
+      `"v1-oracle-pathname"` (delegates to the unmodified matcher) and
+      `"v2-evidence-based"` (one-to-one assignment via
+      `grouping/fingerprint.ts`'s structural fingerprint, disambiguating
+      two ground-truth entries that share oracleId+pathname; genuine ties
+      surfaced as `ambiguousMatches`, never silently broken). Reports
+      `uniqueReportableGroups`/`duplicateExcess`, `nonDefectReports`,
+      `intendedBehaviorSuppressionCount`, `trueDefectsLost`,
+      `needsHumanCount`, `reproductionCounts` -- never a "false positive
+      rate" field. `actualRequests`/`wallClockMs` honestly `null`+reason
+      (no per-call usage counter exists in the codebase; disclosed in
+      README Known Limitations rather than fabricated as 0).
+      275/275 tests pass, typecheck clean.
 - [ ] C3 — Challenge corpus (≥12 distinct-defect + ≥8 non-defect cases)
 - [ ] C4 — Blind human review export/import
 - [ ] D — Verification and handoff (README/PROGRESS updates, full

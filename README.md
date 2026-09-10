@@ -306,6 +306,28 @@ critic suppression and grouping each independently improve precision
 with zero recall cost, and stack cleanly when combined. Replay of the
 same manifest reproduces byte-identical results.
 
+**Milestone C2 — benchmark versioning + duplicate-aware matcher**
+(`src/reporting/benchmark-v2.ts`): `src/reporting/benchmark.ts` itself is
+**unchanged** — this preserves the original fixture's historical
+semantics exactly, verified by a parity test asserting `matchFindingsV2`
+produces identical true/false-positive/negative id sets to `matchFindings`
+on the same data. `matchFindingsV2` adds an explicitly versioned
+evaluator: `"v1-oracle-pathname"` (delegates straight to the unmodified
+matcher) and `"v2-evidence-based"` (one-to-one assignment using the same
+structural fingerprint `src/grouping/fingerprint.ts` uses — needed once
+two ground-truth entries can share `oracleId+pathname`, which the
+original 6-defect fixture never does but a larger challenge corpus can; a
+genuine tie is surfaced as `ambiguousMatches`, never silently broken by
+array order). Reports `uniqueReportableGroups`/`duplicateExcess`,
+`nonDefectReports`, `intendedBehaviorSuppressionCount`,
+`trueDefectsLost`, `needsHumanCount`, and `reproductionCounts` alongside
+precision/recall/F1 — deliberately never a "false positive rate" field
+(that needs a defined negative-case denominator this benchmark doesn't
+have; `needsHumanCount` stays its own bucket, since abstention is not the
+same as a correct rejection). `actualRequests`/`wallClockMs` are `null`
+with a disclosed reason rather than a fabricated `0` — real provider-call
+accounting isn't implemented in this build (see Known Limitations).
+
 ## Architecture
 
 ```
@@ -887,6 +909,13 @@ model calls anywhere. 172/172 passing at last verification.
 
 ## Known Limitations
 
+- **Actual provider-request/token usage and wall-clock cost accounting is
+  not implemented.** `DuplicateAwareBenchmarkResult.actualRequests`/
+  `wallClockMs` (`src/reporting/benchmark-v2.ts`) are `null` with a
+  disclosed reason rather than a fabricated `0` — no per-call usage
+  counter exists anywhere in the codebase yet (see the A3 scoping note in
+  PROGRESS.md for why the originally-planned `ReviewService` extraction
+  that would have carried this was skipped).
 - **Live model integration was not executed** in this build/verification
   session (no `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/reachable Ollama).
   `AnthropicModelProvider` is implemented and wired through
