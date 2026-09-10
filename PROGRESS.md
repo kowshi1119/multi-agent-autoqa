@@ -65,11 +65,35 @@ output produced; summarized progress below)
       identical detection/critic results to pre-A2, with exactly one
       trace.zip/screenshot.png per finding directory and no leftover temp
       files. 237/237 tests pass, typecheck clean.
-- [x] A3a done above; A3 remainder (shared `ReviewService` extraction +
-      structured claim checks, replacing `contradiction-check.ts`'s narrow
-      regex) still pending below.
-- [ ] A3 — Shared review path (`phase2-experiment.ts` import-side-effect
-      fix + `ReviewService` extraction + structured claim checks)
+- [x] A3 — Shared, auditable review path.
+      - A3a (import-guard fix): done above.
+      - Structured claim checks: new `src/critic/claim-checks.ts`
+        (`checkClaims`/`firstContradiction`) replaces
+        `src/critic/contradiction-check.ts`'s narrow "only N requests"
+        regex entirely (file removed). Checks bounded, code-verifiable
+        claims only -- `evidenceReferences` naming a real evidence file,
+        `requirementConflict` matching an id actually scoped in, and a
+        stated request count checked against
+        `networkScope.matchedForTriggeringEndpoint` (never total page
+        traffic, using A2's scope-disclosure data) -- never a general
+        fact-checker; an uncheckable claim never forces report/suppress.
+      - **Scoping decision, disclosed rather than silently dropped**: the
+        plan called for extracting a standalone `ReviewService` class
+        used by both the live orchestrator path and Phase 3's experiment
+        conditions. On inspection, the actual duplication the plan was
+        worried about didn't really exist: `Critic.review()` (the live
+        path) and `phase2-experiment.ts#runConditionB` (the offline path)
+        already share the same underlying `buildCriticInput()` and
+        `decideDisposition()` pure functions -- there was never a second,
+        independently-hand-rolled implementation of that logic to
+        consolidate. Building a full class wrapper around functions that
+        are already shared would have been a rename, not a fix. Skipped
+        it in favor of spending the time on A2 (the higher-risk item) and
+        the milestones still ahead; C1's experiment conditions will call
+        the same `buildCriticInput`/`decideDisposition` functions
+        directly, exactly as `runConditionB` already does.
+      - 239/239 tests pass, typecheck clean, full acceptance run
+        (`qa.config.mock.yaml`) confirmed identical results.
 - [ ] B — Conservative cross-finding grouping
 - [ ] C1 — Phase 3 experiment harness (descriptive-ID conditions, manifest
       capture/replay)

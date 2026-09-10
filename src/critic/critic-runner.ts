@@ -8,7 +8,7 @@ import { CriticUnavailableError, type CriticProvider } from "../models/critic-pr
 import type { ConsoleRecord, CriticInput, EvidenceCompleteness, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "../types.js";
 import type { ValidationOutcome } from "../validator.js";
 import { scopeRequirements } from "../requirements.js";
-import { detectEvidenceContradiction } from "./contradiction-check.js";
+import { checkClaims, firstContradiction } from "./claim-checks.js";
 import { decideDisposition, type CriticOutcome } from "./disposition.js";
 
 const NETWORK_EVIDENCE_LIMIT = 20;
@@ -147,10 +147,11 @@ export class Critic {
       budget.recordCriticCall();
       try {
         const decision = await withTimeout(criticProvider.critique(input), config.models.providerTimeoutMs);
-        const contradiction = detectEvidenceContradiction(decision, input);
+        const contradiction = firstContradiction(checkClaims(decision, input));
         if (contradiction) {
-          logger.warn({ findingId: finding.id, reason: contradiction }, "CRITIC_EVIDENCE_CONTRADICTION");
-          outcome = { kind: "contradiction", reason: contradiction };
+          const reason = `CRITIC_EVIDENCE_CONTRADICTION: ${contradiction.claim} -- ${contradiction.detail}`;
+          logger.warn({ findingId: finding.id, reason }, "CRITIC_EVIDENCE_CONTRADICTION");
+          outcome = { kind: "contradiction", reason };
         } else {
           outcome = { kind: "decided", decision };
           writeCriticArtifact(evidenceDir, {

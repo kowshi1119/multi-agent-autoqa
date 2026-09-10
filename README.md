@@ -94,11 +94,16 @@ recall.
   to disprove* the finding). Use MockCriticProvider only to prove the
   interface and disposition wiring — it does not establish live-LLM
   critic quality.
-- **`CRITIC_EVIDENCE_CONTRADICTION`** (`src/critic/contradiction-check.ts`)
-  is a best-effort text-pattern check (e.g. a critic claiming "only one
-  request occurred" when the evidence shows more) — not a general
-  fact-checker. A caught contradiction forces `needs_human` regardless of
-  the critic's stated verdict.
+- **`CRITIC_EVIDENCE_CONTRADICTION`** (`src/critic/claim-checks.ts`, Phase
+  3) checks bounded, structured, code-verifiable claims — an
+  `evidenceReferences` entry naming a real evidence file, a
+  `requirementConflict` id actually present in the scoped requirement
+  context, and a stated request count compared against
+  `evidence.networkScope.matchedForTriggeringEndpoint` (never total page
+  traffic) — not a general fact-checker. An unrecognized/uncheckable
+  claim never independently forces report or suppress; only an actually
+  contradicted one does, forcing `needs_human` regardless of the critic's
+  stated verdict.
 - **H11 (safe control activation)** closes Phase 1's one documented
   coverage gap — SEED-002 (`/account`'s standalone "View Profile" button,
   unreachable by any Phase-1 heuristic) — with a *generic* `<button
@@ -710,7 +715,7 @@ npm test
 Vitest over `tests/` — config validation, action schema/origin checks,
 state-signature/mapper/heuristic-tracker/dedup/benchmark exact-key tests,
 all five oracles, the critic contract (schema/mock-provider/disposition/
-contradiction-check), H11, requirements loading/scoping, provider-
+claim-checks), H11, requirements loading/scoping, provider-
 credential resolution, secret redaction, the Phase 2 experiment harness's
 pure helpers, budget tests (six independent caps, injectable clock), FSM
 transition table, and four real-browser safety tests (a real Chromium
@@ -779,9 +784,9 @@ model calls anywhere. 172/172 passing at last verification.
   it cannot see the runtime `"auto"` → provider resolution
   `ANTHROPIC_API_KEY` availability drives in `run-pipeline.ts`. A
   documented, disclosed gap, not a silent one.
-- **`CRITIC_EVIDENCE_CONTRADICTION` is a best-effort text-pattern
-  matcher**, not a general fact-checker — it catches a specific class of
-  claim (a stated request count that doesn't match the evidence), not
+- **`CRITIC_EVIDENCE_CONTRADICTION` checks only bounded, structured
+  claims** (evidence-file references, requirement-conflict ids, a stated
+  request count against the disclosed matched-endpoint denominator), not
   arbitrary creative phrasing a live LLM critic might produce.
 - **`MockCriticProvider` proves the critic architecture, not critic
   quality.** It reasons generically over `CriticInput` alone (never
@@ -839,5 +844,5 @@ model calls anywhere. 172/172 passing at last verification.
 - Dedicated debug-artifacts dump (`observations/`, `fsm-transitions.json`,
   `heuristic-decisions.json`)
 - A general NLP fact-checker for critic evidence contradictions (today's
-  `CRITIC_EVIDENCE_CONTRADICTION` check is a disclosed, best-effort
-  text-pattern matcher only)
+  `CRITIC_EVIDENCE_CONTRADICTION` check only verifies a bounded set of
+  structured, code-checkable claims)
