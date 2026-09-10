@@ -277,6 +277,35 @@ final report assembly. Off by default (`grouping.enabled: false`);
   1.0 / F1 1.0** — a clean measurement of grouping's contribution, never
   mixed into the critic's own detection/final-report numbers above.
 
+**Milestone C1 — offline-first experiment harness** (`src/experiments/`,
+`npm run experiment:phase3 -- capture` / `-- replay --manifest <path>`):
+compares four **descriptive-ID** conditions —
+`critic_off_grouping_off` / `critic_on_grouping_off` /
+`critic_off_grouping_on` / `critic_on_grouping_on` (never "A/B/C", to
+avoid colliding with Phase 2's own Condition A/B/C naming; a
+`LEGACY_PHASE2_LABEL` map cross-references those only inside comparison
+tables, never as a live identifier). `capture` runs the browser once
+(critic forced off, a neutral baseline) and writes an immutable
+`manifest.json` — schema version, commit hash, the full sanitized config,
+requirements file hash, and a sha256 per persisted evidence file.
+`replay --manifest <path>` verifies every hash first, then re-runs all
+four conditions purely from persisted evidence — **no browser, no
+fixture server, ever** (verified both by a dedicated regression test and
+structurally: `runCondition` calls the same offline evidence-
+reconstruction helpers `src/phase2-experiment.ts`'s Condition B already
+used). Critic selection goes through the **real** `selectCriticProvider()`
+path per condition (not a hardcoded `MockCriticProvider`), closing the
+Phase 2 harness's gap where a would-be "Condition C" could never actually
+execute.
+
+Representative captured result on this fixture (all four conditions from
+one browser pass): `critic_off_grouping_off` precision 0.667 → `critic_
+on_grouping_off` 0.750 → `critic_off_grouping_on` 0.857 →
+`critic_on_grouping_on` **1.000** — recall stays 1.000 throughout, showing
+critic suppression and grouping each independently improve precision
+with zero recall cost, and stack cleanly when combined. Replay of the
+same manifest reproduces byte-identical results.
+
 ## Architecture
 
 ```

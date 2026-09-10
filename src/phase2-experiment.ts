@@ -1,11 +1,12 @@
 import "dotenv/config";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BrowserLaunchError } from "./browser/browser.js";
 import { ConfigError, loadConfig, resolveHeadless, type AppConfig } from "./config.js";
-import { buildCriticInput, type CriticAttemptScope, type CriticEvidenceBundle } from "./critic/critic-runner.js";
+import { buildCriticInput } from "./critic/critic-runner.js";
 import { decideDisposition } from "./critic/disposition.js";
 import { MockCriticProvider } from "./critic/mock-critic-provider.js";
+import { readAttemptScope, readEvidenceBundle } from "./experiments/evidence-reconstruction.js";
 import { ensureDir } from "./evidence.js";
 import { createLogger } from "./logger.js";
 import { generateRunId, writeFindingJson } from "./report.js";
@@ -13,7 +14,7 @@ import { loadGroundTruth, matchFindings, type BenchmarkResult } from "./reportin
 import { computePhase2Metrics, type Phase2Metrics } from "./reporting/phase2-metrics.js";
 import { isMainModule } from "./main-module-guard.js";
 import { runPipeline } from "./run-pipeline.js";
-import type { ConsoleRecord, EvidenceCompleteness, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "./types.js";
+import type { Finding, RequirementRule } from "./types.js";
 
 function parseArgs(argv: string[]): { configPath: string } {
   const flagIndex = argv.indexOf("--config");
@@ -21,48 +22,8 @@ function parseArgs(argv: string[]): { configPath: string } {
   return { configPath: resolve(raw ?? "qa.config.yaml") };
 }
 
-function readJsonIfPresent<T>(path: string, fallback: T): T {
-  if (!existsSync(path)) return fallback;
-  return JSON.parse(readFileSync(path, "utf-8")) as T;
-}
-
-/**
- * Rebuilds the CriticEvidenceBundle Condition A's Validator originally
- * captured, purely from the finding's already-written evidence files --
- * console.json / network.json / page-errors.json / visible-text.json
- * (screenshot.png / trace.zip are referenced by path, never re-read).
- * Never touches the browser: this is what makes Condition B "post-hoc".
- */
-export function readEvidenceBundle(evidenceDir: string): CriticEvidenceBundle {
-  const consoleMessages = readJsonIfPresent<ConsoleRecord[]>(join(evidenceDir, "console.json"), []);
-  const networkRequests = readJsonIfPresent<NetworkRecord[]>(join(evidenceDir, "network.json"), []);
-  const pageErrors = readJsonIfPresent<PageErrorRecord[]>(join(evidenceDir, "page-errors.json"), []);
-  const visibleText = readJsonIfPresent<{ excerpt: string }>(join(evidenceDir, "visible-text.json"), { excerpt: "" });
-  const hasScreenshot = existsSync(join(evidenceDir, "screenshot.png"));
-  const hasTrace = existsSync(join(evidenceDir, "trace.zip"));
-
-  return {
-    consoleMessages,
-    networkRequests,
-    pageErrors,
-    visibleTextExcerpt: visibleText.excerpt,
-    ...(hasScreenshot ? { screenshotPath: join(evidenceDir, "screenshot.png") } : {}),
-    ...(hasTrace ? { tracePath: join(evidenceDir, "trace.zip") } : {}),
-  };
-}
-
-/** Rebuilds the same CriticAttemptScope the live run computed, from reproduction.json's persisted representativeAttempt/evidenceCompleteness -- so Condition B's review agrees exactly with what the live path would have produced (see tests/review/... normal-vs-replay parity). */
-function readAttemptScope(evidenceDir: string): CriticAttemptScope {
-  const reproduction = readJsonIfPresent<{ attempts: number; representativeAttempt?: number; evidenceCompleteness?: EvidenceCompleteness }>(
-    join(evidenceDir, "reproduction.json"),
-    { attempts: 0 }
-  );
-  return {
-    representativeAttempt: reproduction.representativeAttempt ?? 0,
-    totalAttempts: reproduction.attempts,
-    completeness: reproduction.evidenceCompleteness ?? "diagnostic-no-success",
-  };
-}
+/** Re-exported for backward compatibility -- moved to src/experiments/evidence-reconstruction.ts (Phase 3) so both this harness and src/experiments/conditions.ts share one implementation. */
+export { readEvidenceBundle };
 
 type ConditionResult = {
   findings: Finding[];

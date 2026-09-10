@@ -115,8 +115,25 @@ output produced; summarized progress below)
       own benchmark reaches precision 1.0/recall 1.0/F1 1.0, while
       benchmark.json/phase2-metrics.json stay unchanged from before B.
       254/254 tests pass, typecheck clean.
-- [ ] C1 — Phase 3 experiment harness (descriptive-ID conditions, manifest
-      capture/replay)
+- [x] C1 — Phase 3 experiment harness. New `src/experiments/`
+      (`manifest.ts` capture/verify with sha256-per-evidence-file
+      integrity, `conditions.ts` with the 4 descriptive condition ids
+      wired through the REAL `selectCriticProvider()` path -- not
+      hardcoded `MockCriticProvider`, closing the Phase 2 harness's
+      "Condition C could never execute" gap -- `replay.ts`), new CLI
+      `src/phase3-experiment.ts` (`capture`/`replay --manifest <path>`),
+      `npm run experiment:phase3`. Factored `readEvidenceBundle`/
+      `readAttemptScope` out of `phase2-experiment.ts` into shared
+      `src/experiments/evidence-reconstruction.ts` (re-exported from
+      phase2-experiment.ts for backward compatibility with its existing
+      test). Verified end-to-end for real against the fixture: captured
+      all 9 findings once, ran all 4 conditions
+      (critic_off_grouping_off -&gt; 0.667, critic_on_grouping_off -&gt; 0.750,
+      critic_off_grouping_on -&gt; 0.857, critic_on_grouping_on -&gt; 1.000
+      precision, recall 1.0 throughout), then replayed the manifest --
+      integrity VALID, byte-identical results, confirmed via a dedicated
+      test that replay never touches `BrowserManager`. 266/266 tests
+      pass, typecheck clean.
 - [ ] C2 — Benchmark versioning + duplicate-aware matcher
 - [ ] C3 — Challenge corpus (≥12 distinct-defect + ≥8 non-defect cases)
 - [ ] C4 — Blind human review export/import
