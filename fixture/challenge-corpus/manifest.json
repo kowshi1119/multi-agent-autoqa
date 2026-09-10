@@ -1,0 +1,584 @@
+{
+  "corpusVersion": 1,
+  "cases": [
+    {
+      "id": "CC-001",
+      "kind": "executable-fixture",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "SEED-001: submitting the /form page always logs an unexpected console error.",
+      "provenance": "reuses fixture SEED-001 (fixture/form.html, fixture/ground-truth.json)",
+      "rationale": "A genuine, deterministically reproducible console-error defect on a real fixture page -- baseline executable case.",
+      "fixtureRef": { "pathname": "/form", "oracleId": "console-error" },
+      "splitGroup": "solo-CC-001",
+      "heldOut": true
+    },
+    {
+      "id": "CC-002",
+      "kind": "executable-fixture",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "SEED-002: a standalone 'View Profile' button on /account throws an uncaught runtime error, reachable only by H11's generic safe-control click.",
+      "provenance": "reuses fixture SEED-002 (fixture/account.html)",
+      "rationale": "Tests that a defect requiring the generic H11 heuristic (not a fillable-field heuristic) is still found and correctly labeled a genuine defect.",
+      "fixtureRef": { "pathname": "/account", "oracleId": "page-error" },
+      "splitGroup": "solo-CC-002",
+      "heldOut": true
+    },
+    {
+      "id": "CC-003",
+      "kind": "executable-fixture",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "SEED-003: submitting the payment form always triggers a server-side HTTP 500.",
+      "provenance": "reuses fixture SEED-003 (fixture/payment.html)",
+      "rationale": "A genuine http-failure defect, distinct from SEED-006's ui-api-consistency defect on the same page.",
+      "fixtureRef": { "pathname": "/payment", "oracleId": "http-failure" },
+      "splitGroup": "solo-CC-003",
+      "heldOut": false
+    },
+    {
+      "id": "CC-004",
+      "kind": "executable-fixture",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "SEED-004: the /form submit button is never disabled, so a double-click produces two independent POST /api/submit requests.",
+      "provenance": "reuses fixture SEED-004 (fixture/form.html)",
+      "rationale": "A duplicate-request oracle defect, structurally different from the console-error defect on the same page (SEED-001).",
+      "fixtureRef": { "pathname": "/form", "oracleId": "duplicate-request" },
+      "splitGroup": "solo-CC-004",
+      "heldOut": false
+    },
+    {
+      "id": "CC-005",
+      "kind": "executable-fixture",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "SEED-005: a whitespace-only value in a required field on /account is incorrectly accepted as valid.",
+      "provenance": "reuses fixture SEED-005 (fixture/account.html)",
+      "rationale": "A console-error defect on /account, distinct from SEED-002's page-error defect on the same page.",
+      "fixtureRef": { "pathname": "/account", "oracleId": "console-error" },
+      "splitGroup": "solo-CC-005",
+      "heldOut": false
+    },
+    {
+      "id": "CC-006",
+      "kind": "executable-fixture",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "SEED-006: the payment-consistency form shows 'Payment successful' even though the server returned HTTP 500.",
+      "provenance": "reuses fixture SEED-006 (fixture/payment.html)",
+      "rationale": "The genuine ui-api-consistency defect the oracle exists to catch -- must be checked before http-failure in the oracle registry to fire at all.",
+      "fixtureRef": { "pathname": "/payment", "oracleId": "ui-api-consistency" },
+      "splitGroup": "solo-CC-006",
+      "heldOut": false
+    },
+    {
+      "id": "CC-007",
+      "kind": "offline-evidence-record",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "Hypothetical: exporting a report on a /reports page always returns HTTP 500 from POST /api/export.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "A distinct-defect offline record on a page/endpoint the local fixture doesn't have, to widen coverage beyond the 6 seeded defects without adding a new browser-executable page.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-007-FINDING",
+          "title": "Server returns an HTTP 5xx response after interaction",
+          "status": "validated",
+          "category": "network",
+          "pageId": "PAGE-CC-007",
+          "url": "http://localhost:4173/reports",
+          "pathname": "/reports",
+          "expected": "The interaction should not cause the server to return an HTTP 5xx response.",
+          "actual": "The interaction caused the server to return a new HTTP 5xx response.",
+          "oracle": {
+            "oracleId": "http-failure",
+            "suspicious": true,
+            "expected": "0 new HTTP 5xx responses",
+            "actual": "1 new HTTP 5xx response",
+            "details": { "newFailures": [{ "method": "POST", "url": "http://localhost:4173/api/export", "status": 500 }] }
+          },
+          "controlKey": "button:Export Report",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "report"
+        }
+      },
+      "splitGroup": "solo-CC-007",
+      "heldOut": true
+    },
+    {
+      "id": "CC-008",
+      "kind": "offline-evidence-record",
+      "label": "distinct-defect",
+      "scenarioTags": [],
+      "description": "Hypothetical: a /settings page logs a console error whenever the theme toggle is used.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "A distinct-defect offline record exercising console-error on a page/control combination outside the local fixture.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-008-FINDING",
+          "title": "New browser console error appears after form submission",
+          "status": "validated",
+          "category": "console",
+          "pageId": "PAGE-CC-008",
+          "url": "http://localhost:4173/settings",
+          "pathname": "/settings",
+          "expected": "Toggling the theme should not introduce an unexpected console error.",
+          "actual": "A new error-level console message appeared after toggling the theme.",
+          "oracle": {
+            "oracleId": "console-error",
+            "suspicious": true,
+            "expected": "0 new unexpected error-level console messages",
+            "actual": "1 new unexpected error-level console message",
+            "details": { "newErrors": ["TypeError: Cannot read properties of undefined (reading 'theme')"] }
+          },
+          "controlKey": "checkbox:Dark Mode",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "report"
+        }
+      },
+      "splitGroup": "solo-CC-008",
+      "heldOut": true
+    },
+    {
+      "id": "CC-009",
+      "kind": "offline-evidence-record",
+      "label": "distinct-defect",
+      "scenarioTags": ["near-duplicate-distinct"],
+      "description": "Near-duplicate-distinct pair, member A: /profile throws a page error reading a missing 'name' property.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Paired with CC-010: similar page/oracle and superficially similar error phrasing, but a genuinely DIFFERENT underlying failure (different property accessed) -- grouping must keep these separate, not merge on narrative similarity alone.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-009-FINDING",
+          "title": "New uncaught runtime error appears after interaction",
+          "status": "validated",
+          "category": "runtime",
+          "pageId": "PAGE-CC-009",
+          "url": "http://localhost:4173/profile",
+          "pathname": "/profile",
+          "expected": "The interaction should complete without introducing an uncaught browser runtime error.",
+          "actual": "The interaction produced a new uncaught browser error.",
+          "oracle": {
+            "oracleId": "page-error",
+            "suspicious": true,
+            "expected": "0 new uncaught runtime errors",
+            "actual": "1 new uncaught runtime error",
+            "details": { "newErrors": ["Cannot read properties of undefined (reading 'name')"] }
+          },
+          "controlKey": "button:Save Name",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "report"
+        }
+      },
+      "splitGroup": "near-dup-pair-1",
+      "heldOut": false
+    },
+    {
+      "id": "CC-010",
+      "kind": "offline-evidence-record",
+      "label": "distinct-defect",
+      "scenarioTags": ["near-duplicate-distinct"],
+      "description": "Near-duplicate-distinct pair, member B: /profile throws a page error reading a missing 'email' property, via a different control.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Paired with CC-009: same page and oracle, similar-sounding message, but a genuinely different failure signature (different accessed property) -- oracles/signature.ts and grouping/fingerprint.ts must tell these apart, unlike a narrative-prefix comparison would.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-010-FINDING",
+          "title": "New uncaught runtime error appears after interaction",
+          "status": "validated",
+          "category": "runtime",
+          "pageId": "PAGE-CC-010",
+          "url": "http://localhost:4173/profile",
+          "pathname": "/profile",
+          "expected": "The interaction should complete without introducing an uncaught browser runtime error.",
+          "actual": "The interaction produced a new uncaught browser error.",
+          "oracle": {
+            "oracleId": "page-error",
+            "suspicious": true,
+            "expected": "0 new uncaught runtime errors",
+            "actual": "1 new uncaught runtime error",
+            "details": { "newErrors": ["Cannot read properties of undefined (reading 'email')"] }
+          },
+          "controlKey": "button:Save Email",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "report"
+        }
+      },
+      "splitGroup": "near-dup-pair-1",
+      "heldOut": false
+    },
+    {
+      "id": "CC-011",
+      "kind": "offline-evidence-record",
+      "label": "distinct-defect",
+      "scenarioTags": ["genuine-duplicate"],
+      "description": "Genuine-duplicate pair, member A: exporting data from /reports fails with HTTP 500, found via the toolbar export button.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Paired with CC-012: the SAME underlying defect (same endpoint, same status) reached via two different controls -- grouping must consolidate these into one canonical finding.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-011-FINDING",
+          "title": "Server returns an HTTP 5xx response after interaction",
+          "status": "validated",
+          "category": "network",
+          "pageId": "PAGE-CC-011",
+          "url": "http://localhost:4173/reports",
+          "pathname": "/reports",
+          "expected": "The interaction should not cause the server to return an HTTP 5xx response.",
+          "actual": "The interaction caused the server to return a new HTTP 5xx response.",
+          "oracle": {
+            "oracleId": "http-failure",
+            "suspicious": true,
+            "expected": "0 new HTTP 5xx responses",
+            "actual": "1 new HTTP 5xx response",
+            "details": { "newFailures": [{ "method": "POST", "url": "http://localhost:4173/api/reports/export", "status": 500 }] }
+          },
+          "controlKey": "button:Export (toolbar)",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "report"
+        }
+      },
+      "splitGroup": "genuine-dup-pair-1",
+      "heldOut": true
+    },
+    {
+      "id": "CC-012",
+      "kind": "offline-evidence-record",
+      "label": "distinct-defect",
+      "scenarioTags": ["genuine-duplicate"],
+      "description": "Genuine-duplicate pair, member B: the same /api/reports/export failure, found via a keyboard-shortcut trigger instead of the toolbar button.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Paired with CC-011: same endpoint+status, different triggering control -- the textbook duplicate-manifestation case Milestone B's grouping exists to consolidate.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-012-FINDING",
+          "title": "Server returns an HTTP 5xx response after interaction",
+          "status": "validated",
+          "category": "network",
+          "pageId": "PAGE-CC-012",
+          "url": "http://localhost:4173/reports",
+          "pathname": "/reports",
+          "expected": "The interaction should not cause the server to return an HTTP 5xx response.",
+          "actual": "The interaction caused the server to return a new HTTP 5xx response.",
+          "oracle": {
+            "oracleId": "http-failure",
+            "suspicious": true,
+            "expected": "0 new HTTP 5xx responses",
+            "actual": "1 new HTTP 5xx response",
+            "details": { "newFailures": [{ "method": "POST", "url": "http://localhost:4173/api/reports/export", "status": 500 }] }
+          },
+          "controlKey": "shortcut:Ctrl+E",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "report"
+        }
+      },
+      "splitGroup": "genuine-dup-pair-1",
+      "heldOut": true
+    },
+    {
+      "id": "CC-013",
+      "kind": "executable-fixture",
+      "label": "non-defect",
+      "scenarioTags": ["expected-failure"],
+      "description": "The false-positive challenge: /expected-failure reproducibly returns HTTP 500 from /api/simulated-outage, and the UI correctly shows a documented 'Service temporarily unavailable' message.",
+      "provenance": "reuses fixture false-positive challenge (fixture/expected-failure.html, fixture/requirements.json REQ-001)",
+      "rationale": "The central Phase 2 thesis case: a genuinely, deterministically reproducible anomaly that is NOT a defect -- the critic must suppress it via scoped requirement matching, never a hardcoded ID.",
+      "fixtureRef": { "pathname": "/expected-failure", "oracleId": "http-failure" },
+      "splitGroup": "solo-CC-013",
+      "heldOut": true
+    },
+    {
+      "id": "CC-014",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": ["expected-failure"],
+      "description": "A rate-limited /api/search endpoint returns HTTP 429 with a correctly-displayed 'Too many requests, please wait a moment' message.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "A second, independent expected-failure case distinct from CC-013's requirement scope, proving the critic's suppression generalizes rather than being special-cased to one page.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-014-FINDING",
+          "title": "Server returns an HTTP 5xx response after interaction",
+          "status": "validated",
+          "category": "network",
+          "pageId": "PAGE-CC-014",
+          "url": "http://localhost:4173/search",
+          "pathname": "/search",
+          "expected": "The interaction should not cause the server to return an HTTP 5xx response.",
+          "actual": "The interaction caused the server to return a new HTTP 5xx response.",
+          "oracle": {
+            "oracleId": "http-failure",
+            "suspicious": true,
+            "expected": "0 new HTTP 5xx responses",
+            "actual": "1 new HTTP 5xx response",
+            "details": { "newFailures": [{ "method": "GET", "url": "http://localhost:4173/api/search", "status": 429 }] }
+          },
+          "controlKey": "button:Search",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json", "visible-text.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "suppress",
+          "critic": {
+            "verdict": "invalid",
+            "confidence": 0.85,
+            "summary": "Observed behavior matches documented requirement REQ-SEARCH-RATE-LIMIT.",
+            "provider": "mock",
+            "requirementConflict": "REQ-SEARCH-RATE-LIMIT"
+          }
+        }
+      },
+      "splitGroup": "solo-CC-014",
+      "heldOut": false
+    },
+    {
+      "id": "CC-015",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": ["unrelated-background-traffic"],
+      "description": "A background analytics beacon (POST /api/telemetry) fails with HTTP 500 during an unrelated form interaction; the oracle flags it even though it has nothing to do with the tested control.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Tests that the critic can recognize a failure unrelated to the triggering action's own intent as a lower-confidence, suppressible signal rather than automatically reporting any new 5xx.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-015-FINDING",
+          "title": "Server returns an HTTP 5xx response after interaction",
+          "status": "validated",
+          "category": "network",
+          "pageId": "PAGE-CC-015",
+          "url": "http://localhost:4173/form",
+          "pathname": "/form",
+          "expected": "The interaction should not cause the server to return an HTTP 5xx response.",
+          "actual": "The interaction caused the server to return a new HTTP 5xx response.",
+          "oracle": {
+            "oracleId": "http-failure",
+            "suspicious": true,
+            "expected": "0 new HTTP 5xx responses",
+            "actual": "1 new HTTP 5xx response",
+            "details": { "newFailures": [{ "method": "POST", "url": "http://localhost:4173/api/telemetry", "status": 500 }] }
+          },
+          "controlKey": "textbox:Username",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 1 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "needs_human"
+        }
+      },
+      "splitGroup": "solo-CC-015",
+      "heldOut": true
+    },
+    {
+      "id": "CC-016",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": ["stale-success-text"],
+      "description": "A leftover 'Payment successful' banner from a PRIOR successful transaction is still visible on screen when a later, unrelated 500 occurs -- the UI text is stale, not evidence the current failure was mishandled.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Distinguishes a genuine ui-api-consistency defect (SEED-006/CC-006, where the CURRENT action's failure is masked) from stale leftover UI text from an earlier, unrelated action -- the critic must not treat every co-occurrence of failure+success-text as the same defect class.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-016-FINDING",
+          "title": "Anomaly detected by oracle \"ui-api-consistency\"",
+          "status": "validated",
+          "category": "functional",
+          "pageId": "PAGE-CC-016",
+          "url": "http://localhost:4173/payment",
+          "pathname": "/payment",
+          "expected": "UI should not display stale success text alongside an unrelated failure.",
+          "actual": "A leftover success message from a prior action remained visible during an unrelated failure.",
+          "oracle": {
+            "oracleId": "ui-api-consistency",
+            "suspicious": true,
+            "expected": "e",
+            "actual": "a",
+            "details": { "ruleId": "payment-consistency", "newFailures": [{ "method": "POST", "url": "http://localhost:4173/api/unrelated-retry", "status": 500 }] }
+          },
+          "controlKey": "button:Retry",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 2 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json", "visible-text.json"],
+          "evidenceLevel": "L1",
+          "reportDisposition": "needs_human"
+        }
+      },
+      "splitGroup": "solo-CC-016",
+      "heldOut": true
+    },
+    {
+      "id": "CC-017",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": ["flaky-reproduction"],
+      "description": "A console error on /help reproduces only 1 of 3 attempts -- below minimumSuccesses, correctly left as needs_human rather than a confident defect report.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Reproduction strength below the validation threshold is not the same as a confirmed non-defect, but it must not be auto-reported either -- exercises the needs_human bucket distinctly from suppress.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-017-FINDING",
+          "title": "New browser console error appears after form submission",
+          "status": "needs_human",
+          "category": "console",
+          "pageId": "PAGE-CC-017",
+          "url": "http://localhost:4173/help",
+          "pathname": "/help",
+          "expected": "Viewing the help page should not introduce an unexpected console error.",
+          "actual": "A new error-level console message appeared intermittently.",
+          "oracle": {
+            "oracleId": "console-error",
+            "suspicious": true,
+            "expected": "0 new unexpected error-level console messages",
+            "actual": "1 new unexpected error-level console message",
+            "details": { "newErrors": ["Intermittent: failed to load optional widget script"] }
+          },
+          "controlKey": "link:FAQ",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 1 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "needs_human"
+        }
+      },
+      "splitGroup": "solo-CC-017",
+      "heldOut": false
+    },
+    {
+      "id": "CC-018",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": ["insufficient-evidence"],
+      "description": "An oracle id with no registered evidence level fires on a hypothetical /experimental page -- conservatively defaults to L6 and is never auto-reported.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "Exercises the A1 fix directly: L6 (including the unregistered-oracle conservative default) must never reach 'report' regardless of critic outcome, including when the critic is disabled.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-018-FINDING",
+          "title": "Anomaly detected by oracle \"experimental-heuristic\"",
+          "status": "validated",
+          "category": "functional",
+          "pageId": "PAGE-CC-018",
+          "url": "http://localhost:4173/experimental",
+          "pathname": "/experimental",
+          "expected": "e",
+          "actual": "a",
+          "oracle": { "oracleId": "experimental-heuristic", "suspicious": true, "expected": "e", "actual": "a" },
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L6",
+          "reportDisposition": "needs_human"
+        }
+      },
+      "splitGroup": "solo-CC-018",
+      "heldOut": false
+    },
+    {
+      "id": "CC-019",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": [],
+      "description": "A suspected console-error finding on /form fails to reproduce in all 3 clean-session replay attempts -- correctly rejected.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "A plain rejected (0/3) finding: the most basic non-defect case, an initial suspicion that simply didn't hold up under clean-session replay.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-019-FINDING",
+          "title": "New browser console error appears after form submission",
+          "status": "rejected",
+          "category": "console",
+          "pageId": "PAGE-CC-019",
+          "url": "http://localhost:4173/form",
+          "pathname": "/form",
+          "expected": "0 new unexpected error-level console messages",
+          "actual": "0 new unexpected error-level console messages",
+          "oracle": { "oracleId": "console-error", "suspicious": false, "expected": "0 new unexpected error-level console messages", "actual": "0 new unexpected error-level console messages" },
+          "controlKey": "textbox:Notes (required)",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 0 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json"],
+          "evidenceLevel": "L3",
+          "reportDisposition": "suppress"
+        }
+      },
+      "splitGroup": "solo-CC-019",
+      "heldOut": false
+    },
+    {
+      "id": "CC-020",
+      "kind": "offline-evidence-record",
+      "label": "non-defect",
+      "scenarioTags": ["expected-failure"],
+      "description": "A documented 'read-only mode' banner correctly appears when POST /api/admin-only-write returns HTTP 403 for a non-admin session -- an intended access-control response, not a defect.",
+      "provenance": "authored for Phase 3 C3 -- not discovered by an AutoQA run",
+      "rationale": "A third distinct requirement-matched suppression case (alongside CC-013/CC-014), on a 4xx-adjacent boundary rather than a 5xx, to check the critic's suppression logic isn't narrowly tied to server-error status codes alone.",
+      "offlineEvidence": {
+        "finding": {
+          "id": "CC-020-FINDING",
+          "title": "Anomaly detected by oracle \"ui-api-consistency\"",
+          "status": "validated",
+          "category": "functional",
+          "pageId": "PAGE-CC-020",
+          "url": "http://localhost:4173/admin",
+          "pathname": "/admin",
+          "expected": "e",
+          "actual": "a",
+          "oracle": {
+            "oracleId": "ui-api-consistency",
+            "suspicious": true,
+            "expected": "e",
+            "actual": "a",
+            "details": { "ruleId": "admin-write-block", "newFailures": [{ "method": "POST", "url": "http://localhost:4173/api/admin-only-write", "status": 500 }] }
+          },
+          "controlKey": "button:Save Settings",
+          "steps": [],
+          "reproduction": { "attempts": 3, "successes": 3 },
+          "occurrenceCount": 1,
+          "evidence": ["oracle.json", "reproduction.json", "visible-text.json"],
+          "evidenceLevel": "L1",
+          "reportDisposition": "suppress",
+          "critic": {
+            "verdict": "invalid",
+            "confidence": 0.8,
+            "summary": "Observed behavior matches documented requirement REQ-ADMIN-READONLY.",
+            "provider": "mock",
+            "requirementConflict": "REQ-ADMIN-READONLY"
+          }
+        }
+      },
+      "splitGroup": "solo-CC-020",
+      "heldOut": false
+    }
+  ]
+}

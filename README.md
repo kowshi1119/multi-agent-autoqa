@@ -328,6 +328,33 @@ same as a correct rejection). `actualRequests`/`wallClockMs` are `null`
 with a disclosed reason rather than a fabricated `0` — real provider-call
 accounting isn't implemented in this build (see Known Limitations).
 
+**Milestone C3 — versioned challenge corpus** (`fixture/challenge-corpus/
+manifest.json`, loaded by `src/experiments/challenge-corpus.ts`,
+validated by `npm run challenge-corpus:validate`): 20 cases — exactly the
+spec's own stated floor (≥12 distinct-defect, ≥8 non-defect), biased
+toward `offline-evidence-record` (13 of 20: hand-authored `Finding` +
+evidence, no browser, each with a non-empty `rationale` stored separately
+from runtime `requirements.json`, and explicitly never presented as an
+autonomous discovery) over `executable-fixture` (7 of 20: the existing 6
+seeded defects plus the false-positive challenge, reused as-is — **zero
+new fixture pages added** for this milestone). Covers every category the
+spec lists: expected failures (a second and third independent
+requirement-matched suppression, beyond the false-positive challenge, to
+prove the critic's suppression generalizes), unrelated background
+traffic, stale success text, flaky reproduction (below
+`minimumSuccesses`), insufficient evidence (the A1 unregistered-oracle
+L6 default), a near-duplicate-distinct pair (same page/oracle, similar
+phrasing, genuinely different accessed property — grouping must keep
+these separate), and a genuine-duplicate pair (same endpoint+status,
+different triggering control — grouping must consolidate these). A
+held-out ~30% subset is grouped by `splitGroup` so a duplicate/near-
+duplicate pair never splits across it. This sizing strategy — bias
+toward offline records, reuse existing fixture pages — is deliberate:
+the spec names this milestone "the largest single task in this phase"
+and explicitly prefers a smaller, correctly-labeled corpus over a larger,
+rushed one; inventing 6+ new browser-executable pages was the time sink
+this design avoids.
+
 ## Architecture
 
 ```

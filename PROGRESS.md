@@ -150,7 +150,23 @@ output produced; summarized progress below)
       (no per-call usage counter exists in the codebase; disclosed in
       README Known Limitations rather than fabricated as 0).
       275/275 tests pass, typecheck clean.
-- [ ] C3 — Challenge corpus (≥12 distinct-defect + ≥8 non-defect cases)
+- [x] C3 — Challenge corpus. New `fixture/challenge-corpus/manifest.json`
+      (20 cases: exactly the spec's stated floor, 12 distinct-defect + 8
+      non-defect) + `src/experiments/challenge-corpus.ts` (load/validate/
+      loadOfflineFindings) + `src/experiments/challenge-corpus-validate.ts`
+      CLI (`npm run challenge-corpus:validate`). Sized per the plan's
+      timeboxing strategy: 13/20 cases are `offline-evidence-record`
+      (hand-authored, no browser, each with a non-empty `rationale`), 7/20
+      `executable-fixture` (the existing 6 seeded defects + the false-
+      positive challenge, reused as-is -- zero new fixture pages added).
+      Covers every scenario category the spec lists (expected-failure x2
+      more beyond the existing false-positive challenge,
+      unrelated-background-traffic, stale-success-text,
+      flaky-reproduction, insufficient-evidence, a near-duplicate-distinct
+      pair, a genuine-duplicate pair), held-out ~30% grouped by
+      `splitGroup` so pairs never split. `npm run challenge-corpus:
+      validate` confirmed clean end-to-end. 284/284 tests pass, typecheck
+      clean.
 - [ ] C4 — Blind human review export/import
 - [ ] D — Verification and handoff (README/PROGRESS updates, full
       command-output capture, security re-scan)
