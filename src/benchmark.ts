@@ -6,6 +6,7 @@ import { ConfigError, loadConfig, resolveHeadless, type AppConfig } from "./conf
 import { ensureDir } from "./evidence.js";
 import { createLogger } from "./logger.js";
 import { generateRunId } from "./report.js";
+import { isMainModule } from "./main-module-guard.js";
 import { loadGroundTruth, matchFindings } from "./reporting/benchmark.js";
 import { runPipeline } from "./run-pipeline.js";
 
@@ -105,8 +106,10 @@ async function main(): Promise<void> {
   console.log("=================================================");
 }
 
-main().catch((error: unknown) => {
-  console.error("AutoQA benchmark encountered an unexpected error:");
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  process.exitCode = 1;
-});
+if (isMainModule(import.meta.url)) {
+  main().catch((error: unknown) => {
+    console.error("AutoQA benchmark encountered an unexpected error:");
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exitCode = 1;
+  });
+}

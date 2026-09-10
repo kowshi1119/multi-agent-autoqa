@@ -18,6 +18,7 @@ import {
   TRACE_POLICY_STATEMENT,
   type QaReport,
 } from "./reporting/qa-report.js";
+import { isMainModule } from "./main-module-guard.js";
 import { runPipeline } from "./run-pipeline.js";
 import type { Finding } from "./types.js";
 
@@ -224,8 +225,10 @@ async function main(): Promise<void> {
   console.log("=================================================");
 }
 
-main().catch((error: unknown) => {
-  console.error("AutoQA encountered an unexpected error:");
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  process.exitCode = 1;
-});
+if (isMainModule(import.meta.url)) {
+  main().catch((error: unknown) => {
+    console.error("AutoQA encountered an unexpected error:");
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exitCode = 1;
+  });
+}

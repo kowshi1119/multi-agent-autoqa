@@ -22,6 +22,21 @@ output produced; summarized progress below)
       `evidenceLevelForOracle` now defaults unknown oracle ids to L6
       (never L3) with a diagnostic log, never throws. 212/212 tests pass
       (+40: full policy matrix + evidence-level tests), typecheck clean.
+- [x] A3a — Fixed the live import-side-effect bug: `main()` ran
+      unconditionally at module top level in `index.ts`/`benchmark.ts`/
+      `phase2-experiment.ts`, so importing `phase2-experiment.ts` for its
+      pure helpers (as the existing test file does) launched a real
+      fixture server + browser as a side effect. New shared
+      `src/main-module-guard.ts#isMainModule()` uses `realpathSync(argv[1])
+      === fileURLToPath(import.meta.url)`, not a naive direct-equality
+      comparison (argv[1] is often a relative path; fileURLToPath is
+      always absolute — they'd never match even for the genuine entry
+      point). Verified `npm run qa`, `npm run benchmark`, and
+      `npm run experiment:phase2` all still execute correctly end-to-end
+      on Windows with the guard active (not just the new unit test) before
+      trusting the fix. New `tests/phase2-experiment-import.test.ts`
+      regression-locks it. 213/213 tests pass. (A3's remaining piece —
+      the shared ReviewService extraction — tracked separately below.)
 - [ ] A2 — Evidence aligned with successful reproduction (validator
       capture policy + failure-signature matching + evidence-scope
       disclosure + README Trace-Capture Policy rewrite)

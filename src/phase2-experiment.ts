@@ -11,6 +11,7 @@ import { createLogger } from "./logger.js";
 import { generateRunId, writeFindingJson } from "./report.js";
 import { loadGroundTruth, matchFindings, type BenchmarkResult } from "./reporting/benchmark.js";
 import { computePhase2Metrics, type Phase2Metrics } from "./reporting/phase2-metrics.js";
+import { isMainModule } from "./main-module-guard.js";
 import { runPipeline } from "./run-pipeline.js";
 import type { ConsoleRecord, Finding, NetworkRecord, PageErrorRecord, RequirementRule } from "./types.js";
 
@@ -243,8 +244,10 @@ async function main(): Promise<void> {
   console.log(`\nArtifacts:\nruns/experiments/${experimentId}`);
 }
 
-main().catch((error: unknown) => {
-  console.error("AutoQA Phase 2 experiment encountered an unexpected error:");
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  process.exitCode = 1;
-});
+if (isMainModule(import.meta.url)) {
+  main().catch((error: unknown) => {
+    console.error("AutoQA Phase 2 experiment encountered an unexpected error:");
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exitCode = 1;
+  });
+}
