@@ -174,6 +174,109 @@ recall.
   as exactly that — a provider/runtime limitation, not an application
   defect, not a fabricated success.
 
+## Phase 3 — Reliability and Research Evidence
+
+Phase 3's focus is reliability and defensible research evidence, not new
+user-facing features: fixing confirmed correctness gaps in the Phase 2
+policy/evidence layer, and adding cross-finding grouping as a distinct,
+later pipeline stage. (Sub-sections for the experiment harness, versioned
+benchmark, challenge corpus, and blind human review are added as those
+milestones land.)
+
+**Milestone A — policy and evidence reliability:**
+
+- **L6 evidence-strength ceiling, closed.** `decideDisposition()`'s
+  `criticOutcome.kind === "disabled"` branch used to return `"report"`
+  unconditionally, before the L6 guard — which only lived inside the
+  `"decided"` branch. A `validated` finding with `evidenceLevel: "L6"`
+  and the critic simply disabled could slip through to auto-report.
+  Fixed by computing the per-outcome-kind disposition first, then
+  applying the L6 ceiling to its result, so it covers every outcome kind
+  uniformly without discarding the `criticEvidenceConflict` flag the
+  contradiction branch already sets.
+- **Unregistered oracle ids** now conservatively default to `"L6"` (never
+  auto-reportable), not `"L3"`, with a diagnostic log rather than a thrown
+  error (the one call site sits inside a `try/catch` that would fail the
+  entire run on any thrown error).
+- **Evidence now follows successful reproduction** — see Trace-Capture
+  Policy and Failure Signatures above.
+- **Evidence scope disclosure** (`src/critic/evidence-scope.ts`): console/
+  network evidence handed to the Critic always force-includes the
+  triggering oracle's own referenced facts before any truncation, and
+  discloses `totalCaptured`/`omitted`/`matchedForTriggeringEndpoint`
+  counts — an endpoint-specific request count is never silently compared
+  against unrelated total page traffic.
+- **Structured claim checks** (`src/critic/claim-checks.ts`) replace the
+  old narrow "only N requests" regex: `evidenceReferences` are checked
+  against real evidence file names, `requirementConflict` ids against
+  what was actually scoped into that call, and any stated request count
+  against the disclosed `matchedForTriggeringEndpoint` denominator —
+  still explicitly not a general fact-checker; an uncheckable claim never
+  independently forces report or suppress.
+- **Import-safety fix**: every CLI entry point (`index.ts`, `benchmark.ts`,
+  `phase2-experiment.ts`) now guards its `main()` call with
+  `src/main-module-guard.ts#isMainModule()` — previously, merely
+  `import`ing `phase2-experiment.ts` for its exported helpers (as its own
+  unit test did) launched a real fixture server and browser as a side
+  effect. Verified by actually running `npm run qa`/`benchmark`/
+  `experiment:phase2` with the guard active, not just a unit test.
+
+**Milestone B — cross-finding grouping** (`src/grouping/`): a fourth,
+distinct concept from validation status, critic verdict, and report
+disposition — "are these two reported findings the same underlying
+defect?" Runs strictly after the existing per-finding dedup key (`src/
+reporting/dedup.ts`, unchanged) and per-finding critic review, and before
+final report assembly. Off by default (`grouping.enabled: false`);
+`qa.config.mock.yaml` turns it on for verification.
+
+- **Fingerprinting** (`src/grouping/fingerprint.ts`): a structural key —
+  oracle id, page, the specific rule/predicate that fired, request
+  method/endpoint, the same failure signature `oracles/signature.ts`
+  uses for reproduction-matching, and any requirement scope the critic
+  already identified. The triggering **control** is recorded for
+  disclosure but deliberately **excluded** from the merge key: the same
+  underlying defect reached via two different controls (e.g. a numeric
+  field vs. a double-clicked submit button both hitting the same failing
+  endpoint) is exactly the duplicate-manifestation case grouping exists
+  to consolidate — requiring control equality would make that case
+  ungroupable by construction.
+- **Never a false merge on thin grounds**: a finding with zero persisted
+  evidence is never auto-merged; two findings sharing only an oracle and
+  page but a different endpoint/error stay separate findings, optionally
+  recorded as a `possibleRelationship` for a human to judge — never
+  silently merged.
+- **Deterministic, idempotent, order-independent.** Canonical-finding
+  selection is a fixed priority: `report` disposition outranks
+  `needs_human`/`suppress` (a suppressed member can never hide a
+  reportable one), then higher reproduction-success count, then lowest
+  finding id. `memberStats` preserves every member's own numbers
+  verbatim — a group never sums or averages reproduction counts into a
+  fabricated stronger rate.
+- **Three artifacts, three separated measurements** (deliberately, so
+  "critic-only gains" and "grouping-only gains" are never blended): the
+  reused `matchFindings()` matcher (never modified) is run three ways.
+  `run-summary.json` and `benchmark.json` (detection-level) stay on the
+  **raw** findings array, exactly as in Phase 2 — grouping runs on
+  post-disposition findings, so letting it shrink the detection-level
+  denominator would silently look like a detection improvement. `phase2-
+  metrics.json` (final-report-level) stays on raw findings too, isolating
+  the critic's own effect from grouping's. **New `grouping.json`**
+  measures grouping's own effect: the matcher run against one canonical
+  finding per group plus every ungrouped finding, `reportDisposition ===
+  "report"` only. `report.json`/`report.md` are the one place that *does*
+  reflect grouping — every raw finding is kept (never removed) and
+  annotated with an optional `groupId`, alongside a `report.groups` list
+  and a "Cross-finding grouping" `report.md` section (groups formed,
+  duplicate excess, each group's canonical/members/reason).
+
+  Representative result on this fixture: detection-level benchmark stays
+  at precision 0.667 (3 false positives — two of them H10-double-click
+  duplicate manifestations, one the false-positive challenge); grouping
+  consolidates the two duplicate manifestations into their originals,
+  and `grouping.json`'s own benchmark reaches **precision 1.0 / recall
+  1.0 / F1 1.0** — a clean measurement of grouping's contribution, never
+  mixed into the critic's own detection/final-report numbers above.
+
 ## Architecture
 
 ```

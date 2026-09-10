@@ -94,7 +94,27 @@ output produced; summarized progress below)
         directly, exactly as `runConditionB` already does.
       - 239/239 tests pass, typecheck clean, full acceptance run
         (`qa.config.mock.yaml`) confirmed identical results.
-- [ ] B — Conservative cross-finding grouping
+- [x] B — Conservative cross-finding grouping. New `src/grouping/`
+      (`fingerprint.ts`, `group-findings.ts`, `types.ts`), off by default
+      (`grouping.enabled`), runs strictly after dedup + critic review, on
+      already-reviewed findings. Fingerprint excludes the triggering
+      control from the merge key (same defect via different controls
+      must group); `oracles/signature.ts` extended to dedupe repeated
+      identical failure tuples (a double-click producing 2 identical
+      failing requests is the same failure as 1, not a different one --
+      found while verifying against the real fixture: without this, H10's
+      known duplicate-manifestation artifacts didn't actually group).
+      `run-summary.json`/`benchmark.json`/`phase2-metrics.json` stay on
+      RAW findings (unchanged denominators, critic/grouping effects kept
+      separable); new `grouping.json` measures grouping's own effect
+      in isolation; `report.json`/`report.md` are the one place findings
+      get an optional `groupId` annotation (raw findings never removed).
+      Verified end-to-end on the real fixture: the two known Phase-2
+      duplicate-manifestation false positives (FINDING-005/FINDING-003,
+      FINDING-006/FINDING-004) now correctly group, and grouping.json's
+      own benchmark reaches precision 1.0/recall 1.0/F1 1.0, while
+      benchmark.json/phase2-metrics.json stay unchanged from before B.
+      254/254 tests pass, typecheck clean.
 - [ ] C1 — Phase 3 experiment harness (descriptive-ID conditions, manifest
       capture/replay)
 - [ ] C2 — Benchmark versioning + duplicate-aware matcher

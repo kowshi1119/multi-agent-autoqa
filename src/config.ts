@@ -136,6 +136,8 @@ const configSchema = z
         path: z.string().min(1, "requirements.path must not be empty"),
       })
       .default({ enabled: false, path: "requirements.yaml" }),
+    /** Cross-finding grouping (Phase 3): off by default, exact Phase-2 behavior unless explicitly opted in. */
+    grouping: z.object({ enabled: z.boolean() }).default({ enabled: false }),
     safety: z.object({
       safeMode: z.boolean(),
       allowedOrigins: z

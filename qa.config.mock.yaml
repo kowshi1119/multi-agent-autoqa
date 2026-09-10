@@ -75,6 +75,9 @@ requirements:
   enabled: true
   path: "fixture/requirements.json"
 
+grouping:
+  enabled: true
+
 safety:
   safeMode: true
   allowedOrigins:

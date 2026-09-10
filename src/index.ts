@@ -10,6 +10,8 @@ import { generateRunId, writeRunSummary, type RunSummary } from "./report.js";
 import { loadGroundTruth, matchFindings } from "./reporting/benchmark.js";
 import { computeHeuristicCoverage } from "./reporting/coverage.js";
 import { computePhase2Metrics } from "./reporting/phase2-metrics.js";
+import { groupFindings } from "./grouping/group-findings.js";
+import type { GroupingResult } from "./grouping/types.js";
 import {
   buildOracleBreakdown,
   buildReportMarkdown,
@@ -17,10 +19,25 @@ import {
   writeReportMarkdown,
   TRACE_POLICY_STATEMENT,
   type QaReport,
+  type ReportedFinding,
 } from "./reporting/qa-report.js";
 import { isMainModule } from "./main-module-guard.js";
 import { runPipeline } from "./run-pipeline.js";
 import type { Finding } from "./types.js";
+
+/** One representative per group plus every ungrouped finding -- what grouping's OWN benchmark effect is measured against, isolated from the raw detection-level and final-report-level numbers (see grouping.json). */
+function canonicalFindingsOnly(findings: Finding[], grouping: GroupingResult): Finding[] {
+  const canonicalIds = new Set(grouping.groups.map((g) => g.canonicalFindingId));
+  return findings.filter((f) => grouping.ungrouped.includes(f.id) || canonicalIds.has(f.id));
+}
+
+function annotateWithGroupIds(findings: Finding[], grouping: GroupingResult): ReportedFinding[] {
+  const groupIdByFinding = new Map<string, string>();
+  for (const group of grouping.groups) {
+    for (const memberId of group.memberFindingIds) groupIdByFinding.set(memberId, group.groupId);
+  }
+  return findings.map((f) => ({ ...f, ...(groupIdByFinding.has(f.id) ? { groupId: groupIdByFinding.get(f.id) } : {}) }));
+}
 
 function reportDispositionBreakdown(findings: Finding[]): { report: number; suppress: number; needs_human: number } {
   const breakdown = { report: 0, suppress: 0, needs_human: 0 };
@@ -89,6 +106,14 @@ async function main(): Promise<void> {
   const { finalCtx, modelRouter, budget, mapper, safetyEvents } = result;
   const provider = modelRouter.getExplorer();
   const failed = finalCtx.state === "FAILED";
+
+  // Grouping runs on already-reviewed (post-disposition) findings, after
+  // dedup and critic review, before final report assembly -- see README's
+  // Cross-Finding Grouping section for why run-summary.json/benchmark.json/
+  // phase2-metrics.json all deliberately stay on the RAW findings array
+  // (never grouped) while report.json/report.md and the new grouping.json
+  // are the only artifacts that reflect it.
+  const grouping = groupFindings(finalCtx.findings, { enabled: config.grouping.enabled });
 
   if (failed) {
     console.error(`\nRun FAILED: ${finalCtx.stopReason ?? "unknown error"}`);
@@ -167,6 +192,27 @@ async function main(): Promise<void> {
     writeFileSync(join(runDir, "phase2-metrics.json"), JSON.stringify(phase2, null, 2), "utf-8");
   }
 
+  // Grouping's OWN effect, isolated from the critic's: the same matcher,
+  // run against one representative per group plus every ungrouped finding
+  // (canonical/grouped, reportDisposition==="report" only) -- never
+  // blended into benchmark.json or phase2-metrics.json.
+  const groupingBenchmark =
+    groundTruthDefects && config.grouping.enabled
+      ? matchFindings(
+          canonicalFindingsOnly(finalCtx.findings, grouping).filter((f) => f.reportDisposition === "report"),
+          groundTruthDefects
+        )
+      : undefined;
+  if (groupingBenchmark) {
+    writeFileSync(
+      join(runDir, "grouping.json"),
+      JSON.stringify({ ...grouping, benchmark: groupingBenchmark }, null, 2),
+      "utf-8"
+    );
+  } else if (config.grouping.enabled) {
+    writeFileSync(join(runDir, "grouping.json"), JSON.stringify(grouping, null, 2), "utf-8");
+  }
+
   const report: QaReport = {
     runId,
     startedAt: startedAt.toISOString(),
@@ -177,7 +223,8 @@ async function main(): Promise<void> {
     provider: { name: provider.name },
     applicationMap,
     coverage,
-    findings: finalCtx.findings,
+    findings: annotateWithGroupIds(finalCtx.findings, grouping),
+    groups: grouping.groups,
     oracleBreakdown: buildOracleBreakdown(finalCtx.findings),
     reportDispositionBreakdown: reportDispositionBreakdown(finalCtx.findings),
     budget: budgetSnapshot,

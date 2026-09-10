@@ -1,10 +1,14 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BudgetSnapshot } from "../budget.js";
+import type { FindingGroup } from "../grouping/types.js";
 import type { ApplicationMap } from "../mapping/types.js";
 import type { Finding } from "../types.js";
 import type { BenchmarkResult } from "./benchmark.js";
 import type { Phase2Metrics } from "./phase2-metrics.js";
+
+/** A raw Finding annotated with which group it landed in, if any -- report.json is the one artifact that reflects grouping; the Finding itself stays grouping-agnostic (see README's Cross-Finding Grouping section). */
+export type ReportedFinding = Finding & { groupId?: string };
 
 export const TRACE_POLICY_STATEMENT =
   "Validator trace capture (Phase 3 policy, reverses Phase 0/2's attempt-1-only rule): evidence is captured from the first attempt that actually reproduces the original finding's failure signature, not always attempt 1. When no attempt reproduces, evidence is captured from the last attempt and labeled diagnostic-no-success. Exactly one trace.zip and one screenshot.png are still persisted per finding regardless of how many attempts ran.";
@@ -26,7 +30,9 @@ export type QaReport = {
     heuristicsExecuted: number;
     heuristicCoverage: number;
   };
-  findings: Finding[];
+  findings: ReportedFinding[];
+  /** Only groups that were actually formed (2+ members) -- empty when grouping is disabled or nothing merged. */
+  groups: FindingGroup[];
   oracleBreakdown: Record<string, number>;
   reportDispositionBreakdown: { report: number; suppress: number; needs_human: number };
   budget: BudgetSnapshot;
@@ -84,6 +90,7 @@ export function buildReportMarkdown(report: QaReport): string {
       lines.push(`Oracle: ${finding.oracle.oracleId}`, "");
       lines.push(`Page: ${finding.pathname} (${finding.pageId})`, "");
       lines.push(`Occurrences: ${finding.occurrenceCount}`, "");
+      if (finding.groupId) lines.push(`Group: ${finding.groupId}`, "");
       lines.push("");
     }
   }
@@ -153,6 +160,23 @@ export function buildReportMarkdown(report: QaReport): string {
     lines.push(`False positives suppressed by critic: ${p2.falsePositivesSuppressed}`, "");
     lines.push(`False positive reduction rate: ${(p2.falsePositiveReductionRate * 100).toFixed(1)}%`, "");
     lines.push(`Recall lost to critic suppression: ${(p2.recallLoss * 100).toFixed(1)}%`, "");
+  }
+
+  if (report.groups.length > 0) {
+    lines.push("## Cross-finding grouping", "");
+    lines.push(
+      "Groups below are evidence-supported duplicate manifestations of the same underlying defect -- never a claim of a proven, single source-code root cause.",
+      ""
+    );
+    const findingsGrouped = report.groups.reduce((sum, g) => sum + g.memberFindingIds.length, 0);
+    lines.push(`Groups formed: ${report.groups.length}`, "");
+    lines.push(`Duplicate excess (findings grouped minus groups formed): ${findingsGrouped - report.groups.length}`, "");
+    for (const group of report.groups) {
+      lines.push(
+        `- ${group.groupId}: canonical ${group.canonicalFindingId}, members [${group.memberFindingIds.join(", ")}]${group.dispositionConflict ? " (disposition conflict)" : ""} -- ${group.reason}`
+      );
+    }
+    lines.push("");
   }
 
   lines.push("## Evidence policy", "");

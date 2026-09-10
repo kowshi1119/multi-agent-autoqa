@@ -359,6 +359,8 @@ export type Finding = {
     model?: string;
     /** Set when the critic's stated facts contradicted deterministic evidence (CRITIC_EVIDENCE_CONTRADICTION) or an L1 invariant conflicted with an "invalid" verdict. */
     criticEvidenceConflict?: boolean;
+    /** Surfaced from CriticDecision.requirementConflict (see critic.json) so cross-finding grouping (src/grouping/) can fingerprint by requirement scope without re-reading evidence files. */
+    requirementConflict?: string;
   };
 };
 

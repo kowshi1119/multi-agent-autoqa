@@ -191,6 +191,7 @@ export class Critic {
         provider: criticProvider?.name ?? "unknown",
         ...(criticProvider?.modelId ? { model: criticProvider.modelId } : {}),
         ...(conflict ? { criticEvidenceConflict: true } : {}),
+        ...(outcome.decision.requirementConflict ? { requirementConflict: outcome.decision.requirementConflict } : {}),
       };
     }
     if (outcome.kind === "unavailable" || outcome.kind === "contradiction") {

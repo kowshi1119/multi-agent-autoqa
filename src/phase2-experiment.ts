@@ -118,6 +118,7 @@ export async function runConditionB(
         summary: decision.summary,
         provider: critic.name,
         ...(criticEvidenceConflict ? { criticEvidenceConflict: true } : {}),
+        ...(decision.requirementConflict ? { requirementConflict: decision.requirementConflict } : {}),
       },
     };
 

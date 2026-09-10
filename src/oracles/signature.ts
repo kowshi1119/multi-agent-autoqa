@@ -13,9 +13,12 @@ function networkTuple(f: NetworkFailureLike): string {
  * represents -- oracleId plus a normalized, order-independent projection
  * of `details`, deliberately NOT full narrative (expected/actual string)
  * equality (incidental prose differences must never split one failure
- * into two) and NOT raw `details` equality either (volatile fields, like
- * duplicate-request's `newCount`, must not do the same in reverse: the
- * exact count varies run to run and is not part of "which failure").
+ * into two) and NOT raw `details` equality either (volatile fields --
+ * duplicate-request's `newCount`, or a double-click producing two
+ * identical failing requests at the same endpoint where one attempt only
+ * produced one -- must not do the same in reverse: occurrence COUNT is
+ * not part of "which failure", so every list of structural facts below is
+ * deduplicated before comparison).
  *
  * Falls back to oracleId + reporting/dedup.ts#normalizedActual(actual) for
  * any oracle id without a registered extractor below -- same conservative
@@ -27,19 +30,24 @@ export function oracleFailureSignature(result: OracleResult): string {
   if (result.oracleId === "http-failure" || result.oracleId === "ui-api-consistency") {
     const newFailures = (details?.["newFailures"] as NetworkFailureLike[] | undefined) ?? [];
     const ruleId = result.oracleId === "ui-api-consistency" ? String(details?.["ruleId"] ?? "") : "";
-    const tuples = newFailures.map(networkTuple).sort();
+    // Deduplicated: a double-click (H10) producing two identical failing
+    // requests at the SAME endpoint+status is the same underlying failure
+    // as one attempt producing a single failing request there -- the
+    // occurrence COUNT is exactly as volatile as duplicate-request's
+    // `newCount` below, not part of "which failure".
+    const tuples = [...new Set(newFailures.map(networkTuple))].sort();
     return `${result.oracleId}|${ruleId}|${tuples.join(",")}`;
   }
 
   if (result.oracleId === "duplicate-request") {
     const violations = (details?.["violations"] as Array<{ method: string; pathname: string }> | undefined) ?? [];
-    const tuples = violations.map((v) => `${v.method}|${v.pathname}`).sort();
+    const tuples = [...new Set(violations.map((v) => `${v.method}|${v.pathname}`))].sort();
     return `${result.oracleId}|${tuples.join(",")}`;
   }
 
   if (result.oracleId === "console-error" || result.oracleId === "page-error") {
     const newErrors = (details?.["newErrors"] as string[] | undefined) ?? [];
-    const normalized = newErrors.map((e) => normalizedActual(e)).sort();
+    const normalized = [...new Set(newErrors.map((e) => normalizedActual(e)))].sort();
     return `${result.oracleId}|${normalized.join(",")}`;
   }
 
