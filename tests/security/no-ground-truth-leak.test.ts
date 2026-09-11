@@ -10,7 +10,16 @@ import { describe, expect, it } from "vitest";
 // is fine; the invariant this test protects is that it never reaches
 // anything Planner/Explorer/Oracles/Validator/Critic/grouping-adjacent.
 const FORBIDDEN_DIRS = ["src/qa", "src/models", "src/critic", "src/oracles", "src/grouping"];
-const FORBIDDEN_FILES = ["src/explorer.ts", "src/requirements.ts", "src/validator.ts", "src/orchestrator/orchestrator.ts"];
+const FORBIDDEN_FILES = [
+  "src/explorer.ts",
+  "src/requirements.ts",
+  "src/validator.ts",
+  "src/orchestrator/orchestrator.ts",
+  // Phase 4 Milestone C: a real-application pilot summary must never
+  // score against the fixture's ground truth -- "never load the fixture
+  // ground truth to score OrangeHRM."
+  "src/reporting/pilot-report.ts",
+];
 
 function allTsFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });

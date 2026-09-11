@@ -365,16 +365,25 @@ export type Finding = {
 };
 
 /**
- * Emitted by every layer of off-origin navigation defense (§17-18). Never
- * an application defect — page content can never cause a genuine finding
- * merely by attempting to navigate away.
+ * Emitted by every layer of off-origin navigation defense (§17-18), plus
+ * (Phase 4) real-target action-policy denials (src/safety/action-policy.ts).
+ * Never an application defect — page content can never cause a genuine
+ * finding merely by attempting to navigate away or by a denied action
+ * being denied.
  */
-export type SafetyEvent = {
-  code: "SAFETY_NAVIGATION_BLOCKED";
-  url: string;
-  mechanism: "route" | "post-action" | "framenavigated" | "popup";
-  timestamp: string;
-};
+export type SafetyEvent =
+  | {
+      code: "SAFETY_NAVIGATION_BLOCKED";
+      url: string;
+      mechanism: "route" | "post-action" | "framenavigated" | "popup";
+      timestamp: string;
+    }
+  | {
+      code: "ACTION_POLICY_DENIED";
+      reason: string;
+      mechanism: "execute-action" | "route";
+      timestamp: string;
+    };
 
 /**
  * Distinguishes an agent/tooling mistake (bad locator, timeout) from a

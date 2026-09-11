@@ -129,7 +129,7 @@ async function main(): Promise<void> {
       runDir,
       logger: runLogger,
       headless,
-      onProgress: (message) => console.log(message),
+      onProgress: (event) => console.log(event.detail),
     });
   } catch (error) {
     if (error instanceof ConfigError || error instanceof BrowserLaunchError) {

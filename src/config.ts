@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
-const originSchema = z
+export const originSchema = z
   .string()
   .refine((value) => {
     try {
@@ -12,6 +12,22 @@ const originSchema = z
       return false;
     }
   }, "must be a valid origin, e.g. http://localhost:4173");
+
+/** Extracted for reuse by src/profiles/schema.ts -- profiles carry the same explorer/critic provider shape as AppConfig.models, not a reinvented one. */
+export const modelsSchema = z.object({
+  explorer: z.object({
+    provider: z.enum(["auto", "mock", "anthropic", "openai", "ollama", "explabs"]),
+    model: z.string().optional(),
+  }),
+  critic: z.object({
+    enabled: z.boolean(),
+    provider: z.enum(["mock", "anthropic", "openai", "ollama", "explabs"]),
+    model: z.string().optional(),
+    requireIndependentProvider: z.boolean(),
+    maxCallsPerFinding: z.number().int().positive("models.critic.maxCallsPerFinding must be > 0"),
+  }),
+  providerTimeoutMs: z.number().int().positive("models.providerTimeoutMs must be > 0"),
+});
 
 const configSchema = z
   .object({
@@ -116,20 +132,7 @@ const configSchema = z
       console: z.boolean(),
       network: z.boolean(),
     }),
-    models: z.object({
-      explorer: z.object({
-        provider: z.enum(["auto", "mock", "anthropic", "openai", "ollama", "explabs"]),
-        model: z.string().optional(),
-      }),
-      critic: z.object({
-        enabled: z.boolean(),
-        provider: z.enum(["mock", "anthropic", "openai", "ollama", "explabs"]),
-        model: z.string().optional(),
-        requireIndependentProvider: z.boolean(),
-        maxCallsPerFinding: z.number().int().positive("models.critic.maxCallsPerFinding must be > 0"),
-      }),
-      providerTimeoutMs: z.number().int().positive("models.providerTimeoutMs must be > 0"),
-    }),
+    models: modelsSchema,
     requirements: z
       .object({
         enabled: z.boolean(),

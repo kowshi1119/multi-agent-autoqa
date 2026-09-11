@@ -9,8 +9,8 @@ export function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
 }
 
-function writeJson(dir: string, filename: string, data: unknown): string {
-  writeFileSync(join(dir, filename), redactSecrets(JSON.stringify(data, null, 2)), "utf-8");
+function writeJson(dir: string, filename: string, data: unknown, extraSecrets: readonly string[] = []): string {
+  writeFileSync(join(dir, filename), redactSecrets(JSON.stringify(data, null, 2), extraSecrets), "utf-8");
   return filename;
 }
 
@@ -41,38 +41,44 @@ export function writeFindingEvidence(
     visibleTextExcerpt: string;
     screenshotPath?: string;
     tracePath?: string;
-  }
+  },
+  extraSecrets: readonly string[] = []
 ): EvidenceWriteResult {
   ensureDir(evidenceDir);
 
   const filenames: string[] = [];
   const skipped: string[] = [];
 
-  filenames.push(writeJson(evidenceDir, "oracle.json", input.oracle));
+  filenames.push(writeJson(evidenceDir, "oracle.json", input.oracle, extraSecrets));
   filenames.push(
-    writeJson(evidenceDir, "reproduction.json", {
-      attempts: input.reproduction.attempts,
-      successes: input.reproduction.successes,
-      results: input.attempts,
-      representativeAttempt: input.representativeAttempt,
-      evidenceCompleteness: input.evidenceCompleteness,
-    })
+    writeJson(
+      evidenceDir,
+      "reproduction.json",
+      {
+        attempts: input.reproduction.attempts,
+        successes: input.reproduction.successes,
+        results: input.attempts,
+        representativeAttempt: input.representativeAttempt,
+        evidenceCompleteness: input.evidenceCompleteness,
+      },
+      extraSecrets
+    )
   );
-  filenames.push(writeJson(evidenceDir, "visible-text.json", { excerpt: input.visibleTextExcerpt }));
+  filenames.push(writeJson(evidenceDir, "visible-text.json", { excerpt: input.visibleTextExcerpt }, extraSecrets));
 
   if (config.evidence.console) {
-    filenames.push(writeJson(evidenceDir, "console.json", input.consoleMessages));
+    filenames.push(writeJson(evidenceDir, "console.json", input.consoleMessages, extraSecrets));
   } else {
     skipped.push("console.json (disabled by evidence.console: false)");
   }
 
   if (config.evidence.network) {
-    filenames.push(writeJson(evidenceDir, "network.json", input.networkRequests));
+    filenames.push(writeJson(evidenceDir, "network.json", input.networkRequests, extraSecrets));
   } else {
     skipped.push("network.json (disabled by evidence.network: false)");
   }
 
-  filenames.push(writeJson(evidenceDir, "page-errors.json", input.pageErrors));
+  filenames.push(writeJson(evidenceDir, "page-errors.json", input.pageErrors, extraSecrets));
 
   if (config.evidence.screenshots) {
     if (input.screenshotPath) {
@@ -104,7 +110,7 @@ export function writeFindingEvidence(
  * Never contains hidden reasoning -- only the same structured fields as
  * CriticDecision plus provider/model.
  */
-export function writeCriticArtifact(evidenceDir: string, artifact: CriticArtifact): string {
+export function writeCriticArtifact(evidenceDir: string, artifact: CriticArtifact, extraSecrets: readonly string[] = []): string {
   ensureDir(evidenceDir);
-  return writeJson(evidenceDir, "critic.json", artifact);
+  return writeJson(evidenceDir, "critic.json", artifact, extraSecrets);
 }

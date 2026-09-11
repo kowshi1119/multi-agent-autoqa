@@ -84,20 +84,54 @@ export function buildCriticInput(
   };
 }
 
+// Usage accounting (Phase 4 continuation) happens inside the provider's own
+// complete() boundary, wired at construction time (see
+// run-pipeline.ts#selectCriticProvider) -- CriticDeps deliberately carries
+// no usageTracker field, since Critic itself never needs to read one.
 export type CriticDeps = {
   criticProvider: CriticProvider | null;
   config: AppConfig;
   logger: Logger;
   requirements: RequirementRule[];
   budget: BudgetTracker;
+  /** This run's transient, non-env credential values -- scrubbed from the persisted critic.json artifact (Phase 4 continuation secret-hygiene fix). */
+  extraSecrets?: string[];
+  /** UI-driven stop (Phase 4 continuation cancellation fix) -- combined with the per-call timeout into the signal actually passed to the provider's SDK request (see deriveTimeoutSignal). Absent for a CLI run (never aborts). */
+  abortSignal?: AbortSignal;
 };
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/**
+ * Exported so src/experiments/conditions.ts shares the exact same timeout
+ * mechanism -- not a second, independently-reimplemented one.
+ *
+ * `Promise.race` alone (the original implementation) never aborts the
+ * losing promise -- a "timed out" provider call kept running to
+ * completion in the background regardless, still consuming a real network
+ * request and eventually resolving/rejecting into nothing. Pair this with
+ * deriveTimeoutSignal() below: the SAME `ms` deadline drives both this
+ * race (which produces the CriticUnavailableError) and an AbortSignal
+ * passed into the provider's own SDK call, so the underlying HTTP request
+ * is genuinely cancelled at (approximately) the same moment this promise
+ * rejects, not merely abandoned.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new CriticUnavailableError(`Critic call exceeded providerTimeoutMs (${ms}ms)`)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Builds the AbortSignal actually passed into a provider's SDK call:
+ * fires on the same `ms` deadline withTimeout() races against, AND on the
+ * run's own abortSignal (a user-initiated Stop) when supplied -- whichever
+ * comes first. This is what makes a timeout or a Stop abort the real
+ * in-flight HTTP request, not just the logical await in this process.
+ */
+export function deriveTimeoutSignal(ms: number, external?: AbortSignal): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(ms);
+  return external ? AbortSignal.any([timeoutSignal, external]) : timeoutSignal;
 }
 
 /**
@@ -120,12 +154,15 @@ export class Critic {
       return { finding: { ...finding, reportDisposition } };
     }
 
-    const { criticProvider, config, logger, requirements, budget } = this.deps;
+    const { criticProvider, config, logger, requirements, budget, extraSecrets, abortSignal } = this.deps;
     const criticEnabled = config.models.critic.enabled && criticProvider !== null;
 
     let outcome: CriticOutcome;
     if (!criticEnabled) {
       outcome = { kind: "disabled" };
+    } else if (abortSignal?.aborted) {
+      logger.info({ findingId: finding.id }, "CANCELLED: skipping critic call (Stop requested)");
+      outcome = { kind: "unavailable", reason: "CANCELLED: run was stopped before this critic call started" };
     } else if (!budget.canCallCritic() || budget.isDurationExceeded()) {
       logger.warn(
         { findingId: finding.id },
@@ -146,7 +183,13 @@ export class Critic {
       );
       budget.recordCriticCall();
       try {
-        const decision = await withTimeout(criticProvider.critique(input), config.models.providerTimeoutMs);
+        // Usage accounting (Phase 4 continuation) now happens inside the
+        // provider's own complete() boundary, not here -- see
+        // provider-implementation.ts/anthropic-critic-provider.ts. The
+        // signal passed to critique() ties the timeout AND a
+        // user-initiated Stop to the actual in-flight SDK request.
+        const signal = deriveTimeoutSignal(config.models.providerTimeoutMs, abortSignal);
+        const decision = await withTimeout(criticProvider.critique(input, signal), config.models.providerTimeoutMs);
         const contradiction = firstContradiction(checkClaims(decision, input));
         if (contradiction) {
           const reason = `CRITIC_EVIDENCE_CONTRADICTION: ${contradiction.claim} -- ${contradiction.detail}`;
@@ -154,11 +197,15 @@ export class Critic {
           outcome = { kind: "contradiction", reason };
         } else {
           outcome = { kind: "decided", decision };
-          writeCriticArtifact(evidenceDir, {
-            provider: criticProvider.name,
-            ...(criticProvider.modelId ? { model: criticProvider.modelId } : {}),
-            ...decision,
-          });
+          writeCriticArtifact(
+            evidenceDir,
+            {
+              provider: criticProvider.name,
+              ...(criticProvider.modelId ? { model: criticProvider.modelId } : {}),
+              ...decision,
+            },
+            extraSecrets
+          );
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

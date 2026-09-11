@@ -30,6 +30,10 @@ export interface CriticProvider {
    * CriticOutputInvalidError (bad JSON/schema after one repair) or
    * CriticUnavailableError (timeout/outage). Both map to
    * reportDisposition="needs_human" — never auto-report on failure.
+   *
+   * `signal` (Phase 4 continuation cancellation fix) is passed straight
+   * into the underlying SDK request; see ExplorerProvider.decideNextAction
+   * for the identical rationale.
    */
-  critique(input: CriticInput): Promise<CriticDecision>;
+  critique(input: CriticInput, signal?: AbortSignal): Promise<CriticDecision>;
 }

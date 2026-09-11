@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AutoQA</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fafafa; --border: #d0d0d0; --accent: #2563eb; --danger: #b91c1c; --ok: #15803d; --muted: #6b7280; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e5e5e5; --bg: #17181a; --border: #3a3a3a; --accent: #60a5fa; --muted: #9aa0a6; } }
+  body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 900px; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.05rem; margin-top: 2em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  section { margin-bottom: 1.5em; }
+  label { display: block; margin: 0.6em 0 0.2em; font-size: 0.9rem; }
+  select, input[type=text], input[type=password] { font-size: 1rem; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: inherit; width: 100%; max-width: 360px; }
+  button { font-size: 0.95rem; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.danger { background: var(--danger); color: white; border-color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .check-row { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; }
+  .check-pass { color: var(--ok); }
+  .check-fail { color: var(--danger); }
+  .check-skipped { color: var(--muted); }
+  .next-step { color: var(--muted); font-size: 0.85rem; margin-left: 1.4em; }
+  .counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; margin: 0.6em 0; }
+  .counter { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+  .counter .n { font-size: 1.2rem; font-weight: 600; }
+  .counter .l { font-size: 0.75rem; color: var(--muted); }
+  .status-line { font-weight: 600; margin: 0.4em 0; }
+  fieldset { border: 1px solid var(--border); border-radius: 6px; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 4px; font-size: 0.95rem; }
+  .bucket-title { font-size: 0.95rem; font-weight: 600; margin-top: 1em; }
+  .empty { color: var(--muted); font-style: italic; }
+  .error-text { color: var(--danger); }
+  details.advanced summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+  .run-row { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 6px 0; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>AutoQA control panel</h1>
+
+<section id="profile-section">
+  <h2>1. Choose a project</h2>
+  <label for="profile-select">Profile</label>
+  <select id="profile-select"></select>
+  <div style="margin-top:0.6em;">
+    <button id="check-setup-btn">Check setup</button>
+  </div>
+  <div id="preflight-results" style="margin-top:0.6em;"></div>
+</section>
+
+<section id="auth-section" hidden>
+  <h2>2. Sign in for this run</h2>
+  <p class="empty">Not saved -- used only for this run.</p>
+  <label for="auth-username">Username</label>
+  <input type="text" id="auth-username" autocomplete="off" />
+  <label for="auth-password">Password</label>
+  <input type="password" id="auth-password" autocomplete="off" />
+</section>
+
+<section id="mode-section">
+  <h2>3. Mode</h2>
+  <label><input type="radio" name="mode" value="demo" checked /> Demo (deterministic, no live model calls)</label>
+  <label><input type="radio" name="mode" value="live" id="mode-live-radio" /> Live (uses the profile's configured provider)</label>
+  <div id="live-limits-notice" class="next-step" hidden></div>
+</section>
+
+<section id="run-section">
+  <h2>4. Run</h2>
+  <button id="start-btn" class="primary">Start</button>
+  <button id="stop-btn" class="danger" hidden>Stop</button>
+  <div class="status-line" id="status-line"></div>
+  <div class="counters" id="counters" hidden>
+    <div class="counter"><div class="n" id="c-pages">0</div><div class="l">Pages visited</div></div>
+    <div class="counter"><div class="n" id="c-actions">0</div><div class="l">Actions performed</div></div>
+    <div class="counter"><div class="n" id="c-remaining-actions">-</div><div class="l">Remaining actions</div></div>
+    <div class="counter"><div class="n" id="c-remaining-time">-</div><div class="l">Remaining time (s)</div></div>
+    <div class="counter"><div class="n" id="c-reportable">0</div><div class="l">Reportable issues</div></div>
+    <div class="counter"><div class="n" id="c-needs-review">0</div><div class="l">Needs review</div></div>
+  </div>
+</section>
+
+<section id="results-section" hidden>
+  <h2>5. Results</h2>
+  <div id="results"></div>
+</section>
+
+<section id="prior-runs-section">
+  <h2>Prior runs</h2>
+  <div id="prior-runs"></div>
+</section>
+
+<script>
+(function () {
+  "use strict";
+  var CSRF_TOKEN = "__CSRF_TOKEN__";
+  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null };
+
+  function el(id) { return document.getElementById(id); }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = Object.assign({}, opts.headers || {});
+    if (opts.method && opts.method !== "GET") headers["X-CSRF-Token"] = CSRF_TOKEN;
+    if (opts.body) headers["Content-Type"] = "application/json";
+    return fetch(path, Object.assign({}, opts, { headers: headers }))
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(data && data.error ? data.error : ("HTTP " + res.status));
+          return data;
+        });
+      });
+  }
+
+  function setText(node, text) {
+    node.textContent = text; // never innerHTML with captured application/server text
+  }
+
+  function loadProfiles() {
+    return api("/api/profiles").then(function (data) {
+      state.profiles = data.profiles;
+      var select = el("profile-select");
+      select.innerHTML = "";
+      data.profiles.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.id;
+        setText(opt, p.name + " (" + p.environmentKind + ")");
+        select.appendChild(opt);
+      });
+      updateAuthVisibility();
+    });
+  }
+
+  function currentProfile() {
+    var id = el("profile-select").value;
+    return state.profiles.find(function (p) { return p.id === id; });
+  }
+
+  function updateAuthVisibility() {
+    var profile = currentProfile();
+    el("auth-section").hidden = !profile || profile.authMode === "none";
+  }
+
+  el("profile-select").addEventListener("change", updateAuthVisibility);
+
+  el("check-setup-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile) return;
+    var container = el("preflight-results");
+    container.innerHTML = "";
+    setText(container, "Checking...");
+    api("/api/preflight?profileId=" + encodeURIComponent(profile.id)).then(function (report) {
+      container.innerHTML = "";
+      report.checks.forEach(function (check) {
+        var row = document.createElement("div");
+        row.className = "check-row";
+        var mark = document.createElement("span");
+        mark.className = check.status === "pass" ? "check-pass" : check.status === "skipped" ? "check-skipped" : "check-fail";
+        setText(mark, check.status === "pass" ? "✓" : check.status === "skipped" ? "-" : "✗");
+        row.appendChild(mark);
+        var label = document.createElement("span");
+        setText(label, check.name + ": " + check.detail);
+        row.appendChild(label);
+        container.appendChild(row);
+        if (check.nextStep) {
+          var next = document.createElement("div");
+          next.className = "next-step";
+          setText(next, "Next step: " + check.nextStep);
+          container.appendChild(next);
+        }
+      });
+      var overall = document.createElement("div");
+      overall.className = "status-line";
+      setText(overall, "Overall: " + (report.overallReady ? "READY" : "NOT READY"));
+      container.appendChild(overall);
+    }).catch(function (err) {
+      setText(container, "Setup check failed: " + err.message);
+      container.className = "error-text";
+    });
+  });
+
+  function updateLiveNotice() {
+    var profile = currentProfile();
+    var isLive = el("mode-live-radio").checked;
+    var notice = el("live-limits-notice");
+    if (isLive && profile) {
+      notice.hidden = false;
+      setText(notice, "Live run limits -- actions: " + profile.limits.maxActions + ", model calls: " + profile.limits.maxModelCalls +
+        ", pages: " + profile.limits.maxPages + ", duration: " + Math.round(profile.limits.maxDurationMs / 1000) + "s. " +
+        "Monetary cost cannot be guaranteed unless verified pricing metadata is configured; these request/time limits are the enforced control.");
+    } else {
+      notice.hidden = true;
+    }
+  }
+  document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", updateLiveNotice); });
+  el("profile-select").addEventListener("change", updateLiveNotice);
+
+  function resetCounters() {
+    ["c-pages", "c-actions", "c-remaining-actions", "c-remaining-time", "c-reportable", "c-needs-review"].forEach(function (id) {
+      setText(el(id), "0");
+    });
+  }
+
+  function applyProgressEvent(evt) {
+    setText(el("status-line"), phaseLabel(evt.phase) + " -- " + evt.detail);
+    el("counters").hidden = false;
+    setText(el("c-pages"), String(evt.pagesVisited));
+    setText(el("c-actions"), String(evt.actionsPerformed));
+    setText(el("c-remaining-actions"), String(evt.remainingActions));
+    setText(el("c-remaining-time"), String(Math.round(evt.remainingDurationMs / 1000)));
+    setText(el("c-reportable"), String(evt.reportableCount));
+    setText(el("c-needs-review"), String(evt.needsReviewCount));
+  }
+
+  function phaseLabel(phase) {
+    var labels = {
+      "checking-setup": "Checking setup",
+      "signing-in": "Signing in",
+      "exploring": "Exploring",
+      "reproducing": "Reproducing issue",
+      "reviewing": "Reviewing evidence",
+      "completed": "Completed",
+      "stopped": "Stopped",
+      "failed": "Failed"
+    };
+    return labels[phase] || phase;
+  }
+
+  el("start-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile) return;
+    var mode = document.querySelector('input[name="mode"]:checked').value;
+    var body = { profileId: profile.id, mode: mode };
+    if (profile.authMode !== "none") {
+      body.credentials = { username: el("auth-username").value, password: el("auth-password").value };
+    }
+    if (mode === "live") body.confirmedLimits = profile.limits;
+
+    el("start-btn").disabled = true;
+    api("/api/runs", { method: "POST", body: JSON.stringify(body) }).then(function (data) {
+      state.currentRunId = data.runId;
+      el("stop-btn").hidden = false;
+      el("results-section").hidden = true;
+      resetCounters();
+      setText(el("status-line"), "Starting...");
+      subscribeToRun(data.runId);
+    }).catch(function (err) {
+      setText(el("status-line"), "Could not start: " + err.message);
+      el("status-line").className = "status-line error-text";
+      el("start-btn").disabled = false;
+    });
+  });
+
+  el("stop-btn").addEventListener("click", function () {
+    if (!state.currentRunId) return;
+    api("/api/runs/" + encodeURIComponent(state.currentRunId) + "/stop", { method: "POST" });
+  });
+
+  function subscribeToRun(runId) {
+    if (state.eventSource) state.eventSource.close();
+    var source = new EventSource("/api/runs/" + encodeURIComponent(runId) + "/events");
+    state.eventSource = source;
+    source.onmessage = function (msg) {
+      var evt = JSON.parse(msg.data);
+      applyProgressEvent(evt);
+      if (evt.phase === "completed" || evt.phase === "stopped" || evt.phase === "failed") {
+        finishRun(runId);
+      }
+    };
+    source.onerror = function () {
+      // Reconnect-after-drop falls back to polling status rather than replaying history.
+      source.close();
+      pollStatus(runId);
+    };
+  }
+
+  function pollStatus(runId) {
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(function () {
+      api("/api/runs/" + encodeURIComponent(runId) + "/status").then(function (data) {
+        if (!data.active) {
+          clearInterval(state.pollTimer);
+          finishRun(runId);
+        }
+      });
+    }, 2000);
+  }
+
+  function finishRun(runId) {
+    if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    el("stop-btn").hidden = true;
+    el("start-btn").disabled = false;
+    loadReport(runId);
+    loadPriorRuns();
+  }
+
+  function loadReport(runId) {
+    fetch("/api/artifacts/" + encodeURIComponent(runId) + "/report.json").then(function (res) {
+      if (!res.ok) return null;
+      return res.json();
+    }).then(function (report) {
+      if (report) renderResults(report, runId);
+    });
+  }
+
+  function bucketFor(finding) {
+    if (finding.reportDisposition === "report") return "Reportable";
+    if (finding.reportDisposition === "needs_human") return "Needs Review";
+    if (finding.reportDisposition === "suppress") return "Suppressed";
+    return "Not Reproduced";
+  }
+
+  // Ordinary (non-blind) manual triage -- an optional per-card annotation
+  // shown alongside the machine's own verdict, saved separately
+  // (runs/<id>/triage.json), never mutating report.json/finding.json.
+  function buildTriageControl(findingId, runId) {
+    var wrap = document.createElement("div");
+    wrap.style.marginTop = "6px";
+
+    var label = document.createElement("label");
+    setText(label, "Your triage: ");
+    label.style.display = "inline";
+
+    var select = document.createElement("select");
+    select.style.width = "auto";
+    select.style.display = "inline";
+    [["", "(not triaged)"], ["defect", "Defect"], ["expected-behavior", "Expected behavior"], ["unsure", "Unsure"]].forEach(function (pair) {
+      var opt = document.createElement("option");
+      opt.value = pair[0];
+      setText(opt, pair[1]);
+      select.appendChild(opt);
+    });
+
+    var status = document.createElement("span");
+    status.className = "next-step";
+    status.style.marginLeft = "8px";
+
+    select.addEventListener("change", function () {
+      if (!select.value) return;
+      api("/api/runs/" + encodeURIComponent(runId) + "/triage", {
+        method: "POST",
+        body: JSON.stringify({ findingId: findingId, verdict: select.value }),
+      }).then(function () {
+        setText(status, "saved");
+      }).catch(function (err) {
+        setText(status, "not saved: " + err.message);
+      });
+    });
+
+    label.appendChild(select);
+    wrap.appendChild(label);
+    wrap.appendChild(status);
+    return wrap;
+  }
+
+  function renderResults(report, runId) {
+    el("results-section").hidden = false;
+    var container = el("results");
+    container.innerHTML = "";
+
+    var canonicalIds = new Set((report.groups || []).map(function (g) { return g.canonicalFindingId; }));
+    var groupedMemberIds = new Set();
+    (report.groups || []).forEach(function (g) { g.memberFindingIds.forEach(function (id) { groupedMemberIds.add(id); }); });
+    var canonicalFindings = (report.findings || []).filter(function (f) {
+      return !groupedMemberIds.has(f.id) || canonicalIds.has(f.id);
+    });
+
+    if (canonicalFindings.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "empty";
+      setText(empty, "No reportable issues found within this run's scope. This does not mean the target has no bugs -- only that none were found within the run's budget and workflow scope.");
+      container.appendChild(empty);
+      return;
+    }
+
+    var buckets = { "Reportable": [], "Needs Review": [], "Suppressed": [], "Not Reproduced": [] };
+    canonicalFindings.forEach(function (f) {
+      if (f.status !== "validated" && f.reportDisposition !== "report" && f.reportDisposition !== "needs_human" && f.reportDisposition !== "suppress") {
+        buckets["Not Reproduced"].push(f);
+      } else {
+        buckets[bucketFor(f)].push(f);
+      }
+    });
+
+    Object.keys(buckets).forEach(function (bucketName) {
+      var items = buckets[bucketName];
+      var title = document.createElement("div");
+      title.className = "bucket-title";
+      setText(title, bucketName + " (" + items.length + ")");
+      container.appendChild(title);
+      if (items.length === 0) {
+        var none = document.createElement("p");
+        none.className = "empty";
+        setText(none, "None.");
+        container.appendChild(none);
+        return;
+      }
+      items.forEach(function (f) {
+        var card = document.createElement("div");
+        card.className = "card";
+        var h3 = document.createElement("h3");
+        setText(h3, f.id + ": " + f.title);
+        card.appendChild(h3);
+        [
+          "Expected: " + f.expected,
+          "Actual: " + f.actual,
+          "Reproduction: " + f.reproduction.successes + "/" + f.reproduction.attempts,
+          "Evidence: " + (f.evidenceLevel || ""),
+          "Critic: " + (f.critic ? f.critic.verdict : "n/a"),
+          f.groupId ? "Related manifestations grouped under " + f.groupId : ""
+        ].forEach(function (line) {
+          if (!line) return;
+          var p = document.createElement("div");
+          setText(p, line);
+          card.appendChild(p);
+        });
+        card.appendChild(buildTriageControl(f.id, runId));
+        container.appendChild(card);
+      });
+    });
+  }
+
+  function loadPriorRuns() {
+    api("/api/runs").then(function (data) {
+      var container = el("prior-runs");
+      container.innerHTML = "";
+      if (data.runs.length === 0) {
+        var empty = document.createElement("p");
+        empty.className = "empty";
+        setText(empty, "No prior runs yet.");
+        container.appendChild(empty);
+        return;
+      }
+      data.runs.forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "run-row";
+        var left = document.createElement("span");
+        setText(left, r.runId + " -- " + r.status);
+        var right = document.createElement("span");
+        setText(right, (r.validatedFindings || 0) + " validated");
+        row.appendChild(left);
+        row.appendChild(right);
+        row.tabIndex = 0;
+        row.style.cursor = "pointer";
+        row.addEventListener("click", function () { loadReport(r.runId); el("results-section").scrollIntoView({ behavior: "smooth" }); });
+        row.addEventListener("keypress", function (e) { if (e.key === "Enter") row.click(); });
+        container.appendChild(row);
+      });
+    });
+  }
+
+  loadProfiles().then(loadPriorRuns);
+})();
+</script>
+</body>
+</html>

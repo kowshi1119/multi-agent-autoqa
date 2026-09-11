@@ -17,7 +17,7 @@ export type QaReport = {
   runId: string;
   startedAt: string;
   finishedAt: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "cancelled";
   stopReason?: string;
   target: { url: string; environment: string };
   provider: { name: string; model?: string };
@@ -42,6 +42,13 @@ export type QaReport = {
   phase2?: Phase2Metrics;
   safetyEventCount: number;
   errorClassification?: string;
+  /** Provider usage accounting (Phase 4 Milestone D1) -- see RunSummary's matching field for the exact semantics (null means unknown/unguaranteed, never fabricated). */
+  usage: {
+    explorer: { requests: number; tokenUsage: { input: number; output: number } | null };
+    critic: { requests: number; tokenUsage: { input: number; output: number } | null };
+    estimatedCostUsd: number | null;
+    costDisclosure: string;
+  };
 };
 
 /** Validated-findings-only, by oracleId. */
@@ -178,6 +185,15 @@ export function buildReportMarkdown(report: QaReport): string {
     }
     lines.push("");
   }
+
+  lines.push("## Provider usage", "");
+  lines.push(`Explorer requests: ${report.usage.explorer.requests}`, "");
+  lines.push(`Critic requests: ${report.usage.critic.requests}`, "");
+  lines.push(
+    `Estimated cost: ${report.usage.estimatedCostUsd === null ? "cannot be guaranteed" : `$${report.usage.estimatedCostUsd.toFixed(4)}`}`,
+    ""
+  );
+  lines.push(report.usage.costDisclosure, "");
 
   lines.push("## Evidence policy", "");
   lines.push(report.tracePolicy, "");

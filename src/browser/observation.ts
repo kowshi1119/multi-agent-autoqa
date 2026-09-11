@@ -27,18 +27,18 @@ export function createPageRecords(): PageRecords {
   return { consoleMessages: [], pageErrors: [], networkRequests: [], dialogs: [] };
 }
 
-export function attachPageRecorders(page: Page, records: PageRecords): void {
+export function attachPageRecorders(page: Page, records: PageRecords, extraSecrets: readonly string[] = []): void {
   page.on("console", (message) => {
     records.consoleMessages.push({
       type: message.type(),
-      text: redactSecrets(message.text()),
+      text: redactSecrets(message.text(), extraSecrets),
       timestamp: new Date().toISOString(),
     });
   });
 
   page.on("pageerror", (error) => {
     records.pageErrors.push({
-      message: redactSecrets(error.message),
+      message: redactSecrets(error.message, extraSecrets),
       timestamp: new Date().toISOString(),
     });
   });
@@ -75,7 +75,7 @@ export function attachPageRecorders(page: Page, records: PageRecords): void {
   page.on("dialog", (dialog) => {
     records.dialogs.push({
       dialogType: dialog.type(),
-      message: redactSecrets(dialog.message()),
+      message: redactSecrets(dialog.message(), extraSecrets),
       action: "dismissed",
       timestamp: new Date().toISOString(),
     });
@@ -293,10 +293,32 @@ function buildForms(structure: PageEvaluationResult): FormSummary[] {
  */
 const EVENT_SETTLE_MS = 150;
 
+const MASK_STYLE_MARKER_ID = "__autoqa_mask_style";
+
+/**
+ * Targeted, verifiable masking for authenticated real-target runs: blacks
+ * out every password-type field just before a screenshot is captured.
+ * This is NOT a general redaction claim -- native traces/HAR can still
+ * carry secrets after login (see src/auth's secret-hygiene notes); this
+ * covers screenshots specifically. Idempotent (checks a marker id) so
+ * repeated observe() calls across one long-running session don't
+ * accumulate duplicate <style> tags.
+ */
+async function maskPasswordFields(page: Page): Promise<void> {
+  await page.evaluate((markerId: string) => {
+    if (document.getElementById(markerId)) return;
+    const style = document.createElement("style");
+    style.id = markerId;
+    style.textContent = "input[type=password] { -webkit-text-security: disc !important; background: #000 !important; color: #000 !important; }";
+    document.head.appendChild(style);
+  }, MASK_STYLE_MARKER_ID);
+}
+
 export async function observe(
   page: Page,
   records: PageRecords,
-  options: { screenshotPath?: string } = {}
+  options: { screenshotPath?: string; maskSecrets?: boolean } = {},
+  extraSecrets: readonly string[] = []
 ): Promise<Observation> {
   await page.waitForTimeout(EVENT_SETTLE_MS);
   const url = page.url();
@@ -305,7 +327,7 @@ export async function observe(
   const viewport = page.viewportSize() ?? { width: 0, height: 0 };
 
   const rawText = await page.evaluate(() => document.body?.innerText ?? "");
-  const visibleText = redactSecrets(rawText).slice(0, MAX_VISIBLE_TEXT);
+  const visibleText = redactSecrets(rawText, extraSecrets).slice(0, MAX_VISIBLE_TEXT);
 
   const structure = await collectPageStructure(page);
   const interactiveElements: InteractiveElement[] = structure.elements;
@@ -313,6 +335,7 @@ export async function observe(
   const links = structure.links;
 
   if (options.screenshotPath) {
+    if (options.maskSecrets) await maskPasswordFields(page);
     await page.screenshot({ path: options.screenshotPath, fullPage: false });
   }
 

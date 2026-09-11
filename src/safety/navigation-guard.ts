@@ -3,7 +3,9 @@ import { isOriginAllowed } from "../actions.js";
 import type { Logger } from "../logger.js";
 import type { SafetyEvent } from "../types.js";
 
-function makeEvent(url: string, mechanism: SafetyEvent["mechanism"]): SafetyEvent {
+type NavigationBlockedMechanism = "route" | "post-action" | "framenavigated" | "popup";
+
+function makeEvent(url: string, mechanism: NavigationBlockedMechanism): SafetyEvent {
   return { code: "SAFETY_NAVIGATION_BLOCKED", url, mechanism, timestamp: new Date().toISOString() };
 }
 
@@ -46,7 +48,16 @@ export async function installRouteGuard(
   context: BrowserContext,
   allowedOrigins: string[],
   logger: Logger,
-  onSafetyEvent: (event: SafetyEvent) => void
+  onSafetyEvent: (event: SafetyEvent) => void,
+  /**
+   * Real-target action safety (Phase 4 Milestone A2), request-level
+   * defense-in-depth: an XHR/fetch whose method is state-changing and
+   * whose pathname isn't on the profile's explicit allowlist is aborted
+   * here too, catching mutations that never went through an observed
+   * click/Enter (e.g. a JS handler firing fetch() directly). Absent for a
+   * local-fixture profile/legacy direct-YAML run.
+   */
+  resourcePolicy?: (method: string, pathname: string, origin: string, resourceType: string) => { decision: "allowed" } | { decision: "denied"; reason: string }
 ): Promise<void> {
   await context.route("**/*", (route) => {
     const request = route.request();
@@ -67,6 +78,24 @@ export async function installRouteGuard(
         const event = makeEvent(request.url(), "route");
         logger.warn(event, "SAFETY_NAVIGATION_BLOCKED: aborted off-origin navigation request");
         onSafetyEvent(event);
+        void route.abort();
+        return;
+      }
+    } else if (resourcePolicy) {
+      let pathname: string;
+      let origin: string;
+      try {
+        const parsed = new URL(request.url());
+        pathname = parsed.pathname;
+        origin = parsed.origin;
+      } catch {
+        pathname = request.url();
+        origin = "";
+      }
+      const classification = resourcePolicy(request.method(), pathname, origin, request.resourceType());
+      if (classification.decision === "denied") {
+        logger.warn({ url: request.url(), method: request.method(), reason: classification.reason }, "ACTION_POLICY_DENIED: aborted unapproved resource request");
+        onSafetyEvent({ code: "ACTION_POLICY_DENIED", reason: classification.reason, mechanism: "route", timestamp: new Date().toISOString() });
         void route.abort();
         return;
       }

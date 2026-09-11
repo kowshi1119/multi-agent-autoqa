@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture",
+  "name": "AutoQA Local Fixture (positive control)",
+  "target": {
+    "url": "http://localhost:4173/",
+    "environmentKind": "local-fixture"
+  },
+  "navigation": {
+    "allowedOrigins": ["http://localhost:4173"],
+    "allowedPathPrefixes": ["/"]
+  },
+  "resources": {
+    "allowedApiOrigins": ["http://localhost:4173"]
+  },
+  "workflows": {
+    "allowedWorkflowKinds": ["navigate", "search", "filter", "sort", "paginate"]
+  },
+  "auth": {
+    "mode": "none"
+  },
+  "provider": {
+    "explorer": { "provider": "mock" },
+    "critic": {
+      "enabled": true,
+      "provider": "mock",
+      "requireIndependentProvider": false,
+      "maxCallsPerFinding": 1
+    },
+    "providerTimeoutMs": 30000
+  },
+  "limits": {
+    "maxActions": 80,
+    "maxModelCalls": 60,
+    "maxPages": 10,
+    "maxFindings": 15,
+    "maxDurationMs": 300000,
+    "maxCriticCalls": 15
+  }
+}

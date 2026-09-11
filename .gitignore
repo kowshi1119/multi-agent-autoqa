@@ -2,6 +2,11 @@ node_modules/
 dist/
 runs/*
 !runs/.gitkeep
+# Custom user-created profiles stay local (may reference a private target
+# URL); the two shipped defaults are tracked.
+profiles/*.json
+!profiles/fixture.json
+!profiles/orangehrm.json
 .env
 .env.*
 !.env.example

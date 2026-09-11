@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Finding } from "../types.js";
-import type { HumanReviewExport, HumanReviewItem } from "./types.js";
+import type { HumanReviewExport, HumanReviewItem, HumanReviewMapping } from "./types.js";
 
 /**
  * Builds a blind review export: opaque itemIds (random UUIDs, never
@@ -13,7 +13,7 @@ import type { HumanReviewExport, HumanReviewItem } from "./types.js";
 export function exportForBlindReview(
   findings: Finding[],
   exportId: string = randomUUID()
-): { export: HumanReviewExport; itemIdToFindingId: Record<string, string> } {
+): { export: HumanReviewExport; mapping: HumanReviewMapping } {
   const items: HumanReviewItem[] = [];
   const itemIdToFindingId: Record<string, string> = {};
 
@@ -35,6 +35,9 @@ export function exportForBlindReview(
 
   return {
     export: { schemaVersion: 1, exportId, createdAt: new Date().toISOString(), items },
-    itemIdToFindingId,
+    // Carries its own exportId (Phase 4 Milestone D2) so import-cli.ts can
+    // reject a label file being applied against a mapping from a
+    // different export.
+    mapping: { schemaVersion: 1, exportId, itemIdToFindingId },
   };
 }

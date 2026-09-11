@@ -1,22 +1,27 @@
 import { join } from "node:path";
 import { executeAction, isOriginAllowed } from "../actions.js";
-import type { BrowserManager, PageSession } from "../browser/browser.js";
+import type { SessionBootstrap, TransientCredentials } from "../auth/session-bootstrap.js";
+import { AuthenticationError, type BrowserManager, type PageSession, type StorageState } from "../browser/browser.js";
 import { observe } from "../browser/observation.js";
 import type { BudgetTracker } from "../budget.js";
 import type { AppConfig } from "../config.js";
-import { Critic } from "../critic/critic-runner.js";
+import { Critic, deriveTimeoutSignal } from "../critic/critic-runner.js";
 import { evidenceLevelForOracle } from "../critic/evidence-level.js";
 import { ensureDir, writeFindingEvidence } from "../evidence.js";
 import { Explorer } from "../explorer.js";
 import type { Logger } from "../logger.js";
+import { credentialSecrets } from "../redact.js";
 import { PageMapper } from "../mapping/mapper.js";
 import type { ModelRouter } from "../models/model-router.js";
 import type { Oracle } from "../oracles.js";
 import { markExecuted } from "../qa/heuristic-tracker.js";
 import type { QaHeuristic } from "../qa/heuristics.js";
 import { Planner } from "../qa/planner.js";
+import type { ProjectProfile } from "../profiles/schema.js";
+import { phaseForState, reportableAndNeedsReviewCounts, type RunProgressEvent } from "../progress.js";
 import { buildFindingNarrative, buildFindingTitle, categoryForOracle, generateFindingId, writeFindingJson } from "../report.js";
 import { dedupKeyForFinding, findExistingFinding } from "../reporting/dedup.js";
+import type { ActionPolicy } from "../safety/action-policy.js";
 import type { Finding, Observation, OracleResult, RecordedStep, RequirementRule, SafetyEvent, TestCandidate } from "../types.js";
 import { Validator } from "../validator.js";
 import { assertValidTransition, type QaState } from "./states.js";
@@ -33,8 +38,20 @@ export type OrchestratorDeps = {
   mapper: PageMapper;
   runDir: string;
   requirements: RequirementRule[];
-  /** Human-readable progress line for the terminal narrative — never raw model chain-of-thought, only structured decisions/results. */
-  onProgress?: (message: string) => void;
+  /**
+   * Structured progress events (Phase 4 Milestone B) -- never raw model
+   * chain-of-thought, only structured decisions/results. `.detail` is the
+   * same human-readable line the CLI has always printed via
+   * console.log(event.detail); the rest of the fields are new, real
+   * counters (never a fabricated percent-complete) the UI renders.
+   */
+  onProgress?: (event: RunProgressEvent) => void;
+  /** Real-target action safety (Phase 4 Milestone A2) -- absent for a local-fixture profile/legacy direct-YAML run, preserving today's behavior exactly. */
+  actionPolicy?: ActionPolicy;
+  /** Session bootstrap / authentication (Phase 4 Milestone A3) -- absent for a no-auth profile/legacy direct-YAML run. */
+  sessionAuth?: { sessionBootstrap: SessionBootstrap; profile: ProjectProfile; credentials?: TransientCredentials };
+  /** UI-driven stop (Phase 4 Milestone B) -- checked between FSM steps and between Validator replay attempts; absent for a CLI run (never aborts). */
+  abortSignal?: AbortSignal;
 };
 
 /** Ephemeral per-cycle scratch data (before/after observation, chosen candidate). Reset at the top of every CONTINUE -> MAP transition. */
@@ -67,18 +84,35 @@ export class Orchestrator {
   private session!: PageSession;
   private readonly safetyEvents: SafetyEvent[] = [];
   private cycle: CycleState = freshCycle();
+  /** Captured once, right after a successful initial login, so Validator's per-attempt fresh contexts can reuse it instead of re-running the full login every replay (see validateFinding()). */
+  private authStorageState?: StorageState;
+  /** This run's transient, non-env credential values (Phase 4 continuation secret-hygiene fix) -- scrubbed from evidence/logs on top of the existing env-derived redaction, never written to process.env. */
+  private readonly extraSecrets: string[];
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.explorer = new Explorer(deps.modelRouter.getExplorer(), deps.logger);
     this.planner = new Planner(deps.heuristics, deps.config);
+    this.extraSecrets = credentialSecrets(deps.sessionAuth?.credentials);
   }
 
   getSafetyEvents(): SafetyEvent[] {
     return [...this.safetyEvents];
   }
 
-  private progress(message: string): void {
-    this.deps.onProgress?.(message);
+  private progress(ctx: RunContext, detail: string): void {
+    if (!this.deps.onProgress) return;
+    const { reportableCount, needsReviewCount } = reportableAndNeedsReviewCounts(ctx.findings);
+    const event: RunProgressEvent = {
+      phase: phaseForState(ctx.state),
+      detail,
+      pagesVisited: ctx.pagesVisited,
+      actionsPerformed: ctx.actionsPerformed,
+      remainingActions: Math.max(0, this.deps.config.agent.maxActions - ctx.actionsPerformed),
+      remainingDurationMs: Math.max(0, this.deps.config.agent.maxDurationMs - this.deps.budget.elapsedMs()),
+      reportableCount,
+      needsReviewCount,
+    };
+    this.deps.onProgress(event);
   }
 
   async closeSession(): Promise<void> {
@@ -90,14 +124,31 @@ export class Orchestrator {
   async run(ctx: RunContext): Promise<RunContext> {
     ctx = await this.initialize(ctx);
 
-    while (ctx.state !== "COMPLETE" && ctx.state !== "FAILED") {
+    while (ctx.state !== "COMPLETE" && ctx.state !== "FAILED" && ctx.state !== "CANCELLED") {
+      if (this.deps.abortSignal?.aborted) {
+        this.progress(ctx, "Stopping: cancelled by user");
+        this.deps.logger.info({}, "CANCELLED: stop requested");
+        ctx = this.transition(ctx, "CANCELLED", { stopReason: "CANCELLED: stop requested by user" });
+        break;
+      }
       ctx = { ...ctx, elapsedMs: this.deps.budget.elapsedMs() };
       try {
         ctx = await this.step(ctx);
       } catch (error) {
         const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-        this.deps.logger.error({ error: message, state: ctx.state }, "Orchestrator step failed");
-        ctx = this.transition(ctx, "FAILED", { stopReason: `INTERNAL_ERROR in state ${ctx.state}: ${message}` });
+        // A step that was genuinely aborted mid-flight (Stop pressed while
+        // an Explorer/Critic SDK call was in progress -- see
+        // deriveTimeoutSignal()) throws an AbortError here rather than
+        // silently ignoring the signal. Distinguish that from a real
+        // internal failure so the run's terminal status honestly reflects
+        // "cancelled", not "failed".
+        if (this.deps.abortSignal?.aborted) {
+          this.deps.logger.info({ state: ctx.state }, "CANCELLED: step aborted by user Stop");
+          ctx = this.transition(ctx, "CANCELLED", { stopReason: "CANCELLED: stop requested by user" });
+        } else {
+          this.deps.logger.error({ error: message, state: ctx.state }, "Orchestrator step failed");
+          ctx = this.transition(ctx, "FAILED", { stopReason: `INTERNAL_ERROR in state ${ctx.state}: ${message}` });
+        }
       }
     }
 
@@ -135,7 +186,29 @@ export class Orchestrator {
   }
 
   private async initialize(ctx: RunContext): Promise<RunContext> {
-    this.session = await this.deps.browserManager.newPageSession((event) => this.safetyEvents.push(event));
+    const { sessionAuth } = this.deps;
+    try {
+      this.session = await this.deps.browserManager.newPageSession(
+        (event) => this.safetyEvents.push(event),
+        this.deps.actionPolicy,
+        sessionAuth ? { sessionBootstrap: sessionAuth.sessionBootstrap, profile: sessionAuth.profile, credentials: sessionAuth.credentials } : undefined
+      );
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        this.deps.logger.error({ reason: error.reason }, "AUTH_FAILED");
+        return this.transition(ctx, "FAILED", { stopReason: error.message });
+      }
+      throw error;
+    }
+
+    if (sessionAuth) {
+      // Captured once, right after login, so Validator's fresh per-attempt
+      // contexts can reuse it (protected-page-accessibility re-verified
+      // each time, not trusted blindly) instead of re-running the full
+      // login every single replay attempt.
+      this.authStorageState = await this.session.context.storageState();
+    }
+
     try {
       await this.session.page.goto(this.deps.config.target.url);
     } catch (error) {
@@ -147,7 +220,7 @@ export class Orchestrator {
   }
 
   private async map(ctx: RunContext): Promise<RunContext> {
-    const observation = await observe(this.session.page, this.session.records);
+    const observation = await observe(this.session.page, this.session.records, {}, this.extraSecrets);
     const now = new Date().toISOString();
     const pageNode = this.deps.mapper.upsertPage(observation, now);
 
@@ -160,7 +233,7 @@ export class Orchestrator {
       ctx.visitedPages.add(observation.page.pathname);
       ctx.pagesVisited += 1;
       this.deps.budget.recordPageVisit();
-      this.progress(`Visited page: ${observation.page.pathname} (${pageNode.id})`);
+      this.progress(ctx, `Visited page: ${observation.page.pathname} (${pageNode.id})`);
     }
 
     // Feed the Planner's frontier fallback: every same-origin link seen on
@@ -194,14 +267,22 @@ export class Orchestrator {
     const remainingActions = this.deps.config.agent.maxActions - this.deps.budget.actionsPerformed;
     const remainingModelCalls = this.deps.config.agent.maxModelCalls - this.deps.budget.modelCalls;
 
-    const outcome = await this.explorer.decide({
-      observation: this.cycle.before as Observation,
-      candidates: this.cycle.candidates ?? [],
-      recentActions: ctx.recordedSteps.slice(-10),
-      remainingActions,
-      remainingModelCalls,
-      remainingDurationMs: this.deps.budget.remainingDurationMs(),
-    });
+    // Same timeout+Stop signal construction the Critic uses (Phase 4
+    // continuation cancellation fix) -- ties the model's own configured
+    // per-request timeout AND a user-initiated Stop to the real SDK call,
+    // not just to this awaited Promise.
+    const signal = deriveTimeoutSignal(this.deps.config.models.providerTimeoutMs, this.deps.abortSignal);
+    const outcome = await this.explorer.decide(
+      {
+        observation: this.cycle.before as Observation,
+        candidates: this.cycle.candidates ?? [],
+        recentActions: ctx.recordedSteps.slice(-10),
+        remainingActions,
+        remainingModelCalls,
+        remainingDurationMs: this.deps.budget.remainingDurationMs(),
+      },
+      signal
+    );
     this.deps.budget.recordModelCall();
     ctx = { ...ctx, modelCalls: this.deps.budget.modelCalls };
 
@@ -214,7 +295,7 @@ export class Orchestrator {
     }
 
     this.cycle.chosenCandidate = outcome.candidate;
-    this.progress(`→ ${outcome.candidate.description} (${outcome.decision.testingIntent})`);
+    this.progress(ctx, `→ ${outcome.candidate.description} (${outcome.decision.testingIntent})`);
 
     if (!this.deps.budget.canAct()) {
       return this.transition(ctx, "CONTINUE", { stopReason: "BUDGET_EXHAUSTED: maxActions" });
@@ -228,8 +309,14 @@ export class Orchestrator {
     const fromPageId = ctx.currentPageId;
 
     for (const action of candidate.actions) {
-      const result = await executeAction(this.session.page, action, this.deps.config, this.deps.logger, (event) =>
-        this.safetyEvents.push(event)
+      const result = await executeAction(
+        this.session.page,
+        action,
+        this.deps.config,
+        this.deps.logger,
+        (event) => this.safetyEvents.push(event),
+        this.deps.actionPolicy,
+        this.extraSecrets
       );
       this.deps.budget.recordAction();
       ctx = { ...ctx, actionsPerformed: this.deps.budget.actionsPerformed };
@@ -265,7 +352,7 @@ export class Orchestrator {
   }
 
   private async observeAfter(ctx: RunContext): Promise<RunContext> {
-    this.cycle.after = await observe(this.session.page, this.session.records);
+    this.cycle.after = await observe(this.session.page, this.session.records, {}, this.extraSecrets);
     return this.transition(ctx, "EVALUATE");
   }
 
@@ -279,7 +366,7 @@ export class Orchestrator {
       const result = await oracle.evaluate(this.cycle.before, lastStep, this.cycle.after);
       if (result.suspicious) {
         this.deps.logger.info({ oracleResult: result }, "Suspicious result detected");
-        this.progress(`Oracle ${result.oracleId}: ${result.actual}`);
+        this.progress(ctx, `Oracle ${result.oracleId}: ${result.actual}`);
         this.cycle.suspiciousResult = result;
         return this.transition(ctx, "VALIDATE");
       }
@@ -328,7 +415,7 @@ export class Orchestrator {
         "Duplicate finding suppressed; incremented occurrenceCount"
       );
       writeFindingJson(join(this.deps.runDir, "findings", existing.id), existing);
-      this.progress(`Duplicate of ${existing.id} (occurrence ${existing.occurrenceCount}); no new finding recorded`);
+      this.progress(ctx, `Duplicate of ${existing.id} (occurrence ${existing.occurrenceCount}); no new finding recorded`);
       this.cycle.wasDuplicate = true;
       this.cycle.recordedFinding = undefined;
       return this.transition(ctx, "RECORD_FINDING");
@@ -353,24 +440,41 @@ export class Orchestrator {
       logger: this.deps.logger,
       evidenceDir,
       budget: this.deps.budget,
+      policy: this.deps.actionPolicy,
+      ...(this.deps.abortSignal ? { abortSignal: this.deps.abortSignal } : {}),
+      ...(this.deps.sessionAuth
+        ? {
+            sessionAuth: {
+              sessionBootstrap: this.deps.sessionAuth.sessionBootstrap,
+              profile: this.deps.sessionAuth.profile,
+              credentials: this.deps.sessionAuth.credentials,
+              storageState: this.authStorageState,
+            },
+          }
+        : {}),
     });
     const validation = await validator.validate(candidateFinding);
 
-    const evidenceResult = writeFindingEvidence(evidenceDir, this.deps.config, {
-      oracle: candidateFinding.oracle,
-      attempts: validation.attempts,
-      reproduction: validation.finding.reproduction,
-      representativeAttempt: validation.representativeAttempt,
-      evidenceCompleteness: validation.evidenceCompleteness,
-      consoleMessages: validation.representativeEvidence.consoleMessages,
-      networkRequests: validation.representativeEvidence.networkRequests,
-      pageErrors: validation.representativeEvidence.pageErrors,
-      visibleTextExcerpt: validation.representativeEvidence.visibleTextExcerpt,
-      ...(validation.representativeEvidence.screenshotPath
-        ? { screenshotPath: validation.representativeEvidence.screenshotPath }
-        : {}),
-      ...(validation.representativeEvidence.tracePath ? { tracePath: validation.representativeEvidence.tracePath } : {}),
-    });
+    const evidenceResult = writeFindingEvidence(
+      evidenceDir,
+      this.deps.config,
+      {
+        oracle: candidateFinding.oracle,
+        attempts: validation.attempts,
+        reproduction: validation.finding.reproduction,
+        representativeAttempt: validation.representativeAttempt,
+        evidenceCompleteness: validation.evidenceCompleteness,
+        consoleMessages: validation.representativeEvidence.consoleMessages,
+        networkRequests: validation.representativeEvidence.networkRequests,
+        pageErrors: validation.representativeEvidence.pageErrors,
+        visibleTextExcerpt: validation.representativeEvidence.visibleTextExcerpt,
+        ...(validation.representativeEvidence.screenshotPath
+          ? { screenshotPath: validation.representativeEvidence.screenshotPath }
+          : {}),
+        ...(validation.representativeEvidence.tracePath ? { tracePath: validation.representativeEvidence.tracePath } : {}),
+      },
+      this.extraSecrets
+    );
 
     const finalizedFinding: Finding = { ...validation.finding, evidence: evidenceResult.filenames };
     const critic = new Critic({
@@ -379,10 +483,13 @@ export class Orchestrator {
       logger: this.deps.logger,
       requirements: this.deps.requirements,
       budget: this.deps.budget,
+      extraSecrets: this.extraSecrets,
+      ...(this.deps.abortSignal ? { abortSignal: this.deps.abortSignal } : {}),
     });
     const reviewedFinding = (await critic.review(finalizedFinding, validation, evidenceDir)).finding;
     writeFindingJson(evidenceDir, reviewedFinding);
     this.progress(
+      ctx,
       `Finding ${reviewedFinding.id} ${reviewedFinding.status.toUpperCase()} (${validation.finding.reproduction.successes}/${validation.finding.reproduction.attempts} reproductions)`
     );
 
@@ -425,7 +532,7 @@ export class Orchestrator {
 
     if (stopReason) {
       this.deps.logger.info({ stopReason }, "Stopping run");
-      this.progress(`Stopping: ${stopReason}`);
+      this.progress(ctx, `Stopping: ${stopReason}`);
       return this.transition(ctx, "COMPLETE", { stopReason });
     }
 

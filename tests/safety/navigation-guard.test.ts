@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLogger } from "../../src/logger.js";
@@ -9,9 +10,11 @@ import {
 } from "../../src/safety/navigation-guard.js";
 import type { SafetyEvent } from "../../src/types.js";
 
-const PORT = 4199;
-const ORIGIN = `http://localhost:${PORT}`;
-const ALLOWED_ORIGINS = [ORIGIN];
+// OS-assigned (port 0) rather than a fixed literal: the source and
+// tsc-compiled copies of this file must never be able to collide on the
+// same hardcoded port (see vitest.config.ts).
+let ORIGIN: string;
+let ALLOWED_ORIGINS: string[];
 
 const PAGE_HTML = `<!doctype html><html><body>
   <a id="offsite" href="https://example.com/">Offsite link</a>
@@ -30,7 +33,10 @@ beforeAll(async () => {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(req.url === "/other" ? "<html><body>other page</body></html>" : PAGE_HTML);
   });
-  await new Promise<void>((resolve) => server.listen(PORT, "localhost", resolve));
+  await new Promise<void>((resolve) => server.listen(0, "localhost", resolve));
+  const port = (server.address() as AddressInfo).port;
+  ORIGIN = `http://localhost:${port}`;
+  ALLOWED_ORIGINS = [ORIGIN];
   browser = await chromium.launch({ headless: true });
 });
 

@@ -891,7 +891,47 @@ respects `--config`. Refuses to run against anything but
 (`MockModelProvider` + `MockCriticProvider`, critic enabled) kept
 alongside the live `qa.config.yaml` (which points at the live `explabs`
 provider) specifically for reproducible verification — pass it via
-`--config` to any of the three commands above.
+`--config` to any of the three commands above. **Always pass `--config
+qa.config.mock.yaml` explicitly for verification** — `qa.config.yaml`'s
+default points at a live provider, and a `.env` file may supply a real
+credential `dotenv/config` loads automatically (confirmed the hard way
+during Phase 4 — see `docs/PHASE4_ACCEPTANCE.md`'s incidents section).
+
+```bash
+npm run doctor -- --profile <fixture|orangehrm>
+```
+
+Phase 4: bounded, target-scoped preflight checks (profile schema,
+Chromium launchable, target reachable, navigation scope, login config,
+provider config). Never opens an exploration run or makes a paid model
+call.
+
+```bash
+npm run ui
+```
+
+Phase 4: the local control panel (`http://localhost:4180`, loopback
+only). Choose a profile, check setup, sign in if required, pick Demo or
+Live mode, start/watch/stop, review grouped results. See `QUICKSTART.md`.
+
+```bash
+npm run experiment:phase3 -- capture
+npm run experiment:phase3 -- replay --manifest <path>
+```
+
+Phase 3: captures one real browser run (critic forced off) into an
+immutable manifest, then replays all four descriptive-ID conditions
+(`critic_{on,off}_grouping_{on,off}`) purely from persisted evidence.
+
+```bash
+npm run human-review:export -- --report <path> --out <dir>
+npm run human-review:import -- --labels <path> --mapping <path> --report <path> [--ground-truth <path> | --no-ground-truth]
+```
+
+Blind-review export/import. Ground truth is explicit and optional (Phase
+4) — pass `--ground-truth fixture/ground-truth.json` for the local
+fixture, or `--no-ground-truth` for a real-target dataset with no known
+answer key.
 
 ## Debugging
 
@@ -914,15 +954,18 @@ provider) specifically for reproducible verification — pass it via
 npm test
 ```
 
-Vitest over `tests/` — config validation, action schema/origin checks,
-state-signature/mapper/heuristic-tracker/dedup/benchmark exact-key tests,
-all five oracles, the critic contract (schema/mock-provider/disposition/
-claim-checks), H11, requirements loading/scoping, provider-
-credential resolution, secret redaction, the Phase 2 experiment harness's
-pure helpers, budget tests (six independent caps, injectable clock), FSM
-transition table, and four real-browser safety tests (a real Chromium
-instance + a local HTTP server, no fixture/network dependency). No paid
-model calls anywhere. 172/172 passing at last verification.
+Vitest over `tests/` — config/profile validation, action schema/origin/
+action-policy checks, state-signature/mapper/heuristic-tracker/dedup/
+benchmark exact-key tests, all oracles, the critic contract (schema/
+mock-provider/disposition/claim-checks), heuristics, requirements
+loading/scoping, provider-credential resolution and usage accounting,
+secret redaction, the Phase 2/3 experiment harnesses, cross-finding
+grouping, human-review export/import/triage, the auth/session-bootstrap
+and RunManager/server layers, budget tests (injectable clock), FSM
+transition table, and real-browser safety tests (real Chromium instances
++ local HTTP servers on ephemeral ports, no fixture/network dependency).
+No paid model calls anywhere. 397/397 passing at last verification
+(Phase 4), stable both before and after `npm run build`.
 
 ## Troubleshooting
 
@@ -957,13 +1000,16 @@ model calls anywhere. 172/172 passing at last verification.
 
 ## Known Limitations
 
-- **Actual provider-request/token usage and wall-clock cost accounting is
-  not implemented.** `DuplicateAwareBenchmarkResult.actualRequests`/
-  `wallClockMs` (`src/reporting/benchmark-v2.ts`) are `null` with a
-  disclosed reason rather than a fabricated `0` — no per-call usage
-  counter exists anywhere in the codebase yet (see the A3 scoping note in
-  PROGRESS.md for why the originally-planned `ReviewService` extraction
-  that would have carried this was skipped).
+- **Provider-request usage accounting was implemented in Phase 4**
+  (`src/models/usage-tracker.ts`, wired into both the live Explorer/Critic
+  path and the offline experiment conditions) — `RunSummary`/`QaReport`
+  now carry a real `usage` block (measured request counts;
+  `tokenUsage`/`estimatedCostUsd` stay `null` with a disclosed reason
+  whenever a provider doesn't report tokens or no verified pricing entry
+  exists, never fabricated). `DuplicateAwareBenchmarkResult.actualRequests`/
+  `wallClockMs` (`src/reporting/benchmark-v2.ts`, a Phase 3 artifact) are
+  still `null` with a disclosed reason — that specific benchmark type was
+  not wired to the new usage tracker in this phase.
 - **Live model integration was not executed** in this build/verification
   session (no `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/reachable Ollama).
   `AnthropicModelProvider` is implemented and wired through
@@ -1027,10 +1073,27 @@ model calls anywhere. 172/172 passing at last verification.
   between its individual actions.
 - `npm audit` reports vulnerabilities in `esbuild`/`vite`, transitive
   dev-only dependencies of Vitest's dev-server (not reachable at runtime
-  or in normal `npm test` usage). Left unpatched to avoid an unrelated
-  breaking upgrade to Vitest 4.
+  or in normal `npm test` usage). Phase 4 upgraded to Vitest 4 (the
+  breaking-upgrade avoidance noted here previously no longer applies —
+  see PROGRESS.md's Phase 4 section for the test-discovery-scoping fix
+  the upgrade required).
 
-## TODO: Phase 4 (recommend-only — not started)
+## Phase 4 — Easy Local Use and a Real-Application Pilot (in progress)
+
+Full running detail lives in `PROGRESS.md`; this is a pointer, not a
+duplicate. Complete so far: baseline test-discovery/port fixes, project
+profiles + `npm run doctor` preflight, real-target action-level safety
+(`src/safety/action-policy.ts`), authentication in exploration and
+validation (`src/auth/`), and the local control panel (`npm run ui`) with
+a shared CLI/UI execution+report-assembly path. OrangeHRM pilot adapter/
+profile/reporting machinery (`src/reporting/pilot-report.ts`) is built and
+tested against synthetic data; the actual live pilot run is PENDING —
+this environment has neither Docker nor a native PHP/MySQL install path
+available, so no OrangeHRM instance is reachable to run it against. See
+`PROGRESS.md`'s Phase 4 section for the exact milestone-by-milestone
+status.
+
+## TODO: Phase 3 recap (superseded by the Phase 4 section above)
 
 Phase 3 (reliability + research evidence: L6 evidence-strength ceiling
 fix, successful-attempt evidence capture, structured claim checks,

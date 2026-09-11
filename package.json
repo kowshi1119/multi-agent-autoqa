@@ -19,7 +19,9 @@
     "experiment:phase3": "tsc && node dist/src/phase3-experiment.js",
     "challenge-corpus:validate": "tsc && node dist/src/experiments/challenge-corpus-validate.js",
     "human-review:export": "tsc && node dist/src/human-review/export-cli.js",
-    "human-review:import": "tsc && node dist/src/human-review/import-cli.js"
+    "human-review:import": "tsc && node dist/src/human-review/import-cli.js",
+    "doctor": "tsc && node dist/src/preflight/doctor-cli.js",
+    "ui": "tsc && node scripts/copy-public-assets.mjs && node dist/src/server/app-cli.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
@@ -35,7 +37,7 @@
     "cross-env": "^7.0.3",
     "tsx": "^4.23.13",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.4"
+    "vitest": "^4.1.11"
   },
   "allowScripts": {
     "esbuild@0.21.5": true

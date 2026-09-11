@@ -1,12 +1,17 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import type { ProjectProfile } from "../profiles/schema.js";
+import { buildLocator } from "../actions.js";
 import type { AppConfig } from "../config.js";
 import type { Logger } from "../logger.js";
+import { credentialSecrets } from "../redact.js";
+import type { ActionPolicy } from "../safety/action-policy.js";
 import {
   installAsyncRedirectGuard,
   installPopupGuard,
   installRouteGuard,
 } from "../safety/navigation-guard.js";
 import type { SafetyEvent } from "../types.js";
+import type { AuthResult, SessionBootstrap, TransientCredentials } from "../auth/session-bootstrap.js";
 import { attachPageRecorders, createPageRecords, type PageRecords } from "./observation.js";
 
 export class BrowserLaunchError extends Error {
@@ -15,6 +20,35 @@ export class BrowserLaunchError extends Error {
     this.name = "BrowserLaunchError";
   }
 }
+
+export class AuthenticationError extends Error {
+  constructor(
+    message: string,
+    public readonly reason: Exclude<AuthResult, { status: "success" }>["reason"]
+  ) {
+    super(message);
+    this.name = "AuthenticationError";
+  }
+}
+
+export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
+
+export type SessionAuthOptions = {
+  sessionBootstrap: SessionBootstrap;
+  profile: ProjectProfile;
+  credentials?: TransientCredentials;
+  /**
+   * Reuse a previously captured authenticated storageState instead of
+   * re-running the full login -- still re-verified via authenticatedSignal
+   * on the fresh context (protected-page-accessibility verification), not
+   * trusted blindly. Falls back to a full, bounded re-login if
+   * verification fails (fresh contexts do not reset server-side session
+   * expiry, so a stale storageState is an expected, not exceptional, case).
+   */
+  storageState?: StorageState;
+};
+
+const MAX_LOGIN_ATTEMPTS = 2;
 
 export type PageSession = {
   context: BrowserContext;
@@ -56,7 +90,9 @@ export class BrowserManager {
   }
 
   async newPageSession(
-    onSafetyEvent: (event: SafetyEvent) => void = () => {}
+    onSafetyEvent: (event: SafetyEvent) => void = () => {},
+    actionPolicy?: ActionPolicy,
+    authOptions?: SessionAuthOptions
   ): Promise<PageSession> {
     const browser = this.requireBrowser();
     const context = await browser.newContext({
@@ -64,10 +100,14 @@ export class BrowserManager {
         width: this.config.browser.viewport.width,
         height: this.config.browser.viewport.height,
       },
+      ...(authOptions?.storageState ? { storageState: authOptions.storageState } : {}),
     });
 
     const allowedOrigins = this.config.safety.allowedOrigins;
-    await installRouteGuard(context, allowedOrigins, this.logger, onSafetyEvent);
+    const resourcePolicy = actionPolicy
+      ? (method: string, pathname: string, origin: string, resourceType: string) => actionPolicy.classifyResourceRequest(method, pathname, origin, resourceType)
+      : undefined;
+    await installRouteGuard(context, allowedOrigins, this.logger, onSafetyEvent, resourcePolicy);
 
     // Our own context.newPage() call below also fires the context-level
     // 'page' event (Playwright doesn't distinguish "we created this" from
@@ -76,12 +116,69 @@ export class BrowserManager {
     // very session page we're about to navigate, racing with that goto().
     const page = await context.newPage();
     installPopupGuard(context, allowedOrigins, this.logger, onSafetyEvent);
-
-    const records = createPageRecords();
-    attachPageRecorders(page, records);
     installAsyncRedirectGuard(page, allowedOrigins, this.logger, onSafetyEvent);
 
+    const records = createPageRecords();
+    const extraSecrets = credentialSecrets(authOptions?.credentials);
+
+    if (authOptions) {
+      try {
+        await this.ensureAuthenticated(context, page, authOptions);
+      } catch (error) {
+        // A session whose login never succeeded is not reusable -- close
+        // it explicitly here rather than leaving it for the eventual
+        // whole-browser teardown at run end to reap.
+        await context.close().catch(() => {});
+        throw error;
+      }
+    }
+
+    // Evidence recorders are attached only AFTER authentication succeeds
+    // (or immediately, when this session needs no auth at all) -- the
+    // navigation/route/popup guards above stay active throughout login
+    // either way, but console/network/dialog capture never sees the
+    // credential-entry sequence itself.
+    attachPageRecorders(page, records, extraSecrets);
+
     return { context, page, records };
+  }
+
+  /**
+   * Authenticate BEFORE any evidence recorder/tracing has started seeing
+   * "real" traffic and before the caller ever navigates -- called from
+   * newPageSession() immediately after guard installation, ahead of every
+   * other use of this session. A storageState carryover is re-verified
+   * (protected-page-accessibility check), never trusted blindly; on
+   * verification failure or when no storageState was supplied, runs a
+   * bounded number of full form-login attempts rather than looping
+   * indefinitely.
+   */
+  private async ensureAuthenticated(context: BrowserContext, page: Page, authOptions: SessionAuthOptions): Promise<void> {
+    const { sessionBootstrap, profile, credentials, storageState } = authOptions;
+
+    if (storageState && profile.auth.mode === "form-login" && profile.auth.authenticatedSignal) {
+      // A restored storageState only carries cookies/localStorage -- the
+      // page itself is still blank until we navigate. Protected-page-
+      // accessibility verification means actually loading the target and
+      // confirming the authenticated signal renders there, not assuming
+      // cookie presence equals a working session.
+      const signalVisible = await page
+        .goto(this.config.target.url, { timeout: 10_000, waitUntil: "domcontentloaded" })
+        .then(() => buildLocator(page, profile.auth.authenticatedSignal as NonNullable<typeof profile.auth.authenticatedSignal>).waitFor({ state: "visible", timeout: 5_000 }))
+        .then(() => true)
+        .catch(() => false);
+      if (signalVisible) return;
+      this.logger.warn({}, "AUTH: carried-over storageState did not verify on a fresh context; falling back to a full re-login");
+    }
+
+    let lastResult: AuthResult = { status: "failed", reason: "timeout" };
+    for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt += 1) {
+      lastResult = await sessionBootstrap.establish(context, page, profile, credentials, this.logger);
+      if (lastResult.status === "success") return;
+      this.logger.warn({ attempt, of: MAX_LOGIN_ATTEMPTS, reason: lastResult.reason }, "AUTH_FAILED: login attempt did not succeed");
+    }
+
+    throw new AuthenticationError(`AUTH_FAILED: could not establish an authenticated session after ${MAX_LOGIN_ATTEMPTS} attempt(s) (${lastResult.reason}).`, lastResult.reason);
   }
 
   async startTracing(context: BrowserContext): Promise<void> {

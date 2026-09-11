@@ -9,7 +9,7 @@ export type RunSummary = {
   target: string;
   startedAt: string;
   finishedAt: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "cancelled";
   stopReason?: string;
   provider: string;
   actionsPerformed: number;
@@ -34,7 +34,22 @@ export type RunSummary = {
     heuristicCoverage: number;
   };
   budget: BudgetSnapshot;
-  tokenUsage: null;
+  /**
+   * Provider usage accounting (Phase 4 Milestone D1). `requests` is
+   * always a real measured count (BudgetTracker's own
+   * modelCalls/criticCalls counters, corroborated by UsageTracker);
+   * `tokenUsage` is null whenever the provider didn't report it (the
+   * common case for most paths today) -- never fabricated as 0.
+   * `estimatedCostUsd` is null unless verified pricing metadata exists
+   * for the resolved model (see src/models/pricing.ts) -- a null value
+   * means monetary cost cannot be guaranteed, not that it was zero.
+   */
+  usage: {
+    explorer: { requests: number; tokenUsage: { input: number; output: number } | null };
+    critic: { requests: number; tokenUsage: { input: number; output: number } | null };
+    estimatedCostUsd: number | null;
+    costDisclosure: string;
+  };
 };
 
 export function generateRunId(now: Date): string {

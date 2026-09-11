@@ -1,6 +1,7 @@
 import { join } from "node:path";
-import { buildCriticInput } from "../critic/critic-runner.js";
+import { buildCriticInput, withTimeout } from "../critic/critic-runner.js";
 import { checkClaims, firstContradiction } from "../critic/claim-checks.js";
+import { BudgetTracker } from "../budget.js";
 import type { AppConfig } from "../config.js";
 import { decideDisposition, type CriticOutcome } from "../critic/disposition.js";
 import { groupFindings } from "../grouping/group-findings.js";
@@ -75,6 +76,23 @@ export async function runCondition(
   const criticProvider = criticOn ? selectCriticProvider(conditionConfig, logger) : null;
   const findings: Finding[] = [];
 
+  // Same guardrails as the live per-run Critic.review() (src/critic/
+  // critic-runner.ts): a bounded request count and a bounded per-call
+  // timeout. Sharing buildCriticInput()/decideDisposition() alone does
+  // NOT guarantee this -- confirmed as a real, distinct gap: this
+  // function used to call criticProvider.critique() directly with no
+  // timeout and no request cap, unlike the live path. A fresh budget
+  // scoped to this one condition run (mirrors run-pipeline.ts's own
+  // BudgetTracker construction from config.agent.*).
+  const budget = new BudgetTracker({
+    maxActions: conditionConfig.agent.maxActions,
+    maxModelCalls: conditionConfig.agent.maxModelCalls,
+    maxPages: conditionConfig.agent.maxPages,
+    maxFindings: conditionConfig.agent.maxFindings,
+    maxDurationMs: conditionConfig.agent.maxDurationMs,
+    maxCriticCalls: conditionConfig.agent.maxCriticCalls,
+  });
+
   for (const finding of capturedFindings) {
     if (finding.status !== "validated") {
       const { reportDisposition } = decideDisposition({
@@ -108,15 +126,21 @@ export async function runCondition(
     );
 
     let outcome: CriticOutcome;
-    try {
-      const decision = await criticProvider.critique(input);
-      const contradiction = firstContradiction(checkClaims(decision, input));
-      outcome = contradiction
-        ? { kind: "contradiction", reason: `CRITIC_EVIDENCE_CONTRADICTION: ${contradiction.claim} -- ${contradiction.detail}` }
-        : { kind: "decided", decision };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      outcome = { kind: "unavailable", reason: `CRITIC_MODEL_ERROR: ${message}` };
+    if (!budget.canCallCritic() || budget.isDurationExceeded()) {
+      logger.warn({ findingId: finding.id, conditionId }, "BUDGET_EXHAUSTED: skipping critic call (maxCriticCalls or maxDurationMs)");
+      outcome = { kind: "unavailable", reason: "BUDGET_EXHAUSTED: maxCriticCalls or maxDurationMs" };
+    } else {
+      budget.recordCriticCall();
+      try {
+        const decision = await withTimeout(criticProvider.critique(input), conditionConfig.models.providerTimeoutMs);
+        const contradiction = firstContradiction(checkClaims(decision, input));
+        outcome = contradiction
+          ? { kind: "contradiction", reason: `CRITIC_EVIDENCE_CONTRADICTION: ${contradiction.claim} -- ${contradiction.detail}` }
+          : { kind: "decided", decision };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        outcome = { kind: "unavailable", reason: `CRITIC_MODEL_ERROR: ${message}` };
+      }
     }
 
     const { reportDisposition, criticEvidenceConflict } = decideDisposition({

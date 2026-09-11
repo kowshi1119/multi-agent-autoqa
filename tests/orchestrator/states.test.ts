@@ -27,6 +27,7 @@ describe("FSM transitions", () => {
       ["VALIDATE", "EVALUATE"],
       ["CONTINUE", "EXECUTE"],
       ["FAILED", "MAP"],
+      ["CANCELLED", "MAP"],
     ];
     for (const [from, to] of invalidPairs) {
       expect(() => assertValidTransition(from, to)).toThrow(InvalidTransitionError);
@@ -36,12 +37,20 @@ describe("FSM transitions", () => {
   it("has no outgoing transitions from terminal states", () => {
     expect(VALID_TRANSITIONS.COMPLETE).toEqual([]);
     expect(VALID_TRANSITIONS.FAILED).toEqual([]);
+    expect(VALID_TRANSITIONS.CANCELLED).toEqual([]);
   });
 
   it("makes FAILED reachable from every non-terminal state", () => {
     for (const state of ALL_STATES) {
-      if (state === "COMPLETE" || state === "FAILED") continue;
+      if (state === "COMPLETE" || state === "FAILED" || state === "CANCELLED") continue;
       expect(VALID_TRANSITIONS[state]).toContain("FAILED");
+    }
+  });
+
+  it("makes CANCELLED reachable from every non-terminal state (Phase 4 Milestone B: UI-driven stop)", () => {
+    for (const state of ALL_STATES) {
+      if (state === "COMPLETE" || state === "FAILED" || state === "CANCELLED") continue;
+      expect(VALID_TRANSITIONS[state]).toContain("CANCELLED");
     }
   });
 });

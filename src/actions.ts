@@ -3,9 +3,10 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import { redactSecrets } from "./redact.js";
+import type { ActionPolicy } from "./safety/action-policy.js";
 import type { ActionExecutionResult, ElementTarget, QaAction, SafetyEvent } from "./types.js";
 
-const elementTargetSchema = z
+export const elementTargetSchema = z
   .object({
     role: z.string().optional(),
     name: z.string().optional(),
@@ -71,7 +72,7 @@ export function isOriginAllowed(url: string, allowedOrigins: string[]): boolean 
  * requiring an exact match here costs nothing when names are unambiguous
  * and turns this whole failure class into a normal, resolvable locator.
  */
-function buildLocator(page: Page, target: ElementTarget): Locator {
+export function buildLocator(page: Page, target: ElementTarget): Locator {
   if (target.testId) return page.getByTestId(target.testId);
   if (target.role) {
     const options = target.name ? { name: target.name, exact: true } : undefined;
@@ -82,6 +83,81 @@ function buildLocator(page: Page, target: ElementTarget): Locator {
   if (target.text) return page.getByText(target.text, { exact: true });
   if (target.name) return page.getByText(target.name, { exact: true });
   throw new Error("ElementTarget requires at least one locator field");
+}
+
+type ActionDomContext = {
+  isSubmitControl: boolean;
+  formAction?: string;
+  formMethod?: string;
+  isAmbiguousEnter: boolean;
+  isLink: boolean;
+  linkPathname?: string;
+  isPaginationLike: boolean;
+};
+
+const EMPTY_ACTION_DOM_CONTEXT: ActionDomContext = {
+  isSubmitControl: false,
+  isAmbiguousEnter: false,
+  isLink: false,
+  isPaginationLike: false,
+};
+
+/**
+ * Resolved live from the DOM, never inferred from a button's label or a
+ * heuristic's own risk field -- "stronger contextual identification than a
+ * button name" per the Phase 4 action-safety spec. Detects: an actual
+ * submit-type control (<button> without type=button/reset, or
+ * <input type=submit>); Enter pressed in a text-like field, distinguishing
+ * a form-wrapped field (resolvable endpoint) from an unwrapped one (an
+ * "ambiguous" implicit submit whose endpoint can't be verified, denied by
+ * default rather than silently allowed); a navigation link and its
+ * destination pathname; and a small fixed pagination/sort label
+ * vocabulary, for src/safety/action-policy.ts#ActionPolicy to classify.
+ */
+async function resolveActionContext(locator: Locator, isEnterKey: boolean): Promise<ActionDomContext> {
+  return locator.evaluate(
+    (el: Element, enterKey: boolean): ActionDomContext => {
+      const tag = el.tagName;
+      const type = (el as HTMLInputElement | HTMLButtonElement).type?.toLowerCase();
+      const form = el.closest("form");
+
+      const isExplicitSubmitControl =
+        (tag === "BUTTON" && type !== "button" && type !== "reset") || (tag === "INPUT" && type === "submit");
+      const isTextLikeField = tag === "INPUT" && type !== "button" && type !== "submit" && type !== "reset" && type !== "checkbox" && type !== "radio";
+      const isEnterInFormField = enterKey && Boolean(form) && isTextLikeField;
+      const isEnterOutsideForm = enterKey && !form && isTextLikeField;
+
+      if (isExplicitSubmitControl || isEnterInFormField) {
+        return {
+          isSubmitControl: true,
+          formAction: form ? (form as HTMLFormElement).action : undefined,
+          formMethod: form ? (form as HTMLFormElement).method || "get" : "get",
+          isAmbiguousEnter: false,
+          isLink: false,
+          isPaginationLike: false,
+        };
+      }
+      if (isEnterOutsideForm) {
+        return { isSubmitControl: false, isAmbiguousEnter: true, isLink: false, isPaginationLike: false };
+      }
+
+      const isLink = tag === "A" && el.hasAttribute("href");
+      let linkPathname: string | undefined;
+      if (isLink) {
+        try {
+          linkPathname = new URL((el as HTMLAnchorElement).href, location.href).pathname;
+        } catch {
+          /* unresolvable href -- leave undefined, policy treats a link with no resolvable pathname conservatively */
+        }
+      }
+
+      const label = (el.getAttribute("aria-label") || el.textContent || "").trim();
+      const isPaginationLike = /^(next|previous|prev|»|«|›|‹|page\s*\d+)$/i.test(label) || /\bsort(ed)?\b/i.test(label);
+
+      return { isSubmitControl: false, isAmbiguousEnter: false, isLink, linkPathname, isPaginationLike };
+    },
+    isEnterKey
+  );
 }
 
 function resolveFillValue(value: string): string {
@@ -97,15 +173,48 @@ export async function executeAction(
   action: QaAction,
   config: AppConfig,
   logger: Logger,
-  onSafetyEvent: (event: SafetyEvent) => void = () => {}
+  onSafetyEvent: (event: SafetyEvent) => void = () => {},
+  policy?: ActionPolicy,
+  extraSecrets: readonly string[] = []
 ): Promise<ActionExecutionResult> {
   const urlBefore = page.url();
+
+  async function checkPolicy(locator: Locator | undefined, isEnterKey: boolean): Promise<ActionExecutionResult | undefined> {
+    if (!policy) return undefined;
+    const domContext = locator
+      ? await resolveActionContext(locator, isEnterKey).catch(() => EMPTY_ACTION_DOM_CONTEXT)
+      : EMPTY_ACTION_DOM_CONTEXT;
+    let routePathname: string | undefined;
+    try {
+      routePathname = new URL(page.url()).pathname;
+    } catch {
+      routePathname = undefined;
+    }
+    const classification = policy.classifyAction(action, {
+      routePathname,
+      isSubmitControl: domContext.isSubmitControl,
+      formAction: domContext.formAction,
+      formMethod: domContext.formMethod,
+      isAmbiguousEnter: domContext.isAmbiguousEnter,
+      isLink: domContext.isLink,
+      linkPathname: domContext.linkPathname,
+      isPaginationLike: domContext.isPaginationLike,
+    });
+    if (classification.decision === "denied") {
+      logger.warn({ action: action.type, reason: classification.reason }, "ACTION_POLICY_DENIED");
+      onSafetyEvent({ code: "ACTION_POLICY_DENIED", reason: classification.reason, mechanism: "execute-action", timestamp: new Date().toISOString() });
+      return { outcome: "blocked", reason: classification.reason };
+    }
+    return undefined;
+  }
 
   try {
     switch (action.type) {
       case "click": {
         const locator = buildLocator(page, action.target);
         await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+        const denied = await checkPolicy(locator, false);
+        if (denied) return denied;
         await locator.click({ timeout: LOCATOR_TIMEOUT_MS });
         break;
       }
@@ -113,6 +222,8 @@ export async function executeAction(
       case "fill": {
         const locator = buildLocator(page, action.target);
         await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+        const denied = await checkPolicy(locator, false);
+        if (denied) return denied;
         await locator.fill(resolveFillValue(action.value), { timeout: LOCATOR_TIMEOUT_MS });
         break;
       }
@@ -121,6 +232,8 @@ export async function executeAction(
         if (action.target) {
           const locator = buildLocator(page, action.target);
           await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+          const denied = await checkPolicy(locator, action.key === "Enter");
+          if (denied) return denied;
           await locator.press(action.key, { timeout: LOCATOR_TIMEOUT_MS });
         } else {
           await page.keyboard.press(action.key);
@@ -144,6 +257,21 @@ export async function executeAction(
             reason: "Blocked navigation outside allowed origin.",
           };
         }
+        if (policy) {
+          const destinationPathname = (() => {
+            try {
+              return new URL(action.url).pathname;
+            } catch {
+              return undefined;
+            }
+          })();
+          const classification = policy.classifyAction(action, { routePathname: destinationPathname });
+          if (classification.decision === "denied") {
+            logger.warn({ action: action.type, reason: classification.reason }, "ACTION_POLICY_DENIED");
+            onSafetyEvent({ code: "ACTION_POLICY_DENIED", reason: classification.reason, mechanism: "execute-action", timestamp: new Date().toISOString() });
+            return { outcome: "blocked", reason: classification.reason };
+          }
+        }
         await page.goto(action.url);
         break;
       }
@@ -159,7 +287,7 @@ export async function executeAction(
       }
     }
   } catch (error) {
-    const cause = redactSecrets(error instanceof Error ? error.message : String(error));
+    const cause = redactSecrets(error instanceof Error ? error.message : String(error), extraSecrets);
     logger.warn(
       { error: cause, action: action.type },
       "AGENT_ACTION_FAILED: the requested locator could not be resolved."

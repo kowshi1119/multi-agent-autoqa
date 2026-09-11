@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,8 @@ import { BrowserManager } from "../src/browser/browser.js";
 import { createLogger } from "../src/logger.js";
 import { createHttpFailureOracle } from "../src/oracles/http-failure.js";
 import type { Oracle } from "../src/oracles.js";
+import { parseProfile } from "../src/profiles/schema.js";
+import { ActionPolicy } from "../src/safety/action-policy.js";
 import { decideStatus, Validator } from "../src/validator.js";
 import type { Finding, OracleResult } from "../src/types.js";
 import { loadTestConfig } from "./helpers/test-config.js";
@@ -15,24 +18,40 @@ describe("decideStatus", () => {
   const minimumSuccesses = 2;
 
   it("validates when all attempts reproduce (3/3)", () => {
-    expect(decideStatus(3, minimumSuccesses)).toBe("validated");
+    expect(decideStatus(3, 3, minimumSuccesses)).toBe("validated");
   });
 
   it("validates when exactly the minimum reproduces (2/3)", () => {
-    expect(decideStatus(2, minimumSuccesses)).toBe("validated");
+    expect(decideStatus(2, 3, minimumSuccesses)).toBe("validated");
   });
 
   it("needs a human when below the minimum but above zero (1/3)", () => {
-    expect(decideStatus(1, minimumSuccesses)).toBe("needs_human");
+    expect(decideStatus(1, 3, minimumSuccesses)).toBe("needs_human");
   });
 
-  it("rejects when nothing reproduces (0/3)", () => {
-    expect(decideStatus(0, minimumSuccesses)).toBe("rejected");
+  it("rejects when nothing reproduces but attempts genuinely ran (0/3 valid)", () => {
+    expect(decideStatus(0, 3, minimumSuccesses)).toBe("rejected");
+  });
+
+  it("needs a human -- never rejected -- when every attempt was tooling-blocked (0 valid attempts)", () => {
+    expect(decideStatus(0, 0, minimumSuccesses)).toBe("needs_human");
+  });
+
+  it("excludes blocked attempts from both successes and the valid-attempt denominator: 1 blocked + 2 genuinely-not-reproduced still rejects", () => {
+    // 3 total attempts, 1 blocked -> validAttempts=2, successes=0 among those 2.
+    expect(decideStatus(0, 2, minimumSuccesses)).toBe("rejected");
+  });
+
+  it("excludes blocked attempts from the denominator when counting toward minimumSuccesses: 1 blocked + 2 reproduced still validates", () => {
+    // 3 total attempts, 1 blocked -> validAttempts=2, successes=2 among those 2, meets minimumSuccesses=2.
+    expect(decideStatus(2, 2, minimumSuccesses)).toBe("validated");
   });
 });
 
-const PORT = 4196;
-const ORIGIN = `http://localhost:${PORT}`;
+// OS-assigned (port 0) rather than a fixed literal: the source and
+// tsc-compiled copies of this file must never be able to collide on the
+// same hardcoded port (see vitest.config.ts).
+let ORIGIN: string;
 const PAGE_HTML = `<!doctype html><html><body>
   <button>Trigger</button>
   <script>
@@ -61,7 +80,9 @@ beforeAll(async () => {
     res.writeHead(404);
     res.end();
   });
-  await new Promise<void>((resolve) => server.listen(PORT, "localhost", resolve));
+  await new Promise<void>((resolve) => server.listen(0, "localhost", resolve));
+  const port = (server.address() as AddressInfo).port;
+  ORIGIN = `http://localhost:${port}`;
 });
 
 afterAll(async () => {
@@ -190,5 +211,37 @@ describe("Validator.validate (real browser)", () => {
     const files = readdirSync(evidenceDir);
     expect(files.filter((f) => f.endsWith(".zip"))).toEqual(["trace.zip"]);
     expect(files.filter((f) => f.endsWith(".png"))).toEqual(["screenshot.png"]);
+  });
+
+  it("every attempt tooling-blocked by ActionPolicy: status is needs_human, never rejected", async () => {
+    responseQueue = [500, 500, 500];
+    const evidenceDir = tempEvidenceDir();
+    // A real-target profile with no declared scope denies the triggering
+    // click by construction -- every replay attempt is toolingBlocked, so
+    // the finding must never read as a genuinely-disproven "rejected".
+    const profile = parseProfile({
+      schemaVersion: 1,
+      id: "deny-all",
+      name: "deny-all",
+      target: { url: `${ORIGIN}/`, environmentKind: "self-hosted-real-app" },
+      navigation: { allowedOrigins: [ORIGIN], allowedPathPrefixes: [] },
+      resources: { allowedApiOrigins: [], allowedFormSubmitEndpoints: [] },
+      workflows: { allowedWorkflowKinds: [] },
+      auth: { mode: "none" },
+      provider: {
+        explorer: { provider: "mock" },
+        critic: { enabled: false, provider: "mock", requireIndependentProvider: false, maxCallsPerFinding: 1 },
+        providerTimeoutMs: 30000,
+      },
+      limits: { maxActions: 10, maxModelCalls: 10, maxPages: 5, maxFindings: 5, maxDurationMs: 60000, maxCriticCalls: 5 },
+    });
+    const policy = new ActionPolicy(profile);
+    const validator = new Validator({ browserManager, config: testConfig(), oracles, logger: createLogger(), evidenceDir, policy });
+
+    const outcome = await validator.validate(baseFinding(500));
+
+    expect(outcome.attempts.every((a) => Boolean(a.toolingBlocked))).toBe(true);
+    expect(outcome.attempts.every((a) => !a.reproduced)).toBe(true);
+    expect(outcome.finding.status).toBe("needs_human");
   });
 });

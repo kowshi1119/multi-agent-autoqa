@@ -93,10 +93,21 @@ export class Explorer {
     private readonly logger: Logger
   ) {}
 
-  async decide(input: ExplorerInput): Promise<ExplorerOutcome> {
+  /**
+   * `signal` (Phase 4 continuation cancellation fix) is forwarded straight
+   * into the provider's own SDK call so a timeout or a user-initiated Stop
+   * genuinely aborts an in-flight request. Usage accounting (Phase 4
+   * continuation accounting fix) now happens inside each real provider's
+   * own `complete()` boundary (see provider-implementation.ts), not here
+   * -- this method no longer wraps the call in UsageTracker itself, since
+   * doing so only ever counted one entry per logical decision regardless
+   * of how many real HTTP attempts (first + repair) the provider actually
+   * made internally.
+   */
+  async decide(input: ExplorerInput, signal?: AbortSignal): Promise<ExplorerOutcome> {
     let decision: ExplorerDecision;
     try {
-      decision = await this.provider.decideNextAction(input);
+      decision = await this.provider.decideNextAction(input, signal);
     } catch (error) {
       if (error instanceof ModelOutputInvalidError) {
         this.logger.error(

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "orangehrm",
+  "name": "Self-hosted OrangeHRM (real-application pilot)",
+  "target": {
+    "url": "http://localhost:8080/web/index.php/dashboard/index",
+    "environmentKind": "self-hosted-real-app"
+  },
+  "navigation": {
+    "allowedOrigins": ["http://localhost:8080"],
+    "allowedPathPrefixes": ["/web/index.php"]
+  },
+  "resources": {
+    "allowedApiOrigins": ["http://localhost:8080"]
+  },
+  "workflows": {
+    "allowedWorkflowKinds": ["navigate", "search", "filter", "sort", "paginate"]
+  },
+  "auth": {
+    "mode": "form-login",
+    "loginUrl": "http://localhost:8080/web/index.php/auth/login",
+    "usernameField": { "label": "Username" },
+    "passwordField": { "label": "Password" },
+    "submitControl": { "role": "button", "name": "Login" },
+    "successUrlPattern": ".*/dashboard/index",
+    "authenticatedSignal": { "role": "heading", "name": "Dashboard" }
+  },
+  "provider": {
+    "explorer": { "provider": "mock" },
+    "critic": {
+      "enabled": true,
+      "provider": "mock",
+      "requireIndependentProvider": false,
+      "maxCallsPerFinding": 1
+    },
+    "providerTimeoutMs": 30000
+  },
+  "limits": {
+    "maxActions": 40,
+    "maxModelCalls": 12,
+    "maxPages": 5,
+    "maxFindings": 10,
+    "maxDurationMs": 300000,
+    "maxCriticCalls": 6
+  }
+}

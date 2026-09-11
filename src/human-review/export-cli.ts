@@ -19,13 +19,13 @@ function main(): void {
   const outDir = resolve(args[outFlag + 1] as string);
   const report = JSON.parse(readFileSync(reportPath, "utf-8")) as { findings: Finding[] };
 
-  const { export: blindExport, itemIdToFindingId } = exportForBlindReview(report.findings);
+  const { export: blindExport, mapping } = exportForBlindReview(report.findings);
 
   mkdirSync(outDir, { recursive: true });
   const exportPath = join(outDir, "blind-review-export.json");
   const mappingPath = join(outDir, "item-mapping.json");
   writeFileSync(exportPath, redactSecrets(JSON.stringify(blindExport, null, 2)), "utf-8");
-  writeFileSync(mappingPath, redactSecrets(JSON.stringify(itemIdToFindingId, null, 2)), "utf-8");
+  writeFileSync(mappingPath, redactSecrets(JSON.stringify(mapping, null, 2)), "utf-8");
 
   console.log(`Exported ${blindExport.items.length} items for blind review.`);
   console.log(`Rater-facing file (share this): ${exportPath}`);
