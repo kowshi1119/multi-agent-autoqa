@@ -1,5 +1,6 @@
+import type { BudgetTracker } from "../budget.js";
 import type { BrowserContext, Page } from "playwright";
-import { buildLocator } from "../actions.js";
+import { buildLocator, isCancellationError } from "../actions.js";
 import type { Logger } from "../logger.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 
@@ -16,10 +17,19 @@ export type TransientCredentials = { username: string; password: string };
 
 export type AuthResult =
   | { status: "success" }
-  | { status: "failed"; reason: "invalid-credentials" | "missing-signal" | "success-url-mismatch" | "timeout" | "not-configured" };
+  | { status: "failed"; reason: "invalid-credentials" | "missing-signal" | "success-url-mismatch" | "timeout" | "not-configured" | "cancelled" | "budget-exhausted" };
 
 export interface SessionBootstrap {
-  establish(context: BrowserContext, page: Page, profile: ProjectProfile, credentials: TransientCredentials | undefined, logger: Logger): Promise<AuthResult>;
+  establish(
+    context: BrowserContext,
+    page: Page,
+    profile: ProjectProfile,
+    credentials: TransientCredentials | undefined,
+    logger: Logger,
+    /** §8a fix (2026-09-14 addendum): a Stop pressed mid-login or between retries -- see BrowserManager#ensureAuthenticated for the bounded-cleanup semantics this actually provides. */
+    signal?: AbortSignal,
+    budget?: BudgetTracker
+  ): Promise<AuthResult>;
 }
 
 export class NoAuthBootstrap implements SessionBootstrap {
@@ -48,10 +58,26 @@ export class FormLoginBootstrap implements SessionBootstrap {
     page: Page,
     profile: ProjectProfile,
     credentials: TransientCredentials | undefined,
-    logger: Logger
+    logger: Logger,
+    signal?: AbortSignal,
+    budget?: BudgetTracker
   ): Promise<AuthResult> {
+    // §8a fix (2026-09-14 addendum): an already-aborted signal at entry --
+    // e.g. Stop pressed between BrowserManager's MAX_LOGIN_ATTEMPTS retries
+    // -- must never start a fresh Playwright action. A signal that aborts
+    // WHILE this attempt is already in flight is not interrupted (bounded
+    // cleanup, not instant interruption -- see ensureAuthenticated()).
+    if (signal?.aborted) {
+      logger.info({}, "CANCELLED: login not attempted -- Stop was requested before this attempt began");
+      return { status: "failed", reason: "cancelled" };
+    }
+
     const auth = profile.auth;
     if (auth.mode !== "form-login" || !auth.loginUrl || !auth.usernameField || !auth.passwordField || !auth.submitControl || !auth.successUrlPattern || !auth.authenticatedSignal) {
+      return { status: "failed", reason: "not-configured" };
+    }
+    if (auth.checksVerified === false) {
+      logger.warn({}, "AUTH_NOT_CONFIGURED: authenticated URL and visible signal require observed configuration");
       return { status: "failed", reason: "not-configured" };
     }
     if (!credentials) {
@@ -59,17 +85,43 @@ export class FormLoginBootstrap implements SessionBootstrap {
       return { status: "failed", reason: "invalid-credentials" };
     }
 
+    // §Cancellation fix (2026-09-16): `signal` is now forwarded into every
+    // Playwright call below (alongside its existing timeout), so Playwright
+    // itself aborts an in-flight step the moment Stop fires -- not just
+    // between steps. The between-step `signal?.aborted` checks are kept as
+    // a cheap fast path (skip starting a new step at all) and, for the two
+    // `.catch(() => false)`-guarded waits, as the mechanism that turns an
+    // abort-triggered rejection into a correctly-labeled "cancelled" result
+    // instead of a misleading "success-url-mismatch"/"missing-signal".
+    // Previously Stop was only checked BETWEEN whole steps, bounding it to
+    // the SUM of every remaining step's own timeout (~80s worst case); an
+    // already-in-flight step now itself aborts genuinely, not just "no new
+    // step starts."
+    const cancelled = (): AuthResult => {
+      logger.info({}, "CANCELLED: login sequence stopped mid-flow");
+      return { status: "failed", reason: "cancelled" };
+    };
+
+    const perform = async (action: () => Promise<unknown>) => {
+      budget?.recordAttempt("authentication");
+      try { await action(); budget?.recordOutcome("success"); }
+      catch (error) { budget?.recordOutcome("failed"); throw error; }
+    };
     try {
-      await page.goto(auth.loginUrl, { timeout: LOGIN_NAV_TIMEOUT_MS, waitUntil: "domcontentloaded" });
+      await perform(() => page.goto(auth.loginUrl!,  { timeout: LOGIN_NAV_TIMEOUT_MS, waitUntil: "domcontentloaded", signal }));
+      if (signal?.aborted) return cancelled();
 
       const usernameLocator = buildLocator(page, auth.usernameField);
-      await usernameLocator.fill(credentials.username, { timeout: LOGIN_NAV_TIMEOUT_MS });
+      await perform(() => usernameLocator.fill(credentials.username, { timeout: LOGIN_NAV_TIMEOUT_MS, signal }));
+      if (signal?.aborted) return cancelled();
 
       const passwordLocator = buildLocator(page, auth.passwordField);
-      await passwordLocator.fill(credentials.password, { timeout: LOGIN_NAV_TIMEOUT_MS });
+      await perform(() => passwordLocator.fill(credentials.password, { timeout: LOGIN_NAV_TIMEOUT_MS, signal }));
+      if (signal?.aborted) return cancelled();
 
       const submitLocator = buildLocator(page, auth.submitControl);
-      await submitLocator.click({ timeout: LOGIN_NAV_TIMEOUT_MS });
+      await perform(() => submitLocator.click({ timeout: LOGIN_NAV_TIMEOUT_MS, signal }));
+      if (signal?.aborted) return cancelled();
 
       // Both conditions must hold for success: the URL must actually match
       // successUrlPattern, AND the authenticatedSignal must be visible.
@@ -79,17 +131,19 @@ export class FormLoginBootstrap implements SessionBootstrap {
       // place, with some unrelated always-visible element happening to
       // match authenticatedSignal) could read as a successful login.
       const urlMatched = await page
-        .waitForURL(new RegExp(auth.successUrlPattern), { timeout: SIGNAL_WAIT_TIMEOUT_MS })
+        .waitForURL(new RegExp(auth.successUrlPattern), { timeout: SIGNAL_WAIT_TIMEOUT_MS, signal })
         .then(() => true)
         .catch(() => false);
+      if (signal?.aborted) return cancelled();
 
       const signalLocator = buildLocator(page, auth.authenticatedSignal);
       const signalVisible = await signalLocator
-        .waitFor({ state: "visible", timeout: SIGNAL_WAIT_TIMEOUT_MS })
+        .waitFor({ state: "visible", timeout: SIGNAL_WAIT_TIMEOUT_MS, signal })
         .then(() => true)
         .catch(() => false);
+      if (signal?.aborted) return cancelled();
 
-      if (!urlMatched) {
+      if (!urlMatched || !new RegExp(auth.successUrlPattern).test(page.url())) {
         logger.warn({}, "AUTH_FAILED: post-login URL never matched the profile's successUrlPattern");
         return { status: "failed", reason: "success-url-mismatch" };
       }
@@ -101,8 +155,9 @@ export class FormLoginBootstrap implements SessionBootstrap {
 
       return { status: "success" };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn({ error: message }, "AUTH_FAILED: login sequence did not complete");
+      if (budget && !budget.canAct() && !signal?.aborted) return { status: "failed", reason: "budget-exhausted" };
+      if (isCancellationError(error)) return cancelled();
+      logger.warn({}, "AUTH_FAILED: login sequence did not complete (timeout or unavailable control)");
       return { status: "failed", reason: "timeout" };
     }
   }

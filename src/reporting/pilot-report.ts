@@ -1,4 +1,5 @@
 import type { ProjectProfile } from "../profiles/schema.js";
+import type { DeclaredWorkflowSummary } from "../pilot/workflow-manifest.js";
 import type { QaReport } from "./qa-report.js";
 
 /**
@@ -11,18 +12,24 @@ import type { QaReport } from "./qa-report.js";
  * that answer-key file's identifier, the same way it already does for
  * src/validator.ts and the Explorer/Critic/oracle path.
  *
- * "workflows" reuses the existing heuristicsApplicable/heuristicsExecuted
- * coverage counters -- in this codebase's vocabulary, a heuristic
- * execution against a real-target profile IS the unit of "workflow
- * exercised" (navigate/search/filter/sort/paginate candidates all flow
- * through the same Planner/heuristic machinery as the fixture's), not a
- * separately tracked concept requiring new counters.
+ * "heuristicCoverage" reuses the existing heuristicsApplicable/
+ * heuristicsExecuted coverage counters. Phase 4 continuation correction:
+ * this field was previously named "workflows" and its own doc comment
+ * claimed a heuristic execution against a real-target profile directly
+ * IS a "workflow exercised" -- confirmed overclaiming ("Do not call
+ * generated heuristic combinations business-workflow coverage" is an
+ * explicit, binding instruction). A heuristic candidate (e.g. "H01 on
+ * field X") is not a human-meaningful named workflow (e.g. "create an
+ * employee record"); no such declared-workflow manifest exists in this
+ * codebase yet. Renamed and re-scoped honestly: this counts heuristic
+ * candidates only, never presented as business-workflow coverage.
  */
 export type PilotSummary = {
   runId: string;
   target: { url: string; profileId: string; environmentKind: string; version?: string };
   pages: { discovered: number; visited: number };
-  workflows: { declared: number; executed: number };
+  /** Heuristic-candidate counts only -- see the type-level doc comment above. NOT business-workflow coverage. */
+  heuristicCoverage: { applicable: number; executed: number };
   duration: { elapsedMs: number; maxDurationMs: number };
   findings: { reportable: number; needsReview: number; suppressed: number; notReproduced: number };
   /**
@@ -45,9 +52,16 @@ export type PilotSummary = {
   coverageNote: string;
   /** Passed through from the run's report -- distinguishes actual-model-use (real request counts) from actual-defect-discovery (the findings buckets above), per spec. */
   usage: QaReport["usage"];
+  /**
+   * 2026-09-15 fix: a genuine, separately-tracked declared-workflow
+   * manifest (src/pilot/workflow-manifest.ts) -- `{manifestPresent:
+   * false}` honestly whenever the profile has none (still the common
+   * case), never conflated with `heuristicCoverage` above.
+   */
+  declaredWorkflows: DeclaredWorkflowSummary;
 };
 
-export function buildPilotSummary(report: QaReport, profile: ProjectProfile): PilotSummary {
+export function buildPilotSummary(report: QaReport, profile: ProjectProfile, declaredWorkflows?: DeclaredWorkflowSummary): PilotSummary {
   const findings = report.findings;
   const reportable = findings.filter((f) => f.reportDisposition === "report").length;
   const needsReview = findings.filter((f) => f.reportDisposition === "needs_human").length;
@@ -58,7 +72,7 @@ export function buildPilotSummary(report: QaReport, profile: ProjectProfile): Pi
     runId: report.runId,
     target: { url: profile.target.url, profileId: profile.id, environmentKind: profile.target.environmentKind },
     pages: { discovered: report.coverage.pagesDiscovered, visited: report.coverage.pagesVisited },
-    workflows: { declared: report.coverage.heuristicsApplicable, executed: report.coverage.heuristicsExecuted },
+    heuristicCoverage: { applicable: report.coverage.heuristicsApplicable, executed: report.coverage.heuristicsExecuted },
     duration: { elapsedMs: report.budget.durationMs, maxDurationMs: report.budget.maxDurationMs },
     findings: { reportable, needsReview, suppressed, notReproduced },
     detection: {
@@ -69,7 +83,8 @@ export function buildPilotSummary(report: QaReport, profile: ProjectProfile): Pi
     },
     humanAcceptance: { status: "unavailable", reason: "No human review has been imported for this run yet (see npm run human-review:import)." },
     coverageNote:
-      "Pilot coverage refers to the declared workflows and discovered pages for this run only -- never a claim of total product coverage. Missing modules/pages are reported as unavailable, not as defects.",
+      "Pilot coverage refers to the heuristic candidates applicable/executed and pages discovered for THIS run only -- never a claim of total product coverage, and never a claim of business-workflow coverage (heuristicCoverage counts heuristic candidates only). declaredWorkflows, when a manifest exists for this profile, is a separate, assertion-backed or explicitly annotated tracking of named business workflows -- still never a claim of TOTAL product coverage. Missing modules/pages are reported as unavailable, not as defects.",
     usage: report.usage,
+    declaredWorkflows: declaredWorkflows ?? { manifestPresent: false },
   };
 }

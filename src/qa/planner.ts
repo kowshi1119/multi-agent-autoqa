@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import type { ActionPolicy } from "../safety/action-policy.js";
+import type { WorkflowManifest } from "../pilot/workflow-manifest.js";
 import type { AppConfig } from "../config.js";
 import { isOriginAllowed } from "../actions.js";
 import { buildHeuristicTrackingKey, hasExecuted } from "./heuristic-tracker.js";
@@ -5,6 +8,7 @@ import type { QaHeuristic } from "./heuristics.js";
 import { heuristicRiskToActionRisk } from "./heuristics.js";
 import { controlKey, normalizePathname } from "../mapping/state-signature.js";
 import type { RunContext } from "../orchestrator/run-context.js";
+import { redactSecrets } from "../redact.js";
 import type { InteractiveElement, Observation, TestCandidate } from "../types.js";
 
 const STOP_CANDIDATE: TestCandidate = {
@@ -61,13 +65,41 @@ function isUsable(element: InteractiveElement): boolean {
  * Explorer picks a candidate id; it never invents a heuristic or action.
  */
 export class Planner {
+  private readonly unsuccessful = new Set<string>();
+  private readonly handledWorkflows = new Set<string>();
+  markUnsuccessful(state: string, candidate: TestCandidate): void { this.unsuccessful.add(`${state}|${candidate.id}`); }
+  markWorkflowHandled(id: string): void { this.handledWorkflows.add(id); }
   constructor(
     private readonly heuristics: QaHeuristic[],
-    private readonly config: AppConfig
+    private readonly config: AppConfig,
+    /**
+     * This run's transient login credentials (2026-09-15 fix). A
+     * "navigate" candidate's `id`/`description` are model-facing (shown in
+     * the Explorer prompt, echoed back to identify the chosen candidate)
+     * and are built from a page's own href, which can carry a credential --
+     * redacted here, at construction, while `candidate.actions[0].url`
+     * stays the RAW href, since that's what actually gets navigated to.
+     * IDs are opaque hashes of the raw URL so distinct URLs remain distinct
+     * even when their displayed descriptions redact identically.
+     */
+    private readonly extraSecrets: readonly string[] = [],
+    private readonly policy?: ActionPolicy,
+    private readonly manifest?: WorkflowManifest
   ) {}
 
   async plan(observation: Observation, ctx: RunContext): Promise<TestCandidate[]> {
     const candidates: TestCandidate[] = [];
+    if (this.policy?.isDeclaredMode()) {
+      for (const workflow of this.manifest?.workflows ?? []) {
+        if (!workflow.execution || this.handledWorkflows.has(workflow.id)) continue;
+        // Ordered declarations may include an explicit navigation to their starting page.
+        if (workflow.execution.steps[0]?.pathname !== observation.page.pathname) continue;
+        if (workflow.execution.steps.some(s => this.policy?.classifyPlannedAction(s.action, s.pathname).decision === "denied")) continue;
+        candidates.push({ id: `workflow|${workflow.id}`, workflowId: workflow.id, kind: "control", description: workflow.description, risk: "safe", actions: workflow.execution.steps.map(s => s.action) });
+        break;
+      }
+      return [...candidates, STOP_CANDIDATE];
+    }
 
     for (const element of observation.interactiveElements) {
       if (!isUsable(element)) continue;
@@ -100,9 +132,9 @@ export class Planner {
       if (!link.sameOrigin || !isOriginAllowed(link.href, this.config.safety.allowedOrigins)) continue;
       if (ctx.visitedPages.has(normalizePathname(link.href))) continue;
       candidates.push({
-        id: `nav|${link.href}`,
+        id: `nav|${createHash("sha256").update(link.href).digest("hex").slice(0, 24)}`,
         kind: "navigation",
-        description: `Navigate to ${link.text ?? link.href}`,
+        description: `Navigate to ${redactSecrets(link.text ?? link.href, this.extraSecrets)}`,
         risk: "safe",
         actions: [{ type: "navigate", url: link.href }],
       });
@@ -118,16 +150,17 @@ export class Planner {
         continue;
       }
       if (!isOriginAllowed(url, this.config.safety.allowedOrigins)) continue;
+      const redactedUrl = redactSecrets(url, this.extraSecrets);
       candidates.push({
-        id: `nav|${url}`,
+        id: `nav|${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
         kind: "navigation",
-        description: `Navigate to ${url} (discovered earlier)`,
+        description: `Navigate to ${redactedUrl} (discovered earlier)`,
         risk: "safe",
         actions: [{ type: "navigate", url }],
       });
     }
 
     candidates.push(STOP_CANDIDATE);
-    return candidates.sort((a, b) => priorityOf(a) - priorityOf(b));
+    return candidates.filter(c => c.id === "stop" || (!this.unsuccessful.has(`${observation.stateSignature}|${c.id}`) && (!this.policy || c.actions.every(a => this.policy!.classifyPlannedAction(a, observation.page.pathname).decision === "allowed")))).sort((a, b) => priorityOf(a) - priorityOf(b));
   }
 }

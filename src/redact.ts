@@ -25,6 +25,7 @@ export function redactSecrets(text: string, extraSecrets: readonly string[] = []
   const otherSecrets = [
     process.env["ANTHROPIC_API_KEY"],
     process.env["OPENAI_API_KEY"],
+    process.env["GEMINI_API_KEY"],
     process.env["EXPLABS_API_KEY"],
     process.env["EXPLABS_EXPLORER_API_KEY"],
     process.env["EXPLABS_CRITIC_API_KEY"],
@@ -43,7 +44,7 @@ export function redactSecrets(text: string, extraSecrets: readonly string[] = []
   }
 
   return result
-    .replace(/\b(?:xpl_[A-Za-z0-9]+|sk-[A-Za-z0-9_-]+)\b/g, SECRET_PLACEHOLDER)
+    .replace(/\b(?:xpl_[A-Za-z0-9]+|sk-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]{35})\b/g, SECRET_PLACEHOLDER)
     .replace(/\b(authorization|token|password|secret)\s*[=:]\s*(?:bearer\s+)?[^\s,;]+/gi, "$1=<REDACTED>");
 }
 

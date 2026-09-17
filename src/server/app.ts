@@ -5,10 +5,11 @@ import { fileURLToPath } from "node:url";
 import { ProfileStore } from "../profiles/store.js";
 import { RunManager } from "../run-manager.js";
 import { sendJson } from "./http-helpers.js";
-import { handleListProfiles } from "./routes/profiles.js";
+import { handleGetProfile, handleListProfiles, handleSaveProfile } from "./routes/profiles.js";
 import { handlePreflight } from "./routes/preflight.js";
 import { handleArtifact } from "./routes/artifacts.js";
 import { handleListRuns, handleRunEvents, handleRunStatus, handleStartRun, handleStopRun } from "./routes/runs.js";
+import { handleWorkflows } from "./routes/workflows.js";
 import { handleSaveTriage } from "./routes/triage.js";
 import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
 
@@ -66,6 +67,17 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
       return;
     }
 
+    if (path === "/api/profiles" && method === "POST") {
+      await handleSaveProfile(req, res, profileStore);
+      return;
+    }
+
+    const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(path);
+    if (profileMatch && method === "GET") {
+      handleGetProfile(res, profileStore, decodeURIComponent(profileMatch[1] as string));
+      return;
+    }
+
     if (path === "/api/preflight" && method === "GET") {
       const profileId = url.searchParams.get("profileId");
       if (!profileId) {
@@ -101,6 +113,13 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const eventsMatch = /^\/api\/runs\/([^/]+)\/events$/.exec(path);
     if (eventsMatch && method === "GET") {
       handleRunEvents(req, res, runManager, decodeURIComponent(eventsMatch[1] as string));
+      return;
+    }
+
+    const workflowMatch = /^\/api\/runs\/([^/]+)\/workflows$/.exec(path);
+    if (workflowMatch && (method === "GET" || method === "POST")) {
+      const id = decodeURIComponent(workflowMatch[1] as string);
+      await handleWorkflows(req, res, runsRootDir, id, runManager.getActiveRun()?.runId === id);
       return;
     }
 

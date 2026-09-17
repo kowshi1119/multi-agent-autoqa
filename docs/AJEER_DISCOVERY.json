@@ -1,0 +1,77 @@
+{
+  "kind": "browser-assisted-discovery-not-AutoQA-acceptance",
+  "observedAt": "2026-09-17T05:57:46.564Z",
+  "url": "https://portal.sandbox.ajeer.money/login",
+  "controls": [
+    {
+      "tag": "INPUT",
+      "type": "email",
+      "placeholder": " ",
+      "label": null
+    },
+    {
+      "tag": "INPUT",
+      "type": "password",
+      "placeholder": " ",
+      "label": null
+    },
+    {
+      "tag": "BUTTON",
+      "type": "button",
+      "placeholder": null,
+      "label": null,
+      "text": ""
+    },
+    {
+      "tag": "BUTTON",
+      "type": "submit",
+      "placeholder": null,
+      "label": null,
+      "text": "Login"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/"
+    },
+    {
+      "method": "GET",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/login"
+    },
+    {
+      "method": "POST",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/api/logout"
+    },
+    {
+      "method": "POST",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/api/v1/auth/client-token"
+    },
+    {
+      "method": "GET",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/privacy-policy"
+    },
+    {
+      "method": "GET",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/terms-and-conditions"
+    },
+    {
+      "method": "GET",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/forgot-password"
+    },
+    {
+      "method": "GET",
+      "origin": "https://portal.sandbox.ajeer.money",
+      "pathname": "/signup"
+    }
+  ],
+  "credentialsUsed": false,
+  "mutationsAllowed": false
+}

@@ -16,7 +16,7 @@ export const originSchema = z
 /** Extracted for reuse by src/profiles/schema.ts -- profiles carry the same explorer/critic provider shape as AppConfig.models, not a reinvented one. */
 export const modelsSchema = z.object({
   explorer: z.object({
-    provider: z.enum(["auto", "mock", "anthropic", "openai", "ollama", "explabs"]),
+    provider: z.enum(["auto", "mock", "anthropic", "openai", "ollama", "explabs", "gemini"]),
     model: z.string().optional(),
   }),
   critic: z.object({
@@ -29,7 +29,7 @@ export const modelsSchema = z.object({
   providerTimeoutMs: z.number().int().positive("models.providerTimeoutMs must be > 0"),
 });
 
-const configSchema = z
+export const configSchema = z
   .object({
     project: z.object({
       name: z.string().min(1, "project.name must not be empty"),

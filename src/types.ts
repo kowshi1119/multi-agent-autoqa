@@ -20,6 +20,15 @@ export type RecordedStep = {
   action: QaAction;
   testingIntent?: string;
   timestamp: string;
+  /**
+   * §7b fix (2026-09-14 addendum): populated from the actual executeAction()
+   * result at the point this step is recorded -- lets computePrerequisitePrefix()
+   * (src/orchestrator/orchestrator.ts) exclude blocked/failed steps from a
+   * finding's replay prerequisites, rather than blindly taking the last N
+   * recorded steps regardless of whether they actually succeeded. Optional
+   * because older/mock-produced steps may not set it.
+   */
+  outcome?: "success" | "blocked" | "agent_action_failed";
 };
 
 export type WidgetType =
@@ -126,6 +135,7 @@ export type Observation = {
  * raw action — which keeps the model's response surface small and closed.
  */
 export type TestCandidate = {
+  workflowId?: string;
   id: string;
   kind: "heuristic" | "navigation" | "control";
   heuristicId?: string;
@@ -156,6 +166,13 @@ export type ExplorerInput = {
   remainingActions: number;
   remainingModelCalls: number;
   remainingDurationMs: number;
+  /**
+   * This run's transient login credentials (2026-09-15 fix) -- Observation
+   * itself now stays raw/operational (see observation.ts), so
+   * formatUserMessage() applies redaction to observation.page.url/.title
+   * itself, right where they're rendered into the outgoing prompt.
+   */
+  extraSecrets?: readonly string[];
 };
 
 export type ExplorerDecision = {
@@ -339,6 +356,21 @@ export type Finding = {
    * otherwise impossible).
    */
   steps: RecordedStep[];
+  /**
+   * (Phase 4 continuation, §4b) A short, deterministic sequence of steps
+   * already executed earlier in the SAME exploration cycle, leading from
+   * the session's starting point to the page/state `steps` was triggered
+   * from -- populated only for authenticated real-target profiles where a
+   * client-state-dependent scenario (e.g. list -> filter -> trigger) is
+   * plausible. Replayed BEFORE `steps` on a fresh session (see
+   * Validator.validate()), never a general shortest-path search across
+   * the whole app graph. Excludes credentials by construction: captured
+   * from already-executed QaActions, which never carry secrets (the
+   * existing `<QA_PASSWORD>`-placeholder convention). Absent (or empty)
+   * for a fixture profile / a finding with no real prerequisite --
+   * replay behavior there is unchanged.
+   */
+  prerequisitePrefix?: RecordedStep[];
   reproduction: {
     attempts: number;
     successes: number;

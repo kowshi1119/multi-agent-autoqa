@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import { FIXTURE_ORACLE_CONFIG } from "../fixture-oracle-config.js";
 import type { ProjectProfile } from "./schema.js";
 
 /**
@@ -41,13 +42,24 @@ export function profileToAppConfig(profile: ProjectProfile): AppConfig {
       safeControlClick: { enabled: true, allowedControls: [] },
     },
     validation: { attempts: 3, minimumSuccesses: 2 },
-    oracles: {
-      uiApiConsistency: { enabled: true, rules: [] },
-      console: { enabled: true, ignorePatterns: [] },
-      pageError: { enabled: true },
-      httpFailure: { enabled: true },
-      duplicateRequest: { enabled: true, patterns: [] },
-    },
+    // For the local fixture specifically, reuse the exact same oracle
+    // rules/patterns qa.config.mock.yaml declares (see
+    // fixture-oracle-config.ts) -- otherwise a UI-driven fixture run and
+    // a CLI mock-config run of the identical app would silently exercise
+    // different oracle configuration. A real-target profile has nothing
+    // to seed rules/patterns FROM (there is no equivalent hand-authored
+    // config for an arbitrary real app), so it correctly keeps the
+    // conservative empty defaults -- not a bug, a real target's oracle
+    // rules would have to be profile-declared, which isn't in scope here.
+    oracles: profile.oracles ?? (isFixture
+      ? FIXTURE_ORACLE_CONFIG
+      : {
+          uiApiConsistency: { enabled: true, rules: [] },
+          console: { enabled: true, ignorePatterns: [] },
+          pageError: { enabled: true },
+          httpFailure: { enabled: true },
+          duplicateRequest: { enabled: true, patterns: [] },
+        }),
     evidence: {
       screenshots: true,
       // Authenticated real-target profiles default trace capture off --
@@ -60,7 +72,7 @@ export function profileToAppConfig(profile: ProjectProfile): AppConfig {
       network: true,
     },
     models: profile.provider,
-    requirements: isFixture ? { enabled: true, path: "fixture/requirements.json" } : { enabled: false, path: "requirements.yaml" },
+    requirements: profile.requirements ?? (isFixture ? { enabled: true, path: "fixture/requirements.json" } : { enabled: false, path: "requirements.yaml" }),
     grouping: { enabled: true },
     safety: {
       safeMode: true,

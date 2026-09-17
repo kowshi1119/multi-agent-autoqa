@@ -1,4 +1,4 @@
-import type { BudgetTracker } from "../budget.js";
+import { CriticBudgetExhaustedError, type BudgetTracker } from "../budget.js";
 import type { AppConfig } from "../config.js";
 import { selectConsoleEvidence, selectNetworkEvidence } from "./evidence-scope.js";
 import { writeCriticArtifact } from "../evidence.js";
@@ -181,15 +181,29 @@ export class Critic {
           completeness: validation.evidenceCompleteness,
         }
       );
-      budget.recordCriticCall();
+      // §4 fix (2026-09-14 addendum): a real critic provider now
+      // checks/records each of its own real HTTP requests at its own
+      // complete() boundary (see anthropic-critic-provider.ts/
+      // explabs-critic-provider.ts), so recording unconditionally here
+      // would double-count -- and would never catch a first-attempt-then-
+      // repair decision that internally makes 2 real requests. Diff-based
+      // fallback below: only record here when the provider consumed
+      // nothing itself (MockCriticProvider, which makes no real request at
+      // all -- preserving the existing "one critic call per review"
+      // semantics for mock-driven runs/tests).
+      const criticCallsBefore = budget.criticCalls;
       try {
         // Usage accounting (Phase 4 continuation) now happens inside the
         // provider's own complete() boundary, not here -- see
         // provider-implementation.ts/anthropic-critic-provider.ts. The
         // signal passed to critique() ties the timeout AND a
         // user-initiated Stop to the actual in-flight SDK request.
-        const signal = deriveTimeoutSignal(config.models.providerTimeoutMs, abortSignal);
-        const decision = await withTimeout(criticProvider.critique(input, signal), config.models.providerTimeoutMs);
+        // 2026-09-15 fix: the request deadline is the LESSER of the
+        // provider's own configured timeout and the run's remaining
+        // duration budget (see the identical fix in orchestrator.ts#explore()).
+        const requestDeadlineMs = Math.min(config.models.providerTimeoutMs, budget.remainingDurationMs());
+        const signal = deriveTimeoutSignal(requestDeadlineMs, abortSignal);
+        const decision = await withTimeout(criticProvider.critique(input, signal), requestDeadlineMs);
         const contradiction = firstContradiction(checkClaims(decision, input));
         if (contradiction) {
           const reason = `CRITIC_EVIDENCE_CONTRADICTION: ${contradiction.claim} -- ${contradiction.detail}`;
@@ -208,9 +222,17 @@ export class Critic {
           );
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn({ findingId: finding.id, error: message }, "CRITIC_MODEL_ERROR: critic call failed or timed out");
-        outcome = { kind: "unavailable", reason: `CRITIC_MODEL_ERROR: ${message}` };
+        if (error instanceof CriticBudgetExhaustedError) {
+          logger.warn({ findingId: finding.id, error: error.message }, "BUDGET_EXHAUSTED: critic call refused mid-decision");
+          outcome = { kind: "unavailable", reason: `BUDGET_EXHAUSTED: ${error.message}` };
+        } else {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn({ findingId: finding.id, error: message }, "CRITIC_MODEL_ERROR: critic call failed or timed out");
+          outcome = { kind: "unavailable", reason: `CRITIC_MODEL_ERROR: ${message}` };
+        }
+      }
+      if (budget.criticCalls === criticCallsBefore) {
+        budget.recordCriticCall();
       }
     }
 

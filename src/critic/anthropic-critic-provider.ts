@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { CriticBudgetExhaustedError, type BudgetTracker } from "../budget.js";
 import type { Logger } from "../logger.js";
 import type { CriticProvider } from "../models/critic-provider.js";
 import { CriticOutputInvalidError } from "../models/critic-provider.js";
@@ -32,7 +33,8 @@ export class AnthropicCriticProvider implements CriticProvider {
     apiKey: string,
     private readonly logger: Logger,
     model: string,
-    private readonly usageTracker?: UsageTracker
+    private readonly usageTracker?: UsageTracker,
+    private readonly budget?: BudgetTracker
   ) {
     // maxRetries:0 -- see src/models/explabs-client.ts's comment on the same setting.
     this.client = new Anthropic({ apiKey, maxRetries: 0 });
@@ -63,6 +65,10 @@ export class AnthropicCriticProvider implements CriticProvider {
 
   /** The actual SDK request boundary (Phase 4 continuation accounting fix) -- usage recorded here, once per real HTTP attempt. */
   private async complete(userMessage: string, signal?: AbortSignal): Promise<string> {
+    if (this.budget && !this.budget.canCallCritic()) {
+      throw new CriticBudgetExhaustedError();
+    }
+    this.budget?.recordCriticCall();
     this.requestCounter += 1;
     const attemptNumber = this.requestCounter;
     const call = (): Promise<Anthropic.Message> =>

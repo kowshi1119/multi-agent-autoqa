@@ -1,3 +1,4 @@
+import type { BudgetTracker } from "../budget.js";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { ProjectProfile } from "../profiles/schema.js";
 import { buildLocator } from "../actions.js";
@@ -62,7 +63,8 @@ export class BrowserManager {
   constructor(
     private readonly config: AppConfig,
     private readonly logger: Logger,
-    private readonly headless: boolean
+    private readonly headless: boolean,
+    private readonly budget?: BudgetTracker
   ) {}
 
   async launch(): Promise<void> {
@@ -92,7 +94,9 @@ export class BrowserManager {
   async newPageSession(
     onSafetyEvent: (event: SafetyEvent) => void = () => {},
     actionPolicy?: ActionPolicy,
-    authOptions?: SessionAuthOptions
+    authOptions?: SessionAuthOptions,
+    /** §8a fix (2026-09-14 addendum) -- threaded to ensureAuthenticated()'s retry loop. */
+    signal?: AbortSignal
   ): Promise<PageSession> {
     const browser = this.requireBrowser();
     const context = await browser.newContext({
@@ -104,8 +108,9 @@ export class BrowserManager {
     });
 
     const allowedOrigins = this.config.safety.allowedOrigins;
+    let authenticating = Boolean(authOptions);
     const resourcePolicy = actionPolicy
-      ? (method: string, pathname: string, origin: string, resourceType: string) => actionPolicy.classifyResourceRequest(method, pathname, origin, resourceType)
+      ? (method: string, pathname: string, origin: string, resourceType: string) => actionPolicy.classifyResourceRequest(method, pathname, origin, resourceType, authenticating)
       : undefined;
     await installRouteGuard(context, allowedOrigins, this.logger, onSafetyEvent, resourcePolicy);
 
@@ -115,6 +120,7 @@ export class BrowserManager {
     // *after* this page exists — otherwise it would immediately close the
     // very session page we're about to navigate, racing with that goto().
     const page = await context.newPage();
+    if (this.budget) page.on("request", () => this.budget!.recordBrowserRequest(authenticating));
     installPopupGuard(context, allowedOrigins, this.logger, onSafetyEvent);
     installAsyncRedirectGuard(page, allowedOrigins, this.logger, onSafetyEvent);
 
@@ -123,7 +129,8 @@ export class BrowserManager {
 
     if (authOptions) {
       try {
-        await this.ensureAuthenticated(context, page, authOptions);
+        await this.ensureAuthenticated(context, page, authOptions, signal);
+        authenticating = false;
       } catch (error) {
         // A session whose login never succeeded is not reusable -- close
         // it explicitly here rather than leaving it for the eventual
@@ -153,7 +160,7 @@ export class BrowserManager {
    * bounded number of full form-login attempts rather than looping
    * indefinitely.
    */
-  private async ensureAuthenticated(context: BrowserContext, page: Page, authOptions: SessionAuthOptions): Promise<void> {
+  private async ensureAuthenticated(context: BrowserContext, page: Page, authOptions: SessionAuthOptions, signal?: AbortSignal): Promise<void> {
     const { sessionBootstrap, profile, credentials, storageState } = authOptions;
 
     if (storageState && profile.auth.mode === "form-login" && profile.auth.authenticatedSignal) {
@@ -162,23 +169,47 @@ export class BrowserManager {
       // accessibility verification means actually loading the target and
       // confirming the authenticated signal renders there, not assuming
       // cookie presence equals a working session.
+      this.budget?.recordAttempt("validation");
       const signalVisible = await page
-        .goto(this.config.target.url, { timeout: 10_000, waitUntil: "domcontentloaded" })
-        .then(() => buildLocator(page, profile.auth.authenticatedSignal as NonNullable<typeof profile.auth.authenticatedSignal>).waitFor({ state: "visible", timeout: 5_000 }))
+        .goto(this.config.target.url, { timeout: 10_000, waitUntil: "domcontentloaded", signal })
+        .then(() =>
+          buildLocator(page, profile.auth.authenticatedSignal as NonNullable<typeof profile.auth.authenticatedSignal>).waitFor({
+            state: "visible",
+            timeout: 5_000,
+            signal,
+          })
+        )
         .then(() => true)
         .catch(() => false);
-      if (signalVisible) return;
+      this.budget?.recordOutcome(signalVisible ? "success" : "failed");
+      if (signalVisible && (!profile.auth.successUrlPattern || new RegExp(profile.auth.successUrlPattern).test(page.url()))) return;
+      if (signal?.aborted) {
+        this.logger.info({}, "CANCELLED: stopping before a fresh login attempt -- storageState verification was interrupted by Stop");
+        throw new AuthenticationError("AUTH_FAILED: cancelled before storageState verification completed.", "cancelled");
+      }
       this.logger.warn({}, "AUTH: carried-over storageState did not verify on a fresh context; falling back to a full re-login");
     }
 
     let lastResult: AuthResult = { status: "failed", reason: "timeout" };
+    let attemptsMade = 0;
     for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt += 1) {
-      lastResult = await sessionBootstrap.establish(context, page, profile, credentials, this.logger);
+      // §8a fix (2026-09-14 addendum): checked BETWEEN attempts, not just
+      // once up front -- an attempt already in flight completes on its own
+      // internal timeouts (bounded cleanup, not instant interruption), but
+      // no NEW attempt starts once Stop has been requested.
+      if (signal?.aborted) {
+        this.logger.info({ attempt, of: MAX_LOGIN_ATTEMPTS }, "CANCELLED: stopping login retries early");
+        lastResult = { status: "failed", reason: "cancelled" };
+        break;
+      }
+      attemptsMade++;
+      lastResult = await sessionBootstrap.establish(context, page, profile, credentials, this.logger, signal, this.budget);
       if (lastResult.status === "success") return;
       this.logger.warn({ attempt, of: MAX_LOGIN_ATTEMPTS, reason: lastResult.reason }, "AUTH_FAILED: login attempt did not succeed");
+      if (["not-configured", "invalid-credentials", "cancelled", "budget-exhausted"].includes(lastResult.reason)) break;
     }
 
-    throw new AuthenticationError(`AUTH_FAILED: could not establish an authenticated session after ${MAX_LOGIN_ATTEMPTS} attempt(s) (${lastResult.reason}).`, lastResult.reason);
+    throw new AuthenticationError(`AUTH_FAILED: could not establish an authenticated session after ${attemptsMade} attempt(s) (${lastResult.reason}).`, lastResult.reason);
   }
 
   async startTracing(context: BrowserContext): Promise<void> {

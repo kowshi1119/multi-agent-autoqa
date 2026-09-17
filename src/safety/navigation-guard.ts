@@ -1,7 +1,15 @@
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Page, Route } from "playwright";
 import { isOriginAllowed } from "../actions.js";
+import { isStaticAssetResourceType } from "./action-policy.js";
 import type { Logger } from "../logger.js";
 import type { SafetyEvent } from "../types.js";
+
+type ResourcePolicy = (
+  method: string,
+  pathname: string,
+  origin: string,
+  resourceType: string
+) => { decision: "allowed" } | { decision: "denied"; reason: string };
 
 type NavigationBlockedMechanism = "route" | "post-action" | "framenavigated" | "popup";
 
@@ -44,6 +52,139 @@ function isBenignTransitionalUrl(url: string): boolean {
  *
  * Scoped to the main frame only — iframes are out of scope for Phase 1.
  */
+/** Bounded defense against a redirect loop -- deny rather than chase forever. */
+const MAX_REDIRECT_HOPS = 20;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * 301/302/303 conventionally downgrade a non-GET/HEAD method to GET (the
+ * behavior effectively every browser and HTTP client implements, standards
+ * text notwithstanding); 307/308 always preserve the original method and
+ * body. 303 always becomes GET regardless of the original method.
+ */
+function methodForRedirect(status: number, originalMethod: string): string {
+  if (status === 303) return "GET";
+  if ((status === 301 || status === 302) && originalMethod !== "GET" && originalMethod !== "HEAD") return "GET";
+  return originalMethod;
+}
+
+function classifyUrl(urlString: string, method: string, resourceType: string, resourcePolicy: ResourcePolicy): { decision: "allowed" } | { decision: "denied"; reason: string } {
+  let pathname: string;
+  let origin: string;
+  try {
+    const parsed = new URL(urlString);
+    pathname = parsed.pathname;
+    origin = parsed.origin;
+  } catch {
+    pathname = urlString;
+    origin = "";
+  }
+  return resourcePolicy(method, pathname, origin, resourceType);
+}
+
+/**
+ * Manually walks a request's own redirect chain, Node-side, validating
+ * every hop against `resourcePolicy` BEFORE that hop is ever fetched -- by
+ * anyone. This exists because Playwright's context.route() handler is
+ * invoked only once, for a request's ORIGINAL url; if the response is a
+ * redirect, the browser follows it natively without giving the handler
+ * another chance to inspect or block the destination (confirmed
+ * empirically, 2026-09-14: an allowed same-origin start URL redirecting to
+ * an out-of-scope destination resulted in a REAL request reaching that
+ * destination, with policy checked only once, for the original URL --
+ * contradicting an earlier assumption in this file that route() re-checks
+ * every hop). Detecting-and-reverting after the fact
+ * (installAsyncRedirectGuard, below) is too late: the forbidden request
+ * has already been sent by the time a framenavigated event fires.
+ *
+ * Once the ENTIRE chain is confirmed in-scope, only the FIRST hop's real,
+ * already-fetched redirect response is relayed to the browser via
+ * route.fulfill() -- which then follows it (and any further hops)
+ * NATIVELY. Every one of those further hops was already independently
+ * pre-validated by this same walk, so the browser's native (redundant,
+ * but harmless) re-fetch of them can only ever reach destinations already
+ * confirmed in-scope. This is deliberate: fulfilling the ORIGINAL request
+ * directly with the deep-chased terminal content instead would leave
+ * page.url() stuck on the pre-redirect URL (Playwright's frame navigation
+ * reflects the URL it was asked to fetch, not wherever a manually-
+ * fulfilled body actually came from) -- which would break
+ * FormLoginBootstrap's page.waitForURL(successUrlPattern) after an
+ * ordinary server-side post-login redirect, ubiquitous in real apps, and
+ * something a redirect-safety fix must not break.
+ */
+async function chaseAndValidate(route: Route, resourcePolicy: ResourcePolicy, logger: Logger, onSafetyEvent: (event: SafetyEvent) => void): Promise<void> {
+  const originalRequest = route.request();
+  const resourceType = originalRequest.resourceType();
+  let currentUrl = originalRequest.url();
+  let currentMethod = originalRequest.method();
+  let firstHopResponse: Awaited<ReturnType<Route["fetch"]>> | undefined;
+
+  const deny = (reason: string, deniedUrl: string): void => {
+    logger.warn({ url: deniedUrl, method: currentMethod, reason }, "ACTION_POLICY_DENIED: aborted unapproved resource request");
+    onSafetyEvent({ code: "ACTION_POLICY_DENIED", reason, mechanism: "route", timestamp: new Date().toISOString() });
+    void route.abort();
+  };
+
+  const initial = classifyUrl(currentUrl, currentMethod, resourceType, resourcePolicy);
+  if (initial.decision === "denied") {
+    deny(initial.reason, currentUrl);
+    return;
+  }
+
+  for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop += 1) {
+    let response: Awaited<ReturnType<Route["fetch"]>>;
+    try {
+      response = await route.fetch({ url: currentUrl, method: currentMethod, maxRedirects: 0 });
+    } catch (error) {
+      deny("ACTION_POLICY_DENIED: request/redirect validation failed; transport unavailable or cancelled", currentUrl);
+      return;
+    }
+    if (hop === 0) firstHopResponse = response;
+
+    const status = response.status();
+    if (!REDIRECT_STATUSES.has(status)) {
+      // Terminal (non-redirect) response. hop===0 means this was never a
+      // chain at all -- relay exactly what was fetched, identical to
+      // route.continue(). hop>0 means the chain was fully validated --
+      // relay only the FIRST hop's real redirect and let the browser
+      // follow the (already-vetted) rest natively, per this function's
+      // own doc comment.
+      await route.fulfill({ response: hop === 0 ? response : (firstHopResponse as NonNullable<typeof firstHopResponse>) });
+      return;
+    }
+
+    const location = response.headers()["location"];
+    if (!location) {
+      // A 3xx with no Location header is malformed but not itself unsafe -- relay as-is rather than guessing.
+      await route.fulfill({ response: hop === 0 ? response : (firstHopResponse as NonNullable<typeof firstHopResponse>) });
+      return;
+    }
+
+    let nextUrl: string;
+    try {
+      nextUrl = new URL(location, currentUrl).href;
+    } catch {
+      deny(`ACTION_POLICY_DENIED: redirect Location header "${location}" could not be resolved to a valid URL`, currentUrl);
+      return;
+    }
+    const nextMethod = methodForRedirect(status, currentMethod);
+
+    // The redirect destination is classified BEFORE it is ever fetched --
+    // by me or the browser. This is what makes "zero hits on the
+    // forbidden destination" achievable.
+    const classification = classifyUrl(nextUrl, nextMethod, resourceType, resourcePolicy);
+    if (classification.decision === "denied") {
+      deny(classification.reason, nextUrl);
+      return;
+    }
+
+    currentUrl = nextUrl;
+    currentMethod = nextMethod;
+  }
+
+  deny(`ACTION_POLICY_DENIED: redirect chain exceeded ${MAX_REDIRECT_HOPS} hops`, currentUrl);
+}
+
 export async function installRouteGuard(
   context: BrowserContext,
   allowedOrigins: string[],
@@ -57,9 +198,9 @@ export async function installRouteGuard(
    * click/Enter (e.g. a JS handler firing fetch() directly). Absent for a
    * local-fixture profile/legacy direct-YAML run.
    */
-  resourcePolicy?: (method: string, pathname: string, origin: string, resourceType: string) => { decision: "allowed" } | { decision: "denied"; reason: string }
+  resourcePolicy?: ResourcePolicy
 ): Promise<void> {
-  await context.route("**/*", (route) => {
+  await context.route("**/*", async (route) => {
     const request = route.request();
     if (request.isNavigationRequest()) {
       // A popup's very first navigation request can throw here — its frame
@@ -81,26 +222,14 @@ export async function installRouteGuard(
         void route.abort();
         return;
       }
-    } else if (resourcePolicy) {
-      let pathname: string;
-      let origin: string;
-      try {
-        const parsed = new URL(request.url());
-        pathname = parsed.pathname;
-        origin = parsed.origin;
-      } catch {
-        pathname = request.url();
-        origin = "";
-      }
-      const classification = resourcePolicy(request.method(), pathname, origin, request.resourceType());
-      if (classification.decision === "denied") {
-        logger.warn({ url: request.url(), method: request.method(), reason: classification.reason }, "ACTION_POLICY_DENIED: aborted unapproved resource request");
-        onSafetyEvent({ code: "ACTION_POLICY_DENIED", reason: classification.reason, mechanism: "route", timestamp: new Date().toISOString() });
-        void route.abort();
-        return;
-      }
     }
-    void route.continue();
+
+    if (!resourcePolicy || (isStaticAssetResourceType(request.resourceType()) && ["GET", "HEAD"].includes(request.method().toUpperCase()))) {
+      void route.continue();
+      return;
+    }
+
+    await chaseAndValidate(route, resourcePolicy, logger, onSafetyEvent);
   });
 }
 

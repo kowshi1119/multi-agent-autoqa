@@ -1,3 +1,4 @@
+import { refreshPilotSummary } from "../../pilot/workflow-runtime.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -31,6 +32,7 @@ export async function handleSaveTriage(req: IncomingMessage, res: ServerResponse
   try {
     const runDir = resolve(runsRootDir, runId);
     const result = saveTriageLabel(runDir, parsed.data.findingId, parsed.data.verdict, parsed.data.notes);
+    refreshPilotSummary(runDir);
     sendJson(res, 200, result);
   } catch (error) {
     if (error instanceof TriageError) {

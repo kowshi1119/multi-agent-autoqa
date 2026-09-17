@@ -23,6 +23,7 @@
   .check-pass { color: var(--ok); }
   .check-fail { color: var(--danger); }
   .check-skipped { color: var(--muted); }
+  .check-managed { color: var(--muted); }
   .next-step { color: var(--muted); font-size: 0.85rem; margin-left: 1.4em; }
   .counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; margin: 0.6em 0; }
   .counter { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
@@ -37,6 +38,12 @@
   .error-text { color: var(--danger); }
   details.advanced summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
   .run-row { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 6px 0; font-size: 0.9rem; }
+  /* 2026-09-16 usability fix: an unbounded prior-runs list made the page
+     grow indefinitely as runs accumulated (60+ in normal dev use) with no
+     way to see the run panel and the run list at once. A scrollable box
+     keeps every run reachable (nothing removed, nothing paginated away)
+     while keeping the page itself a fixed, predictable height. */
+  #prior-runs { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 0 8px; }
 </style>
 </head>
 <body>
@@ -48,8 +55,37 @@
   <select id="profile-select"></select>
   <div style="margin-top:0.6em;">
     <button id="check-setup-btn">Check setup</button>
+    <button id="new-profile-btn">New profile</button>
+    <button id="edit-profile-btn">Edit profile</button>
   </div>
   <div id="preflight-results" style="margin-top:0.6em;"></div>
+</section>
+
+<section id="profile-editor-section" hidden>
+  <h2>1b. Create / edit project</h2>
+  <p class="empty">Secrets (username/password) are never stored here -- see "Sign in for this run" below.</p>
+  <label for="pe-id">Id</label>
+  <input type="text" id="pe-id" autocomplete="off" />
+  <label for="pe-name">Name</label>
+  <input type="text" id="pe-name" autocomplete="off" />
+  <label for="pe-target-url">Target URL</label>
+  <input type="text" id="pe-target-url" autocomplete="off" />
+  <label for="pe-environment-kind">Environment kind</label>
+  <select id="pe-environment-kind">
+    <option value="self-hosted-real-app">self-hosted-real-app</option>
+    <option value="owned-sandbox">owned-sandbox</option>
+    <option value="local-fixture">local-fixture</option>
+  </select>
+  <details class="advanced" open style="margin-top:1em;">
+    <summary>Full profile JSON (every field -- navigation scope, auth locators, workflows, limits, provider)</summary>
+    <p class="next-step" style="margin-left:0;">The four fields above are a shortcut that edits this JSON directly; everything else (allowed origins/paths, auth locators, workflow kinds, provider, limits) is edited here. This is exactly what gets validated and saved -- the same schema every other profile-reading path uses.</p>
+    <textarea id="pe-json" rows="18" style="width:100%; max-width:640px; font-family:monospace; font-size:0.85rem; box-sizing:border-box; background:transparent; color:inherit; border:1px solid var(--border); border-radius:4px; padding:8px;"></textarea>
+  </details>
+  <div id="pe-error" class="error-text" style="margin-top:0.6em;"></div>
+  <div style="margin-top:0.6em;">
+    <button id="pe-save-btn" class="primary">Save</button>
+    <button id="pe-cancel-btn">Cancel</button>
+  </div>
 </section>
 
 <section id="auth-section" hidden>
@@ -70,6 +106,9 @@
 
 <section id="run-section">
   <h2>4. Run</h2>
+  <label><input type="checkbox" id="auth-only"> Authentication only (no exploration)</label>
+  <label for="workflow-ids">Workflow IDs (optional, comma separated; leave blank for all declared workflows)</label>
+  <input id="workflow-ids" type="text" autocomplete="off">
   <button id="start-btn" class="primary">Start</button>
   <button id="stop-btn" class="danger" hidden>Stop</button>
   <div class="status-line" id="status-line"></div>
@@ -127,7 +166,7 @@
       data.profiles.forEach(function (p) {
         var opt = document.createElement("option");
         opt.value = p.id;
-        setText(opt, p.name + " (" + p.environmentKind + ")");
+        setText(opt, p.name + " (" + p.environmentKind + ") -- " + providerSummary(p));
         select.appendChild(opt);
       });
       updateAuthVisibility();
@@ -139,12 +178,110 @@
     return state.profiles.find(function (p) { return p.id === id; });
   }
 
+  function providerSummary(p) {
+    if (!p.provider) return "provider unknown";
+    var explorer = p.provider.explorer.provider + (p.provider.explorer.model ? " (" + p.provider.explorer.model + ")" : "");
+    var critic = p.provider.critic.enabled
+      ? p.provider.critic.provider + (p.provider.critic.model ? " (" + p.provider.critic.model + ")" : "")
+      : "off";
+    return "explorer: " + explorer + ", critic: " + critic;
+  }
+
   function updateAuthVisibility() {
     var profile = currentProfile();
     el("auth-section").hidden = !profile || profile.authMode === "none";
   }
 
   el("profile-select").addEventListener("change", updateAuthVisibility);
+
+  // --- Profile create/edit (1b) ---------------------------------------
+  // The JSON textarea is the single source of truth for everything the
+  // save endpoint validates; the four "quick fields" above it are a
+  // convenience that overwrite the corresponding keys in that JSON right
+  // before Save, not a second, independently-maintained representation --
+  // this is what lets the same minimal form edit every schema field
+  // (navigation scope, auth locators, workflows, limits, provider)
+  // without a dedicated input for each one.
+  function defaultProfileTemplate() {
+    return {
+      schemaVersion: 1,
+      id: "",
+      name: "",
+      target: { url: "", environmentKind: "self-hosted-real-app" },
+      navigation: { allowedOrigins: [], allowedPathPrefixes: ["/"] },
+      resources: { allowedApiOrigins: [], allowedFormSubmitEndpoints: [] },
+      workflows: { allowedWorkflowKinds: ["navigate"] },
+      auth: { mode: "none" },
+      provider: {
+        explorer: { provider: "mock" },
+        critic: { enabled: false, provider: "mock", requireIndependentProvider: false, maxCallsPerFinding: 1 },
+        providerTimeoutMs: 30000
+      },
+      limits: { maxActions: 40, maxModelCalls: 20, maxPages: 5, maxFindings: 10, maxDurationMs: 300000, maxCriticCalls: 6 }
+    };
+  }
+
+  function fillEditorFrom(profile) {
+    el("pe-id").value = profile.id || "";
+    el("pe-name").value = profile.name || "";
+    el("pe-target-url").value = (profile.target && profile.target.url) || "";
+    el("pe-environment-kind").value = (profile.target && profile.target.environmentKind) || "self-hosted-real-app";
+    el("pe-json").value = JSON.stringify(profile, null, 2);
+  }
+
+  function openEditor(profile, isNew) {
+    setText(el("pe-error"), "");
+    fillEditorFrom(profile);
+    el("pe-id").disabled = !isNew; // id is the save key -- changing it on an "edit" would silently create a second profile instead of updating this one
+    el("profile-editor-section").hidden = false;
+  }
+
+  el("new-profile-btn").addEventListener("click", function () {
+    openEditor(defaultProfileTemplate(), true);
+  });
+
+  el("edit-profile-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile) return;
+    api("/api/profiles/" + encodeURIComponent(profile.id)).then(function (data) {
+      openEditor(data.profile, false);
+    }).catch(function (err) {
+      setText(el("pe-error"), err.message);
+    });
+  });
+
+  el("pe-cancel-btn").addEventListener("click", function () {
+    el("profile-editor-section").hidden = true;
+  });
+
+  el("pe-save-btn").addEventListener("click", function () {
+    setText(el("pe-error"), "");
+    var parsed;
+    try {
+      parsed = JSON.parse(el("pe-json").value);
+    } catch (e) {
+      setText(el("pe-error"), "Invalid JSON: " + e.message);
+      return;
+    }
+    parsed.id = el("pe-id").value;
+    parsed.name = el("pe-name").value;
+    parsed.target = parsed.target || {};
+    parsed.target.url = el("pe-target-url").value;
+    parsed.target.environmentKind = el("pe-environment-kind").value;
+
+    api("/api/profiles", { method: "POST", body: JSON.stringify(parsed) })
+      .then(function () {
+        el("profile-editor-section").hidden = true;
+        return loadProfiles();
+      })
+      .then(function () {
+        el("profile-select").value = parsed.id;
+        updateAuthVisibility();
+      })
+      .catch(function (err) {
+        setText(el("pe-error"), err.message);
+      });
+  });
 
   el("check-setup-btn").addEventListener("click", function () {
     var profile = currentProfile();
@@ -158,8 +295,11 @@
         var row = document.createElement("div");
         row.className = "check-row";
         var mark = document.createElement("span");
-        mark.className = check.status === "pass" ? "check-pass" : check.status === "skipped" ? "check-skipped" : "check-fail";
-        setText(mark, check.status === "pass" ? "✓" : check.status === "skipped" ? "-" : "✗");
+        mark.className =
+          check.status === "pass" ? "check-pass" :
+          check.status === "managed" ? "check-managed" :
+          check.status === "skipped" ? "check-skipped" : "check-fail";
+        setText(mark, check.status === "pass" ? "✓" : check.status === "managed" ? "~" : check.status === "skipped" ? "-" : "✗");
         row.appendChild(mark);
         var label = document.createElement("span");
         setText(label, check.name + ": " + check.detail);
@@ -233,12 +373,15 @@
     var profile = currentProfile();
     if (!profile) return;
     var mode = document.querySelector('input[name="mode"]:checked').value;
-    var body = { profileId: profile.id, mode: mode };
+    var body = { profileId: profile.id, mode: mode, authenticationOnly: el("auth-only").checked };
+    var ids = el("workflow-ids").value.trim();
+    if (ids && !body.authenticationOnly) body.workflowIds = ids.split(",").map(function (id) { return id.trim(); });
     if (profile.authMode !== "none") {
       body.credentials = { username: el("auth-username").value, password: el("auth-password").value };
     }
     if (mode === "live") body.confirmedLimits = profile.limits;
 
+    el("auth-username").value = ""; el("auth-password").value = "";
     el("start-btn").disabled = true;
     api("/api/runs", { method: "POST", body: JSON.stringify(body) }).then(function (data) {
       state.currentRunId = data.runId;
@@ -267,7 +410,18 @@
       var evt = JSON.parse(msg.data);
       applyProgressEvent(evt);
       if (evt.phase === "completed" || evt.phase === "stopped" || evt.phase === "failed") {
-        finishRun(runId);
+        // Confirmed via a real-browser walkthrough: the Orchestrator's FSM
+        // reaching a terminal phase does NOT mean the run is fully done --
+        // assembleReport() (which writes report.json/run-summary.json)
+        // still runs afterward. Calling finishRun() -> loadReport() right
+        // here raced that write and could show an empty results view.
+        // GET /api/runs/:id/status's "active" flag IS synchronized with
+        // assembleReport() completion (RunManager only clears the active
+        // run after it returns), so hand off to the same polling path the
+        // SSE-drop fallback already uses, instead of assuming "done" here.
+        source.close();
+        state.eventSource = null;
+        pollStatus(runId);
       }
     };
     source.onerror = function () {
@@ -284,7 +438,13 @@
         if (!data.active) {
           clearInterval(state.pollTimer);
           finishRun(runId);
+          return;
         }
+        // Reconnect-after-SSE-drop (Phase 4 continuation): the status
+        // endpoint now carries the run's own live counters (lastEvent),
+        // not just identity -- apply them so polling shows real progress
+        // instead of a frozen "reconnecting" state until completion.
+        if (data.lastEvent) applyProgressEvent(data.lastEvent);
       });
     }, 2000);
   }
@@ -305,6 +465,57 @@
     }).then(function (report) {
       if (report) renderResults(report, runId);
     });
+  }
+
+  function artifactUrl(runId, findingId, filename) {
+    return "/api/artifacts/" + encodeURIComponent(runId) + "/findings/" + encodeURIComponent(findingId) + "/" + encodeURIComponent(filename);
+  }
+
+  // Evidence links/previews (Phase 4 continuation): each finding already
+  // lists its own persisted evidence filenames (f.evidence); this reuses
+  // the existing, already-tested artifact route (GET /api/artifacts/:runId/:file)
+  // rather than adding new server surface. A screenshot renders inline;
+  // everything else (console/network/trace/etc.) is a plain "view raw"
+  // link opening in a new tab.
+  function buildEvidenceLinks(finding, runId) {
+    var wrap = document.createElement("div");
+    wrap.style.marginTop = "6px";
+    if (!finding.evidence || finding.evidence.length === 0) return wrap;
+
+    var label = document.createElement("div");
+    label.className = "next-step";
+    setText(label, "Evidence:");
+    wrap.appendChild(label);
+
+    finding.evidence.forEach(function (filename) {
+      var url = artifactUrl(runId, finding.id, filename);
+      if (/\.png$/i.test(filename)) {
+        var link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        var img = document.createElement("img");
+        img.src = url;
+        img.alt = filename;
+        img.style.maxWidth = "240px";
+        img.style.display = "block";
+        img.style.marginTop = "4px";
+        img.style.border = "1px solid var(--border)";
+        img.style.borderRadius = "4px";
+        link.appendChild(img);
+        wrap.appendChild(link);
+        return;
+      }
+      var raw = document.createElement("a");
+      raw.href = url;
+      raw.target = "_blank";
+      raw.rel = "noopener noreferrer";
+      raw.style.marginRight = "10px";
+      setText(raw, filename);
+      wrap.appendChild(raw);
+    });
+
+    return wrap;
   }
 
   function bucketFor(finding) {
@@ -357,11 +568,40 @@
     return wrap;
   }
 
+
+  function renderWorkflowResults(container, runId) {
+    var panel = document.createElement("div"); container.appendChild(panel);
+    api("/api/runs/" + encodeURIComponent(runId) + "/workflows").then(function (data) {
+      var heading = document.createElement("h3"); setText(heading, "Authentication and declared workflows"); panel.appendChild(heading);
+      var auth = document.createElement("p"); setText(auth, "Authentication: " + (data.authentication ? data.authentication.status + (data.authentication.reason ? " — " + data.authentication.reason : "") : "not recorded")); panel.appendChild(auth);
+      var counts = document.createElement("p"); setText(counts, "Action accounting: " + JSON.stringify(data.budget.actionOutcomes || { attempted: data.budget.actionsUsed }) + ". Mock Critic is not human verification."); panel.appendChild(counts);
+      ["authentication.json", "workflow-manifest.json", "workflow-status.json", "pilot-summary.latest.json"].forEach(function (file) {
+        var a = document.createElement("a"); a.href = "/api/artifacts/" + encodeURIComponent(runId) + "/" + file; a.target = "_blank"; setText(a, file + " "); panel.appendChild(a);
+      });
+      var workflows = data.manifest ? data.manifest.workflows : [];
+      if (!workflows.length) { var empty=document.createElement("p"); setText(empty,"No declared workflows in this run. Authentication-only or discovery is not workflow coverage."); panel.appendChild(empty); }
+      workflows.forEach(function (w) {
+        var entry = data.status.entries.find(function (e) { return e.workflowId === w.id; });
+        var card=document.createElement("div"); card.className="card";
+        var title=document.createElement("h4"); setText(title,w.id + ": " + w.description); card.appendChild(title);
+        var reason=document.createElement("p"); setText(reason,entry ? entry.status + " — " + (entry.notes || "") : "Not attempted"); card.appendChild(reason);
+        (entry ? entry.evidenceRefs : []).forEach(function(ref) { var a=document.createElement("a"); a.href="/api/artifacts/"+encodeURIComponent(runId)+"/"+ref.split("/").map(encodeURIComponent).join("/"); a.target="_blank";setText(a,ref+" ");card.appendChild(a); });
+        var status=document.createElement("select");status.setAttribute("aria-label","Outcome for " + w.id);
+        ["attempted","completed","blocked","unsupported","failed"].forEach(function(v){var option=document.createElement("option");option.value=v;setText(option,v);status.appendChild(option);});status.value=entry ? entry.status : "attempted";card.appendChild(status);
+        var refs=document.createElement("input"); refs.placeholder="Run-relative evidence paths, comma separated"; refs.setAttribute("aria-label","Evidence for " + w.id);refs.value=entry?entry.evidenceRefs.join(", "):"";card.appendChild(refs);
+        var notes=document.createElement("input"); notes.placeholder="Reason and limitations (no secrets)";notes.setAttribute("aria-label","Notes for " + w.id);card.appendChild(notes);
+        var save=document.createElement("button");setText(save,"Save annotation");card.appendChild(save);
+        save.addEventListener("click",function(){api("/api/runs/"+encodeURIComponent(runId)+"/workflows",{method:"POST",body:JSON.stringify({workflowId:w.id,status:status.value,evidenceRefs:refs.value.split(",").map(function(v){return v.trim();}).filter(Boolean),notes:notes.value})}).then(function(){setText(reason,"Annotation saved; derived summary refreshed. Original runner evidence preserved.");}).catch(function(error){setText(reason,error.message);});});panel.appendChild(card);
+      });
+    }).catch(function(error){setText(panel,"Workflow results unavailable: " + error.message);});
+  }
+
   function renderResults(report, runId) {
     el("results-section").hidden = false;
     var container = el("results");
     container.innerHTML = "";
 
+    renderWorkflowResults(container, runId);
     var canonicalIds = new Set((report.groups || []).map(function (g) { return g.canonicalFindingId; }));
     var groupedMemberIds = new Set();
     (report.groups || []).forEach(function (g) { g.memberFindingIds.forEach(function (id) { groupedMemberIds.add(id); }); });
@@ -418,42 +658,78 @@
           setText(p, line);
           card.appendChild(p);
         });
+        card.appendChild(buildEvidenceLinks(f, runId));
         card.appendChild(buildTriageControl(f.id, runId));
         container.appendChild(card);
       });
     });
   }
 
-  function loadPriorRuns() {
-    api("/api/runs").then(function (data) {
-      var container = el("prior-runs");
-      container.innerHTML = "";
-      if (data.runs.length === 0) {
-        var empty = document.createElement("p");
-        empty.className = "empty";
-        setText(empty, "No prior runs yet.");
-        container.appendChild(empty);
-        return;
-      }
-      data.runs.forEach(function (r) {
-        var row = document.createElement("div");
-        row.className = "run-row";
-        var left = document.createElement("span");
-        setText(left, r.runId + " -- " + r.status);
-        var right = document.createElement("span");
-        setText(right, (r.validatedFindings || 0) + " validated");
-        row.appendChild(left);
-        row.appendChild(right);
-        row.tabIndex = 0;
-        row.style.cursor = "pointer";
-        row.addEventListener("click", function () { loadReport(r.runId); el("results-section").scrollIntoView({ behavior: "smooth" }); });
-        row.addEventListener("keypress", function (e) { if (e.key === "Enter") row.click(); });
-        container.appendChild(row);
-      });
+  function renderPriorRuns(runs) {
+    var container = el("prior-runs");
+    container.innerHTML = "";
+    if (runs.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "empty";
+      setText(empty, "No prior runs yet.");
+      container.appendChild(empty);
+      return;
+    }
+    runs.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "run-row";
+      var left = document.createElement("span");
+      setText(left, r.runId + " -- " + r.status);
+      var right = document.createElement("span");
+      setText(right, (r.validatedFindings || 0) + " validated");
+      row.appendChild(left);
+      row.appendChild(right);
+      row.tabIndex = 0;
+      row.style.cursor = "pointer";
+      row.addEventListener("click", function () { loadReport(r.runId); el("results-section").scrollIntoView({ behavior: "smooth" }); });
+      row.addEventListener("keypress", function (e) { if (e.key === "Enter") row.click(); });
+      container.appendChild(row);
     });
   }
 
-  loadProfiles().then(loadPriorRuns);
+  function loadPriorRuns() {
+    return api("/api/runs").then(function (data) {
+      renderPriorRuns(data.runs);
+      return data;
+    });
+  }
+
+  // Active-run recovery (Phase 4 continuation): a page refresh (or a
+  // freshly opened tab) while a run is in progress previously lost all
+  // access to it -- no Stop button, no live counters, until it finished
+  // on its own. GET /api/runs already returns the server's own
+  // activeRun record (server-side; this was never the gap) -- the client
+  // simply never checked it.
+  function recoverActiveRun(activeRun) {
+    if (!activeRun) return;
+    var profile = state.profiles.find(function (p) { return p.id === activeRun.profileId; });
+    if (profile) el("profile-select").value = profile.id;
+    state.currentRunId = activeRun.runId;
+    el("start-btn").disabled = true;
+    el("stop-btn").hidden = false;
+    el("results-section").hidden = true;
+    resetCounters();
+    if (activeRun.lastEvent) {
+      applyProgressEvent(activeRun.lastEvent);
+    } else {
+      setText(el("status-line"), "Reconnected to an active run...");
+    }
+    subscribeToRun(activeRun.runId);
+  }
+
+  loadProfiles()
+    .then(function () {
+      return api("/api/runs");
+    })
+    .then(function (data) {
+      renderPriorRuns(data.runs);
+      recoverActiveRun(data.activeRun);
+    });
 })();
 </script>
 </body>

@@ -21,7 +21,7 @@ function parseArgs(argv: string[]): { profileId: string } {
 function printReport(report: PreflightReport): void {
   console.log(`\nAutoQA doctor -- profile "${report.profileId}"\n`);
   for (const check of report.checks) {
-    const mark = check.status === "pass" ? "✓" : check.status === "skipped" ? "-" : "✗";
+    const mark = check.status === "pass" ? "✓" : check.status === "managed" ? "~" : check.status === "skipped" ? "-" : "✗";
     console.log(`${mark} ${check.name}: ${check.detail}`);
     if (check.nextStep) console.log(`  Next step: ${check.nextStep}`);
   }

@@ -1,0 +1,76 @@
+# Optional local-fixture smoke configuration. Requires explicit --live to run.
+# Mock Critic is plumbing validation only, not independent LLM verification.
+project:
+  name: AutoQA Demo (deterministic verification config)
+target:
+  url: http://localhost:4173/
+  environment: local-fixture
+browser:
+  engine: chromium
+  headless: true
+  viewport:
+    width: 1440
+    height: 900
+agent:
+  maxActions: 5
+  maxModelCalls: 3
+  maxPages: 3
+  maxFindings: 3
+  maxDurationMs: 60000
+  maxCriticCalls: 3
+heuristics:
+  longTextBoundaryChars: 500
+  safeControlClick:
+    enabled: true
+    allowedControls: []
+validation:
+  attempts: 3
+  minimumSuccesses: 2
+oracles:
+  uiApiConsistency:
+    enabled: true
+    rules:
+      - id: payment-consistency
+        request:
+          method: POST
+          pathname: /api/payment-consistency
+        failureStatusMin: 500
+        forbiddenVisibleText: Payment successful
+  console:
+    enabled: true
+    ignorePatterns:
+      - "Failed to load resource:"
+  pageError:
+    enabled: true
+  httpFailure:
+    enabled: true
+  duplicateRequest:
+    enabled: true
+    patterns:
+      - method: POST
+        pathname: /api/submit
+        expectedMax: 1
+evidence:
+  screenshots: true
+  trace: true
+  console: true
+  network: true
+models:
+  explorer:
+    provider: gemini
+    model: gemini-3.5-flash
+  critic:
+    enabled: true
+    provider: mock
+    requireIndependentProvider: false
+    maxCallsPerFinding: 1
+  providerTimeoutMs: 30000
+requirements:
+  enabled: true
+  path: fixture/requirements.json
+grouping:
+  enabled: true
+safety:
+  safeMode: true
+  allowedOrigins:
+    - http://localhost:4173

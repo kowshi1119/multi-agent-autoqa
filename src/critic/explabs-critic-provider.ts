@@ -1,3 +1,4 @@
+import { CriticBudgetExhaustedError, type BudgetTracker } from "../budget.js";
 import type { Logger } from "../logger.js";
 import { ExplabsClient } from "../models/explabs-client.js";
 import { CriticOutputInvalidError, type CriticProvider } from "../models/critic-provider.js";
@@ -17,7 +18,13 @@ export class ExplabsCriticProvider implements CriticProvider {
   private readonly client: ExplabsClient;
   private requestCounter = 0;
 
-  constructor(apiKey: string, private readonly logger: Logger, model: string, private readonly usageTracker?: UsageTracker) {
+  constructor(
+    apiKey: string,
+    private readonly logger: Logger,
+    model: string,
+    private readonly usageTracker?: UsageTracker,
+    private readonly budget?: BudgetTracker
+  ) {
     this.client = new ExplabsClient(apiKey, model);
     this.modelId = model;
   }
@@ -43,6 +50,10 @@ export class ExplabsCriticProvider implements CriticProvider {
 
   /** The actual SDK request boundary (Phase 4 continuation accounting fix) -- see AnthropicCriticProvider#complete for the identical rationale. */
   private async complete(system: string, user: string, signal?: AbortSignal): Promise<string> {
+    if (this.budget && !this.budget.canCallCritic()) {
+      throw new CriticBudgetExhaustedError();
+    }
+    this.budget?.recordCriticCall();
     this.requestCounter += 1;
     const attemptNumber = this.requestCounter;
     const call = () => this.client.complete(system, user, signal);

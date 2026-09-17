@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BudgetSnapshot } from "./budget.js";
+import { redactSecrets } from "./redact.js";
 import type { Finding, FindingCategory } from "./types.js";
 
 export type RunSummary = {
@@ -52,13 +54,34 @@ export type RunSummary = {
   };
 };
 
+/**
+ * 2026-09-14 addendum fix, defense-in-depth: this used to strip the
+ * milliseconds fraction entirely, so two calls landing within the same
+ * second produced an IDENTICAL runId -- and since RunManager's runDir is
+ * derived straight from this value, two such runs would silently write
+ * into the same directory (ensureDir()'s mkdirSync({recursive:true})
+ * doesn't throw on an existing one). RunManager's own `starting` flag
+ * (see run-manager.ts#startRun) already closes the concurrent-call race
+ * within a single instance; keeping millisecond resolution here is
+ * additional hardening beyond that specific case (e.g. rapid sequential
+ * calls, or multiple RunManager instances/processes).
+ *
+ * 2026-09-15 fix: millisecond resolution alone is still exactly
+ * collision-prone for any DIRECT caller without RunManager's own
+ * synchronous `starting`-flag guard (src/index.ts, src/benchmark.ts,
+ * src/phase3-experiment.ts all call this directly) -- two calls in the
+ * same millisecond (a real possibility on a fast machine, or from two
+ * separate processes) still produced an identical id. A short random
+ * suffix makes THIS function collision-resistant on its own, not just as
+ * an emergent property of one specific caller's separate guard. Nothing
+ * downstream parses the id's internal structure via regex (confirmed:
+ * every consumer either displays it verbatim or strips the "RUN-" prefix
+ * as a plain string op), so appending a suffix is safe.
+ */
 export function generateRunId(now: Date): string {
-  const stamp = now
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\.\d+Z$/, "Z")
-    .replace("T", "-");
-  return `RUN-${stamp}`;
+  const stamp = now.toISOString().replace(/[-:.]/g, "").replace("T", "-");
+  const suffix = randomBytes(2).toString("hex");
+  return `RUN-${stamp}-${suffix}`;
 }
 
 export function generateFindingId(index: number): string {
@@ -119,8 +142,14 @@ export function buildFindingNarrative(
   return FINDING_NARRATIVES[oracleId] ?? fallback;
 }
 
-export function writeFindingJson(evidenceDir: string, finding: Finding): void {
-  writeFileSync(join(evidenceDir, "finding.json"), JSON.stringify(finding, null, 2), "utf-8");
+/**
+ * 2026-09-15 fix: this had ZERO redaction, unlike src/evidence.ts#writeJson()'s
+ * already-correct pattern -- finding.json could carry a raw credential
+ * embedded in Finding.url (or anywhere else in the object) straight to
+ * disk. Mirrors evidence.ts's exact idiom.
+ */
+export function writeFindingJson(evidenceDir: string, finding: Finding, extraSecrets: readonly string[] = []): void {
+  writeFileSync(join(evidenceDir, "finding.json"), redactSecrets(JSON.stringify(finding, null, 2), extraSecrets), "utf-8");
 }
 
 export function writeRunSummary(runDir: string, summary: RunSummary): void {

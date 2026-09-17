@@ -3,8 +3,16 @@ import type { AppConfig, ConfigError } from "../config.js";
 import { selectCriticProvider, selectProvider } from "../run-pipeline.js";
 import type { Logger } from "../logger.js";
 import type { ProjectProfile } from "./../profiles/schema.js";
+import { pathWithinPrefix } from "../safety/action-policy.js";
 
-export type PreflightStatus = "pass" | "fail" | "skipped";
+/**
+ * "managed" (Phase 4 continuation) is distinct from "pass": the check
+ * genuinely was not probed, because a local-fixture target's server is
+ * started automatically when a run begins (see run-pipeline.ts), not
+ * ahead of time -- a fixture profile's own doctor/preflight check must
+ * never block readiness on a server that isn't supposed to exist yet.
+ */
+export type PreflightStatus = "pass" | "fail" | "skipped" | "managed";
 
 export type ProviderState =
   | "not-configured"
@@ -48,15 +56,64 @@ async function checkChromiumLaunchable(): Promise<PreflightCheck> {
   }
 }
 
-/** A single bounded reachability probe against the ONE configured target URL -- never a port scan, never any other path. */
-async function checkTargetReachable(targetUrl: string): Promise<PreflightCheck> {
+/**
+ * A single bounded reachability probe against the ONE configured target
+ * URL -- never a port scan, never any other path. Confirmed Phase 4
+ * continuation gap: a local-fixture target's server is only started
+ * inside runPipeline() when a run actually begins (see
+ * run-pipeline.ts#runPipeline), so probing it here, before any run has
+ * started, would always fail with connection-refused -- that's expected
+ * and managed, never a real readiness problem, so it must not block
+ * overallReady the way an actual unreachable real target should.
+ *
+ * 2026-09-11 independent-review fix: this used to run BEFORE
+ * checkScopeConsistency(), so a live GET could be issued to a target
+ * whose origin isn't even declared in navigation.allowedOrigins --
+ * confirmed via a fake-route probe. `scopeConsistent` is now required
+ * before this probe runs at all (see runPreflight()'s new ordering);
+ * when it's false, report "skipped" rather than issuing any request.
+ * `redirect: "manual"` is also new: the previous default ("follow")
+ * transparently chased a redirect chain with zero scope checking on any
+ * hop. A 3xx response is itself sufficient evidence the target
+ * responded -- that's what reachability means here -- so it's reported
+ * as reachable without following it anywhere.
+ */
+async function checkTargetReachable(profile: ProjectProfile, scopeConsistent: boolean): Promise<PreflightCheck> {
+  if (profile.target.environmentKind === "local-fixture") {
+    return {
+      id: "target-reachable",
+      name: "Target reachable",
+      status: "managed",
+      detail: "Local fixture server is started automatically when a run begins -- not probed ahead of time.",
+    };
+  }
+
+  if (!scopeConsistent) {
+    return {
+      id: "target-reachable",
+      name: "Target reachable",
+      status: "skipped",
+      detail: "Not probed: the target's own origin is not within the profile's declared navigation scope -- fix scope consistency first.",
+    };
+  }
+
+  const targetUrl = profile.target.url;
   try {
-    const response = await fetch(targetUrl, { method: "GET", signal: AbortSignal.timeout(TARGET_REACHABILITY_TIMEOUT_MS) });
+    const response = await fetch(targetUrl, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(TARGET_REACHABILITY_TIMEOUT_MS) });
+    // 2026-09-14 addendum fix: a 3xx here is response/reachability evidence
+    // only -- "the server answered" -- never proof the redirected
+    // destination is itself reachable, in scope, or that any
+    // authenticated access succeeded. Worded explicitly so this isn't
+    // read as more than it is.
+    const detail =
+      response.status >= 300 && response.status < 400
+        ? `${targetUrl} responded with HTTP ${response.status} (a redirect) -- this confirms the server responded, not that the redirected destination is reachable, in scope, or that authenticated access succeeded.`
+        : `${targetUrl} responded with HTTP ${response.status}.`;
     return {
       id: "target-reachable",
       name: "Target reachable",
       status: "pass",
-      detail: `${targetUrl} responded with HTTP ${response.status}.`,
+      detail,
     };
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
@@ -71,7 +128,8 @@ async function checkTargetReachable(targetUrl: string): Promise<PreflightCheck> 
 }
 
 function checkScopeConsistency(profile: ProjectProfile): PreflightCheck {
-  const targetOrigin = new URL(profile.target.url).origin;
+  const targetUrl = new URL(profile.target.url);
+  const targetOrigin = targetUrl.origin;
   if (!profile.navigation.allowedOrigins.includes(targetOrigin)) {
     return {
       id: "scope-consistency",
@@ -81,6 +139,25 @@ function checkScopeConsistency(profile: ProjectProfile): PreflightCheck {
       nextStep: `Add "${targetOrigin}" to the profile's navigation.allowedOrigins.`,
     };
   }
+
+  // 2026-09-14 addendum fix: an allowed ORIGIN doesn't mean the target's
+  // own PATH is in scope -- previously never checked here at all, so a
+  // target pointed outside navigation.allowedPathPrefixes still passed
+  // scope-consistency and got probed for reachability regardless. The
+  // login URL is a deliberate, separate exception (checked below, origin
+  // only) -- a login page is commonly outside the app's main content
+  // path scope by design, so it is never subjected to this same check.
+  const prefixes = profile.navigation.allowedPathPrefixes;
+  if (prefixes.length > 0 && !prefixes.some((prefix) => pathWithinPrefix(targetUrl.pathname, prefix))) {
+    return {
+      id: "scope-consistency",
+      name: "Navigation scope consistency",
+      status: "fail",
+      detail: `Target path "${targetUrl.pathname}" is not within any of the profile's navigation.allowedPathPrefixes.`,
+      nextStep: `Add a prefix covering "${targetUrl.pathname}" to the profile's navigation.allowedPathPrefixes, or correct target.url.`,
+    };
+  }
+
   if (profile.auth.mode === "form-login" && profile.auth.loginUrl) {
     const loginOrigin = new URL(profile.auth.loginUrl).origin;
     if (!profile.navigation.allowedOrigins.includes(loginOrigin)) {
@@ -97,6 +174,9 @@ function checkScopeConsistency(profile: ProjectProfile): PreflightCheck {
 }
 
 function checkAuthConfiguration(profile: ProjectProfile): PreflightCheck {
+  if (profile.auth.mode === "form-login" && profile.auth.checksVerified === false) {
+    return { id: "auth-config", name: "Login configuration", status: "fail", detail: "Authenticated URL and visible signal are unverified placeholders.", nextStep: "Observe the authenticated landing URL and a specific visible page signal using the dedicated sandbox account, then update auth success checks and set checksVerified=true. Do not paste credentials into chat." };
+  }
   if (profile.auth.mode === "none") {
     return { id: "auth-config", name: "Login configuration", status: "skipped", detail: "Profile auth.mode is \"none\" -- no login required." };
   }
@@ -165,11 +245,16 @@ function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
  * one URL the profile itself configures.
  */
 export async function runPreflight(profile: ProjectProfile, config: AppConfig, logger: Logger): Promise<PreflightReport> {
+  // Scope consistency now runs BEFORE the live reachability probe (2026-09-11
+  // independent-review fix) -- checkTargetReachable() reads its result and
+  // skips issuing any request at all when the target's own origin isn't
+  // within the profile's declared scope.
+  const scopeConsistency = checkScopeConsistency(profile);
   const checks: PreflightCheck[] = [
     { id: "profile-schema", name: "Profile schema", status: "pass", detail: "Profile parsed and validated successfully." },
     await checkChromiumLaunchable(),
-    await checkTargetReachable(profile.target.url),
-    checkScopeConsistency(profile),
+    scopeConsistency,
+    await checkTargetReachable(profile, scopeConsistency.status !== "fail"),
     checkAuthConfiguration(profile),
     checkProviders(config, logger),
   ];

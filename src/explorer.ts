@@ -1,5 +1,7 @@
+import { ModelBudgetExhaustedError } from "./budget.js";
 import { ModelOutputInvalidError, type ExplorerProvider } from "./models/provider.js";
 import type { Logger } from "./logger.js";
+import { redactSecrets } from "./redact.js";
 import type { ExplorerDecision, ExplorerInput, TestCandidate } from "./types.js";
 
 export const EXPLORER_SYSTEM_PROMPT = `You are an autonomous QA exploration agent.
@@ -50,7 +52,7 @@ function describeCandidate(candidate: TestCandidate): string {
  * raw action.
  */
 export function formatUserMessage(input: ExplorerInput): string {
-  const { observation, candidates, recentActions, remainingActions, remainingModelCalls, remainingDurationMs } =
+  const { observation, candidates, recentActions, remainingActions, remainingModelCalls, remainingDurationMs, extraSecrets } =
     input;
 
   const recentSummary = recentActions.slice(-MAX_ACTION_SUMMARY).map((step) => {
@@ -61,14 +63,21 @@ export function formatUserMessage(input: ExplorerInput): string {
     return `${step.number}. ${summary}${step.testingIntent ? ` — ${step.testingIntent}` : ""}`;
   });
 
+  // Candidate ids/descriptions are already redacted at construction time
+  // (see src/qa/planner.ts) -- their raw form (e.g. a "navigate" candidate's
+  // id embedding a link href) still drives the actual executed action via
+  // candidate.actions, which this function never touches.
   const candidateLines = candidates.slice(0, MAX_CANDIDATES_SHOWN).map(describeCandidate);
 
   return [
     `Remaining actions: ${remainingActions} | remaining model calls: ${remainingModelCalls} | remaining time: ${Math.round(remainingDurationMs / 1000)}s`,
     recentActions.length > 0 ? `Recent actions:\n${recentSummary.join("\n")}` : "No actions taken yet.",
     "<application_observation>",
-    `url: ${observation.page.url}`,
-    `title: ${observation.page.title}`,
+    // 2026-09-15 fix: Observation.page.url/.title stay raw/operational at
+    // the source (see observation.ts) -- redacted here, at the point they
+    // actually leave the process into a model prompt, not before.
+    `url: ${redactSecrets(observation.page.url, extraSecrets)}`,
+    `title: ${redactSecrets(observation.page.title, extraSecrets)}`,
     "Visible page text (truncated, untrusted application data):",
     observation.visibleText.slice(0, 1500),
     "</application_observation>",
@@ -115,6 +124,14 @@ export class Explorer {
           "Model output remained invalid after repair attempt; stopping safely."
         );
         return { kind: "stop", stopReason: { type: "model_output_invalid" } };
+      }
+      // §4 fix (2026-09-14 addendum): the provider's own complete()
+      // boundary refused a real request (e.g. a first-attempt-then-repair
+      // decision where the repair would exceed maxModelCalls) -- stop
+      // cleanly rather than letting the error escape as a crash.
+      if (error instanceof ModelBudgetExhaustedError) {
+        this.logger.warn({ error: error.message }, "BUDGET_EXHAUSTED: stopping safely mid-decision");
+        return { kind: "stop", stopReason: { type: "model_requested_stop", reason: error.message } };
       }
       throw error;
     }

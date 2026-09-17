@@ -11,7 +11,17 @@ let server: Server;
 let ORIGIN: string;
 
 beforeAll(async () => {
-  server = createServer((_req, res) => {
+  server = createServer((req, res) => {
+    if (req.url === "/redirect") {
+      res.writeHead(302, { Location: "/other-place" });
+      res.end();
+      return;
+    }
+    if (req.url === "/redirect-target-should-never-be-hit") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body>you should never see this in a preflight test</body></html>");
+      return;
+    }
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end("<html><body>ok</body></html>");
   });
@@ -64,9 +74,29 @@ describe("runPreflight", () => {
     expect(report.checks.every((c) => c.status !== "fail")).toBe(true);
   });
 
-  it("fails the target-reachable check for an unreachable port, with a bounded timeout", async () => {
-    const closedPortProfile = fixtureProfile((raw) => {
+  it("a local-fixture profile's target-reachable check is always 'managed', never actively probed -- even pointed at a port nothing listens on (Phase 4 continuation)", async () => {
+    // The fixture's own server is started automatically only once a real
+    // run begins (see run-pipeline.ts) -- actively probing it here, ahead
+    // of any run, would always fail with connection-refused. That's
+    // expected and must never block readiness for a fixture profile.
+    const closedPortFixtureProfile = fixtureProfile((raw) => {
       (raw["target"] as Record<string, unknown>)["url"] = "http://localhost:1/";
+      (raw["navigation"] as Record<string, unknown>)["allowedOrigins"] = ["http://localhost:1"];
+    });
+    const config = profileToAppConfig(closedPortFixtureProfile);
+    const started = Date.now();
+    const report = await runPreflight(closedPortFixtureProfile, config, createLogger());
+    const elapsedMs = Date.now() - started;
+    const targetCheck = report.checks.find((c) => c.id === "target-reachable");
+    expect(targetCheck?.status).toBe("managed");
+    expect(report.overallReady).toBe(true);
+    // Never even attempted a network probe -- effectively instant.
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
+
+  it("fails the target-reachable check for a real-target profile pointed at an unreachable port, with a bounded timeout", async () => {
+    const closedPortProfile = fixtureProfile((raw) => {
+      (raw["target"] as Record<string, unknown>) = { url: "http://localhost:1/", environmentKind: "self-hosted-real-app" };
       (raw["navigation"] as Record<string, unknown>)["allowedOrigins"] = ["http://localhost:1"];
     });
     const config = profileToAppConfig(closedPortProfile);
@@ -78,6 +108,68 @@ describe("runPreflight", () => {
     expect(report.overallReady).toBe(false);
     expect(elapsedMs).toBeLessThan(15_000);
   }, 20_000);
+
+  it("skips the target-reachable probe entirely when scope-consistency fails first (2026-09-11 independent-review fix: previously probed before checking scope at all)", async () => {
+    const badScopeProfile = fixtureProfile((raw) => {
+      (raw["target"] as Record<string, unknown>) = { url: `${ORIGIN}/`, environmentKind: "self-hosted-real-app" };
+      (raw["navigation"] as Record<string, unknown>)["allowedOrigins"] = ["http://localhost:9999"];
+    });
+    const config = profileToAppConfig(badScopeProfile);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const report = await runPreflight(badScopeProfile, config, createLogger());
+
+    const scopeCheck = report.checks.find((c) => c.id === "scope-consistency");
+    const targetCheck = report.checks.find((c) => c.id === "target-reachable");
+    expect(scopeCheck?.status).toBe("fail");
+    expect(targetCheck?.status).toBe("skipped");
+    // The real assertion: no live request was ever issued to the
+    // out-of-scope target, not even one -- confirmed by inspecting every
+    // call the spy recorded, not merely trusting the reported status.
+    expect(fetchSpy.mock.calls.every(([url]) => !String(url).includes(ORIGIN))).toBe(true);
+    expect(report.overallReady).toBe(false);
+    fetchSpy.mockRestore();
+  });
+
+  it("skips the target-reachable probe when the target's PATH is out of scope, even though its origin is allowed (2026-09-14 addendum fix: scope-consistency previously never checked allowedPathPrefixes at all)", async () => {
+    const outOfScopePathProfile = fixtureProfile((raw) => {
+      (raw["target"] as Record<string, unknown>) = { url: `${ORIGIN}/outside-scope`, environmentKind: "self-hosted-real-app" };
+      (raw["navigation"] as Record<string, unknown>)["allowedOrigins"] = [ORIGIN];
+      (raw["navigation"] as Record<string, unknown>)["allowedPathPrefixes"] = ["/allowed"];
+    });
+    const config = profileToAppConfig(outOfScopePathProfile);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const report = await runPreflight(outOfScopePathProfile, config, createLogger());
+
+    const scopeCheck = report.checks.find((c) => c.id === "scope-consistency");
+    const targetCheck = report.checks.find((c) => c.id === "target-reachable");
+    expect(scopeCheck?.status).toBe("fail");
+    expect(targetCheck?.status).toBe("skipped");
+    // As with the origin case above: the real assertion is that the
+    // out-of-scope path was never actually requested, not merely that the
+    // report says so.
+    expect(fetchSpy.mock.calls.every(([url]) => !String(url).includes("/outside-scope"))).toBe(true);
+    expect(report.overallReady).toBe(false);
+    fetchSpy.mockRestore();
+  });
+
+  it("reports a redirect response as reachable without following it to the redirect destination (2026-09-11 independent-review fix: previously followed redirects with zero scope checking on any hop)", async () => {
+    const redirectingProfile = fixtureProfile((raw) => {
+      (raw["target"] as Record<string, unknown>) = { url: `${ORIGIN}/redirect`, environmentKind: "self-hosted-real-app" };
+    });
+    const config = profileToAppConfig(redirectingProfile);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const report = await runPreflight(redirectingProfile, config, createLogger());
+
+    const targetCheck = report.checks.find((c) => c.id === "target-reachable");
+    expect(targetCheck?.status).toBe("pass");
+    // Exactly one request -- the redirect destination was never fetched.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls.every(([url]) => !String(url).includes("/redirect-target-should-never-be-hit"))).toBe(true);
+    fetchSpy.mockRestore();
+  });
 
   it("fails scope-consistency when the target origin isn't in allowedOrigins", async () => {
     const badProfile = fixtureProfile((raw) => {

@@ -11,7 +11,10 @@
     "allowedPathPrefixes": ["/web/index.php"]
   },
   "resources": {
-    "allowedApiOrigins": ["http://localhost:8080"]
+    "allowedApiOrigins": ["http://localhost:8080"],
+    "allowedFormSubmitEndpoints": [
+      { "method": "POST", "pathname": "/web/index.php/auth/login" }
+    ]
   },
   "workflows": {
     "allowedWorkflowKinds": ["navigate", "search", "filter", "sort", "paginate"]

@@ -1,8 +1,8 @@
 import { createServer, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { writeCriticArtifact, writeFindingEvidence } from "../../src/evidence.js";
@@ -10,11 +10,19 @@ import { createLogger } from "../../src/logger.js";
 import { credentialSecrets, redactSecrets } from "../../src/redact.js";
 import { captureManifest } from "../../src/experiments/manifest.js";
 import { exportForBlindReview } from "../../src/human-review/export.js";
+import { loadConfig } from "../../src/config.js";
 import { loadTestConfig } from "../helpers/test-config.js";
 import { observe, createPageRecords, attachPageRecorders } from "../../src/browser/observation.js";
+import { formatUserMessage } from "../../src/explorer.js";
+import { Planner } from "../../src/qa/planner.js";
+import { createRunContext } from "../../src/orchestrator/run-context.js";
 import { parseProfile } from "../../src/profiles/schema.js";
 import { profileToAppConfig } from "../../src/profiles/to-app-config.js";
+import { generateRunId, writeFindingJson } from "../../src/report.js";
+import { assembleReport } from "../../src/reporting/assemble.js";
+import { runPipeline } from "../../src/run-pipeline.js";
 import { resolveArtifactPath } from "../../src/server/security.js";
+import { startFixtureServer } from "../../fixture/server.js";
 import type { Finding } from "../../src/types.js";
 
 const fakeCredential = "test_key_DO_NOT_USE_12345";
@@ -378,4 +386,257 @@ describe("Phase 4 Milestone A3: authenticated real-target secret hygiene", () =>
 
     await context.close();
   });
+});
+
+describe("URL/title/href redaction boundary (2026-09-15 fix: redacting Observation.page.url/links[].href AT CAPTURE broke operational navigation/replay -- redaction now happens only at the Explorer-prompt/report/evidence boundaries, never on the value AutoQA itself acts on)", () => {
+  // Deliberately NOT "token=" or "password="/"secret="/"authorization=" --
+  // those additionally trip redactSecrets()'s generic unconditional keyword
+  // pattern, which would mask whether the extraSecrets-specific path is
+  // actually being exercised (see the earlier "isolate the extraSecrets
+  // path" test in this file for the same reasoning).
+  const transientCredential = "cascade_secret_DO_NOT_USE_71190";
+
+  let server: Server;
+  let ORIGIN: string;
+  let browser: Browser;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url?.startsWith("/api/ping")) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("{}");
+        return;
+      }
+      if (req.url?.startsWith("/next")) {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(`<!doctype html><html><body><h1 id="next-page-marker">You made it to /next</h1></body></html>`);
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<!doctype html><html><head><title>Landing page</title></head><body>
+        <a href="/next?sid=${transientCredential}">next</a>
+        <script>fetch("/api/ping?sid=${transientCredential}");</script>
+      </body></html>`);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "localhost", resolve));
+    const port = (server.address() as AddressInfo).port;
+    ORIGIN = `http://localhost:${port}`;
+    browser = await chromium.launch({ headless: true });
+  });
+
+  afterAll(async () => {
+    await browser.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("keeps Observation.page.url and links[].href RAW at capture (operational values) while networkRequests[].url stays redacted (reporting-only, never re-requested)", async () => {
+    const extraSecrets = [transientCredential];
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const records = createPageRecords();
+    attachPageRecorders(page, records, extraSecrets);
+
+    await page.goto(`${ORIGIN}/landing?sid=${transientCredential}`);
+    await page.waitForTimeout(150); // let the page's own fetch() land in requestfinished
+
+    const observation = await observe(page, records, {}, extraSecrets);
+
+    // The two OPERATIONAL fields: must stay real, or a subsequent
+    // page.goto() using them would target a broken URL.
+    expect(observation.page.url).toContain(transientCredential);
+    expect(observation.links.length).toBeGreaterThan(0);
+    expect(observation.links.some((l) => l.href.includes(transientCredential))).toBe(true);
+
+    // NetworkRecord.url is never re-requested -- safe, and still correctly
+    // redacted at the source, unchanged from before.
+    const pingRequests = observation.networkRequests.filter((r) => r.url.includes("/api/ping"));
+    expect(pingRequests.length).toBeGreaterThan(0);
+    for (const request of pingRequests) expect(request.url).not.toContain(transientCredential);
+
+    await context.close();
+  });
+
+  it("a credential-bearing link's href still navigates to the correct real page when actually executed (the operational-corruption bug this fix closes)", async () => {
+    const extraSecrets = [transientCredential];
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const records = createPageRecords();
+    attachPageRecorders(page, records, extraSecrets);
+
+    await page.goto(`${ORIGIN}/landing?sid=${transientCredential}`);
+    const observation = await observe(page, records, {}, extraSecrets);
+    const nextLink = observation.links.find((l) => l.href.includes("/next"));
+    expect(nextLink).toBeDefined();
+
+    // This mirrors exactly what src/actions.ts#executeAction()'s "navigate"
+    // case does with a Planner-built candidate's action.url -- if that url
+    // had been redacted (the old bug), this would 404 against a URL
+    // literally containing "<REDACTED_CREDENTIAL>"/"<REDACTED>" instead of
+    // landing on the real page.
+    await page.goto(nextLink!.href);
+    expect(await page.locator("#next-page-marker").isVisible()).toBe(true);
+
+    await context.close();
+  });
+
+  it("Planner redacts a credential-bearing link's candidate id/description for the model-facing prompt, while keeping the actual navigate action's url raw for execution", async () => {
+    const extraSecrets = [transientCredential];
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const records = createPageRecords();
+    attachPageRecorders(page, records, extraSecrets);
+
+    await page.goto(`${ORIGIN}/landing?sid=${transientCredential}`);
+    const observation = await observe(page, records, {}, extraSecrets);
+
+    const config = loadTestConfig((y) => y.replace('- "http://localhost:4173"', `- "${ORIGIN}"`));
+    const planner = new Planner([], config, extraSecrets);
+    const ctx = createRunContext("RUN-TEST", new Date(), `${ORIGIN}/landing`);
+    const candidates = await planner.plan(observation, ctx);
+
+    const navCandidate = candidates.find((c) => c.kind === "navigation" && c.actions[0]?.type === "navigate");
+    expect(navCandidate).toBeDefined();
+    expect(navCandidate!.id).not.toContain(transientCredential);
+    expect(navCandidate!.description).not.toContain(transientCredential);
+    // The actual action the orchestrator will execute must stay real.
+    const navigateAction = navCandidate!.actions[0] as { type: "navigate"; url: string };
+    expect(navigateAction.url).toContain(transientCredential);
+
+    await context.close();
+  });
+
+  it("the formatted Explorer prompt is credential-free once ExplorerInput.extraSecrets is threaded through, including the candidate list (not just the url:/title: lines)", async () => {
+    const extraSecrets = [transientCredential];
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const records = createPageRecords();
+    attachPageRecorders(page, records, extraSecrets);
+
+    await page.goto(`${ORIGIN}/landing?sid=${transientCredential}`);
+    const observation = await observe(page, records, {}, extraSecrets);
+
+    const config = loadTestConfig((y) => y.replace('- "http://localhost:4173"', `- "${ORIGIN}"`));
+    const planner = new Planner([], config, extraSecrets);
+    const ctx = createRunContext("RUN-TEST", new Date(), `${ORIGIN}/landing`);
+    const candidates = await planner.plan(observation, ctx);
+
+    const prompt = formatUserMessage({
+      observation,
+      candidates,
+      recentActions: [],
+      remainingActions: 10,
+      remainingModelCalls: 5,
+      remainingDurationMs: 60_000,
+      extraSecrets,
+    });
+
+    expect(prompt).not.toContain(transientCredential);
+    expect(prompt).toContain("<REDACTED_CREDENTIAL>");
+
+    await context.close();
+  });
+
+  it("finding.json on disk is credential-free for a run with transient credentials (writeFindingJson() previously applied zero redaction)", () => {
+    const evidenceDir = mkdtempSync(join(tmpdir(), "autoqa-finding-json-redaction-test-"));
+    const finding: Finding = {
+      id: "FINDING-001",
+      title: "t",
+      status: "validated",
+      category: "network",
+      pageId: "PAGE-001",
+      url: `${ORIGIN}/next?sid=${transientCredential}`,
+      pathname: "/next",
+      expected: "e",
+      actual: "a",
+      oracle: { oracleId: "http-failure", suspicious: true, expected: "e", actual: "a" },
+      steps: [],
+      reproduction: { attempts: 1, successes: 1 },
+      occurrenceCount: 1,
+      evidence: [],
+      evidenceLevel: "L3",
+      reportDisposition: "report",
+    };
+
+    writeFindingJson(evidenceDir, finding, [transientCredential]);
+
+    const saved = readFileSync(join(evidenceDir, "finding.json"), "utf-8");
+    expect(saved).not.toContain(transientCredential);
+    expect(saved).toContain("<REDACTED_CREDENTIAL>");
+  });
+});
+
+describe("report artifact redaction (2026-09-14 addendum §2: report.json/report.md/benchmark.json/pilot-summary.json had no redaction pass at all)", () => {
+  it("assembleReport() scrubs an extraSecrets marker from report.json, report.md, and benchmark.json for a local-fixture run", async () => {
+    // The fixture's own known ground-truth finding URL (see e.g.
+    // tests/phase2-experiment.test.ts's `finding()` helper) -- guaranteed
+    // present in a real run's report/benchmark, so this proves the
+    // redaction pass actually removes real content, not merely a string
+    // that was never there to begin with.
+    const marker = "expected-failure";
+    // Loaded verbatim, same as tests/reporting/assemble.test.ts's own "same
+    // known result" test -- no manual port remap needed (2026-09-16 port
+    // isolation fix): runPipeline() always binds this local-fixture target
+    // to an OS-assigned port regardless of qa.config.mock.yaml's own
+    // literal 4173, so two test files loading the same config concurrently
+    // no longer collide (see tests/helpers/ports.ts).
+    const config = loadConfig(resolve("qa.config.mock.yaml"));
+    const startedAt = new Date();
+    const runId = generateRunId(startedAt);
+    const runDir = mkdtempSync(join(tmpdir(), "autoqa-report-redaction-test-"));
+    const logger = createLogger();
+
+    const pipelineResult = await runPipeline({ config, runId, runDir, logger, headless: true });
+    const { report } = assembleReport(pipelineResult, config, runId, runDir, startedAt, undefined, [marker]);
+
+    expect(report.findings.some((f) => f.url.includes(marker))).toBe(true); // sanity: the marker really is present upstream, pre-redaction
+
+    const reportJson = readFileSync(join(runDir, "report.json"), "utf-8");
+    const reportMd = readFileSync(join(runDir, "report.md"), "utf-8");
+    expect(reportJson).not.toContain(marker);
+    expect(reportMd).not.toContain(marker);
+
+    if (existsSync(join(runDir, "benchmark.json"))) {
+      expect(readFileSync(join(runDir, "benchmark.json"), "utf-8")).not.toContain(marker);
+    }
+  }, 60_000);
+
+  it("assembleReport() scrubs an extraSecrets marker from pilot-summary.json for a non-fixture profile run", async () => {
+    const fixtureServer = await startFixtureServer(0);
+    try {
+      const port = fixtureServer.port;
+      const marker = "pilot-redaction-marker-55831";
+      const profile = parseProfile({
+        schemaVersion: 1,
+        id: marker,
+        name: "Pilot Redaction Test",
+        target: { url: `http://localhost:${port}/`, environmentKind: "self-hosted-real-app" },
+        navigation: { allowedOrigins: [`http://localhost:${port}`], allowedPathPrefixes: ["/"] },
+        resources: { allowedApiOrigins: [`http://localhost:${port}`], allowedFormSubmitEndpoints: [] },
+        workflows: { allowedWorkflowKinds: ["navigate"] },
+        auth: { mode: "none" },
+        provider: {
+          explorer: { provider: "mock" },
+          critic: { enabled: false, provider: "mock", requireIndependentProvider: false, maxCallsPerFinding: 1 },
+          providerTimeoutMs: 30000,
+        },
+        limits: { maxActions: 10, maxModelCalls: 10, maxPages: 5, maxFindings: 5, maxDurationMs: 60000, maxCriticCalls: 5 },
+      });
+      const config = profileToAppConfig(profile);
+      const startedAt = new Date();
+      const runId = generateRunId(startedAt);
+      const runDir = mkdtempSync(join(tmpdir(), "autoqa-pilot-redaction-test-"));
+      const logger = createLogger();
+
+      const pipelineResult = await runPipeline({ config, runId, runDir, logger, headless: true });
+      assembleReport(pipelineResult, config, runId, runDir, startedAt, profile, [marker]);
+
+      const pilotSummaryPath = join(runDir, "pilot-summary.json");
+      expect(existsSync(pilotSummaryPath)).toBe(true);
+      const raw = readFileSync(pilotSummaryPath, "utf-8");
+      expect(raw).toContain("<REDACTED_CREDENTIAL>"); // sanity: the marker (profile.id, echoed into pilotSummary.target.profileId) really was present pre-redaction
+      expect(raw).not.toContain(marker);
+    } finally {
+      await fixtureServer.close();
+    }
+  }, 60_000);
 });

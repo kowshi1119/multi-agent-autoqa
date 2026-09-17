@@ -1,10 +1,11 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { LiveModeNotAuthorizedError } from "../src/models/live-gate.js";
 import { readEvidenceBundle, runConditionB, type Phase2ExperimentResult } from "../src/phase2-experiment.js";
 import type { Finding, RequirementRule } from "../src/types.js";
-import { loadTestConfig } from "./helpers/test-config.js";
+import { loadTestConfig, VALID_TEST_YAML } from "./helpers/test-config.js";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "autoqa-phase2-experiment-test-"));
@@ -115,6 +116,32 @@ describe("runConditionB", () => {
     );
 
     expect(result.findings[0]?.reportDisposition).toBe("report");
+  });
+});
+
+describe("live-execution gating (2026-09-11 review fix: this entry point previously bypassed --live entirely)", () => {
+  it("refuses to start -- never calling runPipeline() -- when the configured explorer is live and --live was not passed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "autoqa-phase2-live-gate-test-"));
+    const configPath = join(dir, "qa.config.yaml");
+    writeFileSync(
+      configPath,
+      VALID_TEST_YAML.replace('provider: "mock"', 'provider: "anthropic"\n    model: "claude-fake-model"'),
+      "utf-8"
+    );
+
+    const runPipelineModule = await import("../src/run-pipeline.js");
+    const runPipelineSpy = vi.spyOn(runPipelineModule, "runPipeline");
+
+    const originalArgv = process.argv;
+    process.argv = [...originalArgv.slice(0, 2), "--config", configPath];
+    try {
+      const { main } = await import("../src/phase2-experiment.js");
+      await expect(main()).rejects.toBeInstanceOf(LiveModeNotAuthorizedError);
+      expect(runPipelineSpy).not.toHaveBeenCalled();
+    } finally {
+      process.argv = originalArgv;
+      runPipelineSpy.mockRestore();
+    }
   });
 });
 

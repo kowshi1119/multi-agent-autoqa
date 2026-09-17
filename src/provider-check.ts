@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { resolve } from "node:path";
 import { loadConfig } from "./config.js";
+import { redactSecrets } from "./redact.js";
 import { resolveProviderCredential, type ProviderId } from "./models/provider-credentials.js";
 
 const EXPLABS_CHAT_COMPLETIONS_URL = "https://api.experientiallabs.ai/v1/chat/completions";
@@ -37,7 +38,10 @@ async function runLiveExplabsCheck(role: ConfiguredRole): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const config = loadConfig(resolve("qa.config.yaml"));
+  const configIndex = process.argv.indexOf("--config");
+  const configPath = configIndex < 0 ? "qa.config.yaml" : process.argv[configIndex + 1];
+  if (!configPath || configPath.startsWith("--")) throw new Error("--config requires a file path.");
+  const config = loadConfig(resolve(configPath));
   const explorerProvider: ProviderId =
     config.models.explorer.provider === "auto"
       ? resolveProviderCredential("anthropic", "explorer")
@@ -57,7 +61,7 @@ async function main(): Promise<void> {
     }
     console.log(`${role.name}:`);
     console.log(`Provider: ${role.provider}`);
-    console.log(`Model: ${role.model ?? "not configured"}`);
+    console.log(`Model: ${redactSecrets(role.model ?? "not configured")}`);
     console.log(`Credential: ${credentialStatus(role)}\n`);
   }
   if (roles.some((role) => role.enabled && credentialStatus(role) === "missing")) {
@@ -68,6 +72,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : "Provider check failed.");
+  console.error(redactSecrets(error instanceof Error ? error.message : "Provider check failed."));
   process.exitCode = 1;
 });

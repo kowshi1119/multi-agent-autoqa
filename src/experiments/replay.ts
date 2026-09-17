@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "../logger.js";
+import { assertLiveModeAuthorized } from "../models/live-gate.js";
 import type { GroundTruthDefect } from "../reporting/benchmark.js";
 import type { Finding, RequirementRule } from "../types.js";
 import { PHASE3_CONDITION_IDS, runCondition, type ConditionRunResult } from "./conditions.js";
@@ -31,6 +32,17 @@ export async function replayExperiment(
   logger: Logger,
   groundTruth: GroundTruthDefect[]
 ): Promise<ReplayResult> {
+  // Replaying a manifest whose sanitizedConfig declares a live critic
+  // provider is still a real, billed request -- confirmed gap: this path
+  // previously had zero live-execution gating at all. Checked against
+  // the SAME critic.enabled:true forcing phase3-experiment.ts's capture
+  // path uses, since PHASE3_CONDITION_IDS always includes critic_on_*
+  // conditions regardless of the manifest's own captured enabled value.
+  assertLiveModeAuthorized(
+    { models: { explorer: manifest.sanitizedConfig.models.explorer, critic: { ...manifest.sanitizedConfig.models.critic, enabled: true } } },
+    process.argv
+  );
+
   const integrity = verifyManifestIntegrity(manifest);
   const capturedFindings = loadCapturedFindings(manifest);
   const runDir = manifest.datasetIdentity.runDir;

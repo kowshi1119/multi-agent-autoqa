@@ -13,6 +13,7 @@ import { generateRunId, writeFindingJson } from "./report.js";
 import { loadGroundTruth, matchFindings, type BenchmarkResult } from "./reporting/benchmark.js";
 import { computePhase2Metrics, type Phase2Metrics } from "./reporting/phase2-metrics.js";
 import { isMainModule } from "./main-module-guard.js";
+import { assertLiveModeAuthorized } from "./models/live-gate.js";
 import { runPipeline } from "./run-pipeline.js";
 import type { Finding, RequirementRule } from "./types.js";
 
@@ -114,7 +115,8 @@ export type Phase2ExperimentResult = {
  * Explorer, unavailable in this environment -- reported as an honest
  * `null`, never fabricated.
  */
-async function main(): Promise<void> {
+/** Exported for the live-gating regression test -- src/phase3-experiment.ts's own equivalent main() is not exported/tested this way today; this is a small, additive testability seam, not a change to any run behavior. */
+export async function main(): Promise<void> {
   const { configPath } = parseArgs(process.argv.slice(2));
 
   let config: AppConfig;
@@ -137,6 +139,15 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+
+  // 2026-09-11 review fix: this entry point previously bypassed live-mode
+  // gating entirely -- qa.config.yaml (the default when no --config is
+  // passed) configures a live explorer provider, and runPipeline() was
+  // called with no requireLiveAuthorization, so --live was never required
+  // regardless of what provider was actually about to be used. Condition B
+  // always uses MockCriticProvider (see runConditionB above), never a
+  // live critic, so only the explorer needs checking here.
+  assertLiveModeAuthorized({ models: { explorer: config.models.explorer, critic: { enabled: false, provider: "mock" } } }, process.argv);
 
   const startedAt = new Date();
   const experimentId = `EXPERIMENT-${generateRunId(startedAt).replace(/^RUN-/, "")}`;

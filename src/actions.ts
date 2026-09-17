@@ -42,6 +42,50 @@ export const explorerDecisionSchema = z.object({
 
 const MAX_WAIT_MS = 10_000;
 const LOCATOR_TIMEOUT_MS = 5_000;
+export const NAVIGATION_TIMEOUT_MS = 15_000;
+
+/**
+ * §Cancellation fix (2026-09-16): a genuine, wall-clock-verified reduction
+ * from the prior "checked once at entry only" bound. `page.waitForTimeout()`
+ * cannot take a `signal` option in the installed Playwright version -- it
+ * must be raced against the signal firing rather than awaited directly.
+ * Every other Playwright call in this file's `executeAction()` switch
+ * natively accepts `{ signal }` alongside its existing `timeout`, so those
+ * are fixed by simply passing `signal` through; this helper exists only for
+ * the one call Playwright itself gives no hook for.
+ */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException("The operation was aborted", "AbortError"));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Playwright's own `{ signal }`-aware calls reject with an error whose
+ * `.name` is `"AbortError"` (confirmed directly against the installed
+ * playwright-core's `AbortError` class); `abortableDelay()` above throws the
+ * DOM-standard equivalent for the one call Playwright provides no `signal`
+ * hook for. Centralized here so every call site's cancellation detection is
+ * identical rather than duplicated ad hoc.
+ */
+export function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
 
 /** Origin check for explicit "navigate" actions. Page content can never change this. */
 export function isOriginAllowed(url: string, allowedOrigins: string[]): boolean {
@@ -175,8 +219,28 @@ export async function executeAction(
   logger: Logger,
   onSafetyEvent: (event: SafetyEvent) => void = () => {},
   policy?: ActionPolicy,
-  extraSecrets: readonly string[] = []
+  extraSecrets: readonly string[] = [],
+  /**
+   * §Cancellation fix (2026-09-16): checked synchronously at entry (fast
+   * path, avoids starting a new action at all), AND forwarded into every
+   * underlying Playwright call's own `{ signal }` option -- Playwright
+   * itself aborts the in-flight operation when this fires, the same pattern
+   * already used for provider SDK calls via deriveTimeoutSignal()/
+   * withTimeout() in critic-runner.ts. This supersedes the prior
+   * "checked once at entry only" behavior, which left an already-started
+   * action (e.g. a 10s "wait") running to full completion regardless of
+   * Stop -- confirmed broken by a real-Chromium probe and closed by wiring
+   * `signal` into every call site below (see isCancellationError() /
+   * abortableDelay() just above this function for the two mechanisms this
+   * requires). Post-action cleanup (the off-origin revert further below,
+   * and BrowserManager's own context/page close) is deliberately never
+   * gated on `signal` -- cleanup must always run to completion.
+   */
+  signal?: AbortSignal
 ): Promise<ActionExecutionResult> {
+  if (signal?.aborted) {
+    return { outcome: "blocked", reason: "CANCELLED: stop requested before this action began" };
+  }
   const urlBefore = page.url();
 
   async function checkPolicy(locator: Locator | undefined, isEnterKey: boolean): Promise<ActionExecutionResult | undefined> {
@@ -208,33 +272,37 @@ export async function executeAction(
     return undefined;
   }
 
+  if (policy?.isDeclaredMode()) {
+    const scope = policy.classifyPlannedAction(action, new URL(page.url()).pathname);
+    if (scope.decision === "denied") return { outcome: "blocked", reason: scope.reason };
+  }
   try {
     switch (action.type) {
       case "click": {
         const locator = buildLocator(page, action.target);
-        await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+        await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS, signal });
         const denied = await checkPolicy(locator, false);
         if (denied) return denied;
-        await locator.click({ timeout: LOCATOR_TIMEOUT_MS });
+        await locator.click({ timeout: LOCATOR_TIMEOUT_MS, signal });
         break;
       }
 
       case "fill": {
         const locator = buildLocator(page, action.target);
-        await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+        await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS, signal });
         const denied = await checkPolicy(locator, false);
         if (denied) return denied;
-        await locator.fill(resolveFillValue(action.value), { timeout: LOCATOR_TIMEOUT_MS });
+        await locator.fill(resolveFillValue(action.value), { timeout: LOCATOR_TIMEOUT_MS, signal });
         break;
       }
 
       case "press": {
         if (action.target) {
           const locator = buildLocator(page, action.target);
-          await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+          await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS, signal });
           const denied = await checkPolicy(locator, action.key === "Enter");
           if (denied) return denied;
-          await locator.press(action.key, { timeout: LOCATOR_TIMEOUT_MS });
+          await locator.press(action.key, { timeout: LOCATOR_TIMEOUT_MS, signal });
         } else {
           await page.keyboard.press(action.key);
         }
@@ -242,7 +310,7 @@ export async function executeAction(
       }
 
       case "reload": {
-        await page.reload();
+        await page.reload({ timeout: NAVIGATION_TIMEOUT_MS, signal });
         break;
       }
 
@@ -265,20 +333,20 @@ export async function executeAction(
               return undefined;
             }
           })();
-          const classification = policy.classifyAction(action, { routePathname: destinationPathname });
+          const classification = policy.classifyAction(action, { routePathname: policy.isDeclaredMode() ? new URL(page.url()).pathname : destinationPathname });
           if (classification.decision === "denied") {
             logger.warn({ action: action.type, reason: classification.reason }, "ACTION_POLICY_DENIED");
             onSafetyEvent({ code: "ACTION_POLICY_DENIED", reason: classification.reason, mechanism: "execute-action", timestamp: new Date().toISOString() });
             return { outcome: "blocked", reason: classification.reason };
           }
         }
-        await page.goto(action.url);
+        await page.goto(action.url, { timeout: NAVIGATION_TIMEOUT_MS, signal });
         break;
       }
 
       case "wait": {
         const clamped = Math.min(action.milliseconds, MAX_WAIT_MS);
-        await page.waitForTimeout(clamped);
+        await abortableDelay(clamped, signal);
         return { outcome: "success" };
       }
 
@@ -287,6 +355,10 @@ export async function executeAction(
       }
     }
   } catch (error) {
+    if (isCancellationError(error)) {
+      logger.info({ action: action.type }, "CANCELLED: stop requested during this action");
+      return { outcome: "blocked", reason: `CANCELLED: stop requested during "${action.type}"` };
+    }
     const cause = redactSecrets(error instanceof Error ? error.message : String(error), extraSecrets);
     logger.warn(
       { error: cause, action: action.type },

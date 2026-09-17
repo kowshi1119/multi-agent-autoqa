@@ -12,14 +12,20 @@ import { parseProfile, ProfileError, type ProjectProfile } from "./schema.js";
 export class ProfileStore {
   constructor(private readonly dir: string) {}
 
+  /** Where a sibling `<id>.workflows.json` declared-workflow manifest (see src/pilot/workflow-manifest.ts) would live, if the profile has one. */
+  getDir(): string {
+    return this.dir;
+  }
+
   private pathFor(id: string): string {
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new ProfileError("Invalid profile ID");
     return join(this.dir, `${id}.json`);
   }
 
   list(): ProjectProfile[] {
     if (!existsSync(this.dir)) return [];
     return readdirSync(this.dir)
-      .filter((f) => f.endsWith(".json"))
+      .filter((f) => f.endsWith(".json") && !f.endsWith(".workflows.json"))
       .map((f) => this.load(f.replace(/\.json$/, "")));
   }
 

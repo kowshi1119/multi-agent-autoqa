@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { ProfileError } from "../../profiles/schema.js";
-import { LiveModeNotConfirmedError, RunAlreadyActiveError, type RunManager } from "../../run-manager.js";
+import { LiveModeNotConfirmedError, PreflightFailedError, RunAlreadyActiveError, type RunManager } from "../../run-manager.js";
 import { readJsonBody, sendJson } from "../http-helpers.js";
 
 const limitsSchema = z.object({
@@ -14,10 +14,12 @@ const limitsSchema = z.object({
 });
 
 const startRunSchema = z.object({
-  profileId: z.string().min(1),
+  profileId: z.string().regex(/^[A-Za-z0-9_-]+$/),
   mode: z.enum(["demo", "live"]),
   credentials: z.object({ username: z.string().min(1), password: z.string().min(1) }).optional(),
   confirmedLimits: limitsSchema.optional(),
+  authenticationOnly: z.boolean().optional(),
+  workflowIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).min(1).optional(),
 });
 
 export async function handleStartRun(req: IncomingMessage, res: ServerResponse, runManager: RunManager): Promise<void> {
@@ -45,6 +47,10 @@ export async function handleStartRun(req: IncomingMessage, res: ServerResponse, 
     }
     if (error instanceof LiveModeNotConfirmedError) {
       sendJson(res, 400, { error: error.message });
+      return;
+    }
+    if (error instanceof PreflightFailedError) {
+      sendJson(res, 400, { error: error.message, failedChecks: error.failedChecks });
       return;
     }
     if (error instanceof ProfileError) {

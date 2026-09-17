@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { elementTargetSchema } from "../actions.js";
-import { modelsSchema, originSchema } from "../config.js";
+import { configSchema, modelsSchema, originSchema } from "../config.js";
 
 /**
  * Additive layer alongside configSchema (src/config.ts), not a
@@ -26,6 +26,8 @@ export type EnvironmentKind = z.infer<typeof environmentKindSchema>;
 const authSchema = z
   .object({
     mode: z.enum(["none", "form-login"]),
+    checksVerified: z.boolean().optional(),
+    allowedRequests: z.array(z.object({ origin: originSchema, method: z.enum(["POST"]), pathname: z.string().startsWith("/") })).optional(),
     loginUrl: z.string().url().optional(),
     usernameField: elementTargetSchema.optional(),
     passwordField: elementTargetSchema.optional(),
@@ -102,8 +104,11 @@ export const projectProfileSchema = z.object({
   }),
   workflows: z.object({
     allowedWorkflowKinds: z.array(workflowKindSchema).default([]),
+    executionMode: z.enum(["heuristics", "declared"]).optional(),
   }),
   auth: authSchema,
+  requirements: configSchema.innerType().shape.requirements.optional(),
+  oracles: configSchema.innerType().shape.oracles.optional(),
   provider: modelsSchema,
   limits: z.object({
     maxActions: z.number().int().positive(),

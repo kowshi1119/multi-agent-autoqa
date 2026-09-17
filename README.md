@@ -1,5 +1,10 @@
 # AutoQA
 
+## Optional Gemini Explorer
+
+Gemini can now select existing approved test candidates through the same Explorer and ModelRouter interfaces. Configure `GEMINI_API_KEY` and an explicit model; defaults remain unchanged. This integration uses text/DOM observations, with no screenshot uploads or Gemini Critic. OpenAI/Ollama adapters remain unimplemented. See [Gemini setup, review, and verification](docs/GEMINI_PROVIDER.md) and the optional `qa.config.gemini.yaml` local-fixture example.
+
+
 ## What it is
 
 AutoQA is a prototype of an autonomous QA agent. It opens a real Chromium
@@ -721,6 +726,63 @@ finding (`maxFindings`), and every FSM loop iteration
 first — a reasonable alternative if you'd rather have graceful
 per-page completion instead).
 
+**`maxModelCalls`/`maxCriticCalls` count real HTTP requests, not logical
+decisions** (2026-09-14 addendum fix). A single Explorer/Critic decision
+that fails schema validation triggers one internal repair request — before
+this fix, that whole two-request decision counted as one call against the
+budget, so `maxModelCalls: 1` could silently permit 2 real requests. Each
+real provider (`AnthropicModelProvider`/`ExplabsModelProvider`/
+`AnthropicCriticProvider`/`ExplabsCriticProvider`) now checks and reserves
+budget at its own request boundary, immediately before issuing that
+specific HTTP request — the second (repair) request is refused outright
+once the budget is exhausted, even if the first succeeded. A budget-
+exhausted decision stops the run cleanly (`BUDGET_EXHAUSTED: ...`), never
+as a crash. `MockModelProvider`/`MockCriticProvider` make no real request
+at all and are unaffected — a mock-only run still consumes exactly one
+logical "call" per decision, for budget-limiting purposes.
+
+**A provider request's own timeout never exceeds the run's remaining
+duration** (2026-09-15 fix). `orchestrator.ts#explore()`,
+`critic-runner.ts#review()`, and `experiments/conditions.ts` all compute
+`Math.min(providerTimeoutMs, budget.remainingDurationMs())` before
+deriving the request's cancellation signal — a run with 5s of
+`maxDurationMs` left never issues a request with a 30s timeout.
+
+## Cancellation bound (Stop)
+
+**2026-09-16 correction**: this section previously claimed "≤15s during
+login, ≤5s during replay/exploration," checked only *between* steps. An
+independent real-Chromium probe found that claim false — Stop pressed
+during a 10-second `wait` action still returned success ~9.9s later,
+because "between steps" only ever stopped the *next* step from starting,
+never interrupted one already running. The current, corrected behavior:
+
+**Stop now genuinely interrupts whatever Playwright operation is
+currently in flight — typically within ~0.5–2 seconds — regardless of
+that operation's own configured timeout or duration.** Every Playwright
+call `executeAction()`, `FormLoginBootstrap.establish()`, and
+`BrowserManager.ensureAuthenticated()` make that natively supports a
+`signal` option (`Locator.click`/`.fill`/`.press`/`.waitFor`,
+`Page.goto`/`.reload`/`.waitForURL`) now receives the run's `AbortSignal`
+directly, so Playwright itself aborts the in-flight call; `page.
+waitForTimeout()` (no native `signal` hook) was replaced with a
+`Promise.race`-based `abortableDelay()` helper. This mirrors the
+project's own pre-existing pattern for genuine interruption
+(`deriveTimeoutSignal()`/`withTimeout()` above, already used for provider
+SDK calls) rather than inventing a new mechanism. Cleanup (context/page
+close, tracing stop) remains deliberately never signal-gated — it always
+runs to completion, by design.
+
+Proven with wall-clock tests, not asserted: `tests/
+actions-cancellation.test.ts` measures a 10-second `wait`, a stalled
+navigation and reload, and a click waiting on an element that never
+appears — every case returns in under 2–3 seconds; the whole 5-test file
+runs in ~4.4s total. Equivalent tests exist for login (`tests/auth/
+session-bootstrap.test.ts`) and replay (`tests/validator.test.ts`).
+A cancelled run preserves everything it found and did before Stop
+(partial findings, action/budget counts) — it's labeled "stopped," never
+"completed" or "failed."
+
 ## Native Dialog Policy
 
 Every `alert`/`confirm`/`prompt`/`beforeunload` is dismissed
@@ -912,7 +974,12 @@ npm run ui
 
 Phase 4: the local control panel (`http://localhost:4180`, loopback
 only). Choose a profile, check setup, sign in if required, pick Demo or
-Live mode, start/watch/stop, review grouped results. See `QUICKSTART.md`.
+Live mode, start/watch/stop, review grouped results. **New (2026-09-15):
+create or edit a profile directly in the UI** ("New profile"/"Edit
+profile") — quick fields for id/name/target-URL/environment-kind, a full
+JSON textarea (the same schema every other profile-reading path uses)
+for everything else, inline validation errors, no secrets ever saved to
+the profile file. See `QUICKSTART.md`.
 
 ```bash
 npm run experiment:phase3 -- capture
@@ -1015,6 +1082,19 @@ No paid model calls anywhere. 397/397 passing at last verification
   `AnthropicModelProvider` is implemented and wired through
   `models.provider: "anthropic"` but has not been exercised against the
   live API.
+- **A `--live` CLI flag is required (2026-09-11 continuation) whenever the
+  resolved explorer or critic provider is not `mock`** — `npm run qa`,
+  `npm run benchmark`, and `npm run experiment:phase3` (both capture and
+  replay) all refuse to start with `LIVE_MODE_NOT_AUTHORIZED` otherwise,
+  even if `.env` has a real API key configured. This closes a confirmed
+  gap: previously only the UI's `RunManager` required explicit
+  authorization (its own `confirmedLimits` mechanism) before a live call;
+  every direct-CLI entry point had none. Usage accounting itself was also
+  corrected in the same pass — it previously undercounted real HTTP
+  requests whenever a provider's first response failed schema validation
+  and a repair call followed (both are now recorded individually, each
+  with its own measured token usage). See `docs/PHASE4_ACCEPTANCE.md`'s
+  "What the 2026-09-11 continuation fixed" section for full detail.
 - **SEED-002** (`page-error`, `/account`, the "View Profile" button) —
   **closed in Phase 2** by H11 (safe control activation), which clicks
   any visible, enabled, non-destructive-looking plain button. Phase 1's
@@ -1135,3 +1215,9 @@ human-review scaffolding) is complete — see the Phase 3 section above and
 - A general NLP fact-checker for critic evidence contradictions (today's
   `CRITIC_EVIDENCE_CONTRADICTION` check only verifies a bounded set of
   structured, code-checkable claims).
+
+## Phase 5 — constrained workflow execution and Ajeer acceptance
+
+Profiles can opt into `workflows.executionMode: "declared"`. Executable workflow manifests supply exact scoped actions and deterministic URL/visible-signal completion assertions through the existing AutoQA pipeline. The local UI supports authentication-only runs, selected workflow IDs, evidence-backed outcomes and annotations; `pilot-summary.latest.json` reflects later coverage/triage without rewriting original evidence. Authentication request exceptions are scoped to bootstrap. Declared runs include authentication and validation in their action accounting.
+
+Ajeer live acceptance remains pending: authenticated URL/signal checks and 3–5 read-only workflows have not been observed with transient credentials. Its private profile explicitly fails readiness until those checks are verified; its private manifest is empty. Read the [Phase 5 acceptance record](PHASE5_ACCEPTANCE.md), [Ajeer pilot report](AJEER_PILOT_REPORT.md), and [verified setup/user guide](docs/AJEER_PILOT_SETUP.md). The UI command remains `npm run ui`; choose Demo/mock. `qa` uses `--config`, not `--profile`. OrangeHRM and paid-provider evaluation remain deferred.

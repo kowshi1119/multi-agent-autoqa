@@ -24,6 +24,7 @@ export type RunContext = {
   pagesVisited: number;
   heuristicsExecuted: number;
   findings: Finding[];
+  rawAnomalies?: number;
   recordedSteps: RecordedStep[];
   testedHeuristics: Set<string>;
   visitedPages: Set<string>;

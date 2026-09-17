@@ -43,11 +43,17 @@ export function attachPageRecorders(page: Page, records: PageRecords, extraSecre
     });
   });
 
+  // 2026-09-11 review fix: `url` was the one field this function never
+  // redacted -- text/message for console/pageerror/dialog above already
+  // were. A credential sitting in a URL query string (e.g. a login form
+  // that encodes it there, or a buggy app leaking it into a link) would
+  // survive here unredacted, then cascade into Observation.networkRequests,
+  // both oracle files' details.newFailures[].url, and report.json.
   page.on("requestfinished", (request) => {
     void request.response().then((response) => {
       records.networkRequests.push({
         method: request.method(),
-        url: request.url(),
+        url: redactSecrets(request.url(), extraSecrets),
         status: response?.status(),
         resourceType: request.resourceType(),
         timestamp: new Date().toISOString(),
@@ -58,7 +64,7 @@ export function attachPageRecorders(page: Page, records: PageRecords, extraSecre
   page.on("requestfailed", (request) => {
     records.networkRequests.push({
       method: request.method(),
-      url: request.url(),
+      url: redactSecrets(request.url(), extraSecrets),
       resourceType: request.resourceType(),
       timestamp: new Date().toISOString(),
     });
@@ -321,6 +327,22 @@ export async function observe(
   extraSecrets: readonly string[] = []
 ): Promise<Observation> {
   await page.waitForTimeout(EVENT_SETTLE_MS);
+  // 2026-09-15 fix (this Observation's url/title/links[].href are OPERATIONAL
+  // values, not just reporting data): a 2026-09-11 pass redacted these
+  // in-place, but Observation.page.url feeds Finding.url (Validator.validate()
+  // does page.goto(finding.url) for clean-session replay) and
+  // Observation.links[].href feeds ctx.frontier -> Planner's "navigate"
+  // candidates -> executeAction()'s page.goto(action.url) during live
+  // exploration. Redacting here meant a credential-bearing URL/href got a
+  // literal "<REDACTED_CREDENTIAL>" substituted into it, then AutoQA tried to
+  // navigate to that broken string -- confirmed via direct trace, not
+  // reasoned about. Keep this Observation raw/correct for operational use;
+  // redaction now happens only at genuine boundaries (the Explorer prompt in
+  // formatUserMessage(), candidate ids/descriptions in Planner, and every
+  // report/evidence writer -- see src/explorer.ts, src/qa/planner.ts,
+  // src/report.ts#writeFindingJson()). visibleText has no operational use
+  // (never navigated to, never a locator), so redacting it at the source
+  // here remains safe and unchanged.
   const url = page.url();
   const title = await page.title();
   const pathname = normalizePathname(url);

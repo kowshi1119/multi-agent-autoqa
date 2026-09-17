@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseProfile } from "../../src/profiles/schema.js";
 import { buildPilotSummary } from "../../src/reporting/pilot-report.js";
 import type { QaReport } from "../../src/reporting/qa-report.js";
+import { summarizeDeclaredWorkflows, type WorkflowManifest, type WorkflowStatusFile } from "../../src/pilot/workflow-manifest.js";
 import type { Finding } from "../../src/types.js";
 
 function orangehrmProfile() {
@@ -116,17 +117,87 @@ describe("buildPilotSummary (Phase 4 Milestone C)", () => {
     expect(summary.findings.notReproduced).toBe(1);
   });
 
-  it("reuses the existing coverage counters for workflows/pages rather than inventing untracked ones", () => {
+  it("reuses the existing heuristic coverage counters for pages rather than inventing untracked ones", () => {
     const summary = buildPilotSummary(report([]), orangehrmProfile());
     expect(summary.pages.discovered).toBe(3);
     expect(summary.pages.visited).toBe(3);
-    expect(summary.workflows.declared).toBe(8);
-    expect(summary.workflows.executed).toBe(6);
+    expect(summary.heuristicCoverage.applicable).toBe(8);
+    expect(summary.heuristicCoverage.executed).toBe(6);
+  });
+
+  it("never calls heuristic-candidate counts business-workflow coverage (Phase 4 continuation correction)", () => {
+    const summary = buildPilotSummary(report([]), orangehrmProfile());
+    expect(summary.coverageNote.toLowerCase()).toContain("never a claim of business-workflow coverage");
   });
 
   it("never references ground truth (source-level check, redundant with tests/security/no-ground-truth-leak.test.ts)", () => {
     const content = readFileSync(resolve("src/reporting/pilot-report.ts"), "utf-8");
     expect(content.toLowerCase()).not.toContain("ground-truth");
     expect(content).not.toContain("groundTruth");
+  });
+
+  it("2026-09-15 fix: declaredWorkflows is honestly {manifestPresent:false} when no manifest is supplied, never fabricated", () => {
+    const summary = buildPilotSummary(report([]), orangehrmProfile());
+    expect(summary.declaredWorkflows).toEqual({ manifestPresent: false });
+  });
+
+  it("2026-09-15 fix: a supplied declaredWorkflows summary passes through unchanged, kept separate from heuristicCoverage", () => {
+    const summary = buildPilotSummary(report([]), orangehrmProfile(), {
+      manifestPresent: true,
+      declared: 6,
+      attempted: 4,
+      completed: 2,
+      blocked: 1,
+      unsupported: 0,
+    });
+    expect(summary.declaredWorkflows).toEqual({
+      manifestPresent: true,
+      declared: 6,
+      attempted: 4,
+      completed: 2,
+      blocked: 1,
+      unsupported: 0,
+    });
+    // Still a real, distinct field -- never conflated with heuristicCoverage.
+    expect(summary.heuristicCoverage.applicable).toBe(8);
+  });
+});
+
+describe("summarizeDeclaredWorkflows (2026-09-15 fix)", () => {
+  function manifest(workflowIds: string[]): WorkflowManifest {
+    return {
+      schemaVersion: 1,
+      profileId: "orangehrm-test",
+      pages: ["/dashboard", "/pim"],
+      workflows: workflowIds.map((id) => ({
+        id,
+        page: "/pim",
+        description: "d",
+        preconditions: "p",
+        authorizedActions: "a",
+        expectedOutcome: "e",
+      })),
+    };
+  }
+
+  it("is honestly {manifestPresent:false} when no manifest exists for the profile", () => {
+    expect(summarizeDeclaredWorkflows(undefined, { schemaVersion: 1, entries: [] })).toEqual({ manifestPresent: false });
+  });
+
+  it("counts each declared workflow's recorded status, without fabricating a status for one never recorded", () => {
+    const m = manifest(["w1", "w2", "w3", "w4"]);
+    const statusFile: WorkflowStatusFile = {
+      schemaVersion: 1,
+      entries: [
+        { workflowId: "w1", status: "completed", evidenceRefs: [], humanReviewStatus: "not-reviewed", recordedAt: "t" },
+        { workflowId: "w2", status: "blocked", evidenceRefs: [], humanReviewStatus: "not-reviewed", recordedAt: "t" },
+        { workflowId: "w3", status: "attempted", evidenceRefs: [], humanReviewStatus: "not-reviewed", recordedAt: "t" },
+        // w4 never recorded -- must not be counted as any status.
+      ],
+    };
+
+    const result = summarizeDeclaredWorkflows(m, statusFile);
+
+    expect(result).toEqual({ manifestPresent: true, declared: 4, attempted: 1, completed: 1, blocked: 1, unsupported: 0, failed: 0 });
   });
 });

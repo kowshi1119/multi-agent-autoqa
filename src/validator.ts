@@ -1,6 +1,6 @@
 import { existsSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { executeAction } from "./actions.js";
+import { executeAction, isCancellationError, NAVIGATION_TIMEOUT_MS } from "./actions.js";
 import type { SessionBootstrap, TransientCredentials } from "./auth/session-bootstrap.js";
 import { AuthenticationError, type BrowserManager, type StorageState } from "./browser/browser.js";
 import { observe } from "./browser/observation.js";
@@ -83,6 +83,14 @@ export type ValidationOutcome = {
  */
 export function decideStatus(successes: number, validAttempts: number, minimumSuccesses: number): FindingStatus {
   if (validAttempts === 0) return "needs_human";
+  // §7c fix (2026-09-14 addendum): a single genuinely-executed negative
+  // attempt used to be enough to reject a finding outright, even when the
+  // other configured attempts were all tooling-blocked -- e.g.
+  // decideStatus(0, 1, 2) returned "rejected" from just 1 real attempt
+  // when 2 were required. A confident rejection now needs the SAME
+  // evidence bar as a confident validation: at least `minimumSuccesses`
+  // attempts that actually ran for real.
+  if (validAttempts < minimumSuccesses) return "needs_human";
   if (successes === 0) return "rejected";
   if (successes >= minimumSuccesses) return "validated";
   return "needs_human";
@@ -194,6 +202,7 @@ export class Validator {
     );
 
     for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+      if (policy?.isDeclaredMode() && budget && !budget.canAct()) break;
       if (budget?.isDurationExceeded()) {
         logger.warn(
           { findingId: finding.id, attemptsCompleted: attempts.length, of: totalAttempts },
@@ -214,7 +223,8 @@ export class Validator {
           policy,
           sessionAuth
             ? { sessionBootstrap: sessionAuth.sessionBootstrap, profile: sessionAuth.profile, credentials: sessionAuth.credentials, storageState: sessionAuth.storageState }
-            : undefined
+            : undefined,
+          this.deps.abortSignal
         );
       } catch (error) {
         if (!(error instanceof AuthenticationError)) throw error;
@@ -234,12 +244,87 @@ export class Validator {
           await browserManager.startTracing(session.context);
         }
 
-        await session.page.goto(finding.url);
+        // 2026-09-14 robustness fix: this initial goto() had no error
+        // handling at all -- if it throws (e.g. a real-target profile's
+        // network-layer ActionPolicy denying the finding's own URL as
+        // out-of-scope, or any other navigation failure), the exception
+        // used to escape validate() entirely rather than being treated as
+        // tooling-blocked like every other replay failure. Mirrors the
+        // AUTH_FAILED handling just above: record the attempt as blocked
+        // and move on to the next one, never let a single bad attempt
+        // crash the whole validation.
+        let navigationCounted = false;
+        try {
+          if (policy?.isDeclaredMode()) { budget?.recordAttempt("validation"); navigationCounted = Boolean(budget); }
+          await session.page.goto(finding.url, { timeout: NAVIGATION_TIMEOUT_MS, signal: this.deps.abortSignal });
+          if (navigationCounted) budget?.recordOutcome("success");
+        } catch (error) {
+          // §Cancellation fix (2026-09-16): `signal` now makes this abort
+          // promptly on Stop rather than running to NAVIGATION_TIMEOUT_MS --
+          // labeled distinctly so a cancelled replay attempt reads as
+          // "cancelled" tooling-blocked, not a generic navigation failure.
+          if (navigationCounted) budget?.recordOutcome("failed");
+          const cancelled = isCancellationError(error);
+          const message = cancelled ? "CANCELLED: stop requested during replay navigation" : error instanceof Error ? error.message : String(error);
+          logger.info({ findingId: finding.id, attempt, error: message }, cancelled ? "CANCELLED: replay attempt stopped during navigation" : "TOOLING_BLOCKED: could not navigate to the finding's own URL for this replay attempt");
+          attempts.push({
+            attempt,
+            reproduced: false,
+            oracleSuspicious: false,
+            oracleResult: { oracleId: finding.oracle.oracleId, suspicious: false, expected: finding.oracle.expected, actual: `Replay blocked: could not navigate to ${finding.url} (${message})` },
+            toolingBlocked: cancelled ? message : `NAVIGATION_FAILED: ${message}`,
+          });
+          continue;
+        }
+        // §7a fix (2026-09-14 addendum): prerequisite steps (§4b) replay
+        // BEFORE `before` is captured, on this same fresh session --
+        // reconstructing client-side state (e.g. a filter selection) that a
+        // direct goto() alone wouldn't restore. Previously `before` was
+        // captured immediately after goto(), so a prerequisite that
+        // succeeded but incidentally produced a side effect matching the
+        // oracle's own signature (e.g. a console error) fell inside the
+        // same before/after window as the actual trigger step, risking
+        // misattribution as reproduction. Capturing `before` only once
+        // prerequisites have succeeded narrows the oracle's comparison
+        // window to exclude that prerequisite-caused noise. A prerequisite
+        // that fails to execute is exactly as "tooling blocked" as a
+        // triggering step failing -- it never lets the finding read as
+        // genuinely disproven, and the oracle is never evaluated (no
+        // before/after captured at all in that case).
+        let prerequisiteBlockedReason: string | undefined;
+        for (const step of finding.prerequisitePrefix ?? []) {
+          if (policy?.isDeclaredMode() && budget && !budget.canAct()) {
+            prerequisiteBlockedReason = "BUDGET_EXHAUSTED: replay action budget"; break;
+          }
+          if (policy?.isDeclaredMode()) budget?.recordAttempt("validation");
+          const result = await executeAction(session.page, step.action, config, logger, undefined, policy, extraSecrets, this.deps.abortSignal);
+          if (policy?.isDeclaredMode()) budget?.recordOutcome(result.outcome);
+          if (result.outcome !== "success") {
+            prerequisiteBlockedReason = result.reason;
+            break;
+          }
+        }
+
+        if (prerequisiteBlockedReason) {
+          logger.warn(
+            { findingId: finding.id, attempt, reason: prerequisiteBlockedReason },
+            "TOOLING_BLOCKED: a prerequisite step failed during replay, before the trigger or any observation"
+          );
+          attempts.push({
+            attempt,
+            reproduced: false,
+            oracleSuspicious: false,
+            oracleResult: { oracleId: finding.oracle.oracleId, suspicious: false, expected: finding.oracle.expected, actual: `Replay blocked: ${prerequisiteBlockedReason}` },
+            toolingBlocked: prerequisiteBlockedReason,
+          });
+          continue;
+        }
+
         const before = await observe(session.page, session.records, {}, extraSecrets);
 
         let toolingBlockedReason: string | undefined;
         for (const step of finding.steps) {
-          const result = await executeAction(session.page, step.action, config, logger, undefined, policy, extraSecrets);
+          const result = await executeAction(session.page, step.action, config, logger, undefined, policy, extraSecrets, this.deps.abortSignal);
           if (result.outcome !== "success") {
             toolingBlockedReason = result.reason;
             break;

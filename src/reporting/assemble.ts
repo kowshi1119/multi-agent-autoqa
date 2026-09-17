@@ -1,16 +1,21 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import type { AppConfig } from "../config.js";
 import { groupFindings } from "../grouping/group-findings.js";
 import type { GroupingResult } from "../grouping/types.js";
 import { normalizePathname } from "../mapping/state-signature.js";
 import { estimateRunCostUsd } from "../models/pricing.js";
+import type { ProjectProfile } from "../profiles/schema.js";
+import { redactSecrets } from "../redact.js";
 import { writeRunSummary, type RunSummary } from "../report.js";
 import type { PipelineResult } from "../run-pipeline.js";
 import type { Finding } from "../types.js";
 import { loadGroundTruth, matchFindings } from "./benchmark.js";
 import { computeHeuristicCoverage } from "./coverage.js";
 import { computePhase2Metrics } from "./phase2-metrics.js";
+import { buildPilotSummary } from "./pilot-report.js";
+import { readSnapshot, refreshPilotSummary } from "../pilot/workflow-runtime.js";
+import { loadWorkflowManifest, loadWorkflowStatus, summarizeDeclaredWorkflows } from "../pilot/workflow-manifest.js";
 import {
   buildOracleBreakdown,
   buildReportMarkdown,
@@ -73,7 +78,31 @@ export function assembleReport(
   config: AppConfig,
   runId: string,
   runDir: string,
-  startedAt: Date
+  startedAt: Date,
+  /**
+   * Absent for a legacy direct-YAML CLI run (no ProjectProfile exists in
+   * that path) -- present for every profile-driven run (RunManager).
+   * When present and not a local-fixture profile, wires buildPilotSummary()
+   * (Phase 4 continuation: previously dead code, reachable only from its
+   * own test) into a genuine pilot-summary.json artifact.
+   */
+  profile?: ProjectProfile,
+  /**
+   * Transient credentials the run's own login/config supplied (e.g.
+   * `credentialSecrets(input.credentials)` from RunManager) -- redacted out
+   * of every artifact this function writes. Empty for the legacy direct-
+   * YAML CLI path, which has no such transient credentials to carry.
+   */
+  extraSecrets: readonly string[] = [],
+  /**
+   * Where `<profileId>.workflows.json` (a declared-workflow manifest, see
+   * src/pilot/workflow-manifest.ts) would live, if the profile has one --
+   * absent for the legacy direct-YAML CLI path (no `profile` there either,
+   * so no manifest lookup is attempted). Most profiles have no manifest;
+   * that's the honest default (`declaredWorkflows: {manifestPresent:
+   * false}`), never fabricated.
+   */
+  profilesDir?: string
 ): AssembledReport {
   const { finalCtx, mapper, modelRouter, budget, safetyEvents, usageTracker } = pipelineResult;
   const provider = modelRouter.getExplorer();
@@ -141,7 +170,7 @@ export function assembleReport(
       )
     : undefined;
   if (benchmark) {
-    writeFileSync(join(runDir, "benchmark.json"), JSON.stringify(benchmark, null, 2), "utf-8");
+    writeFileSync(join(runDir, "benchmark.json"), redactSecrets(JSON.stringify(benchmark, null, 2), extraSecrets), "utf-8");
   }
 
   // Detection asks "did AutoQA find it?" (status === "validated", Phase-1
@@ -159,7 +188,7 @@ export function assembleReport(
         )
       : undefined;
   if (phase2) {
-    writeFileSync(join(runDir, "phase2-metrics.json"), JSON.stringify(phase2, null, 2), "utf-8");
+    writeFileSync(join(runDir, "phase2-metrics.json"), redactSecrets(JSON.stringify(phase2, null, 2), extraSecrets), "utf-8");
   }
 
   // Grouping's OWN effect, isolated from the critic's: the same matcher,
@@ -176,11 +205,11 @@ export function assembleReport(
   if (groupingBenchmark) {
     writeFileSync(
       join(runDir, "grouping.json"),
-      JSON.stringify({ ...grouping, benchmark: groupingBenchmark }, null, 2),
+      redactSecrets(JSON.stringify({ ...grouping, benchmark: groupingBenchmark }, null, 2), extraSecrets),
       "utf-8"
     );
   } else if (config.grouping.enabled) {
-    writeFileSync(join(runDir, "grouping.json"), JSON.stringify(grouping, null, 2), "utf-8");
+    writeFileSync(join(runDir, "grouping.json"), redactSecrets(JSON.stringify(grouping, null, 2), extraSecrets), "utf-8");
   }
 
   const report: QaReport = {
@@ -205,8 +234,17 @@ export function assembleReport(
     ...(status === "failed" ? { errorClassification: finalCtx.stopReason } : {}),
     usage: summary.usage,
   };
-  writeReportJson(runDir, report);
-  writeReportMarkdown(runDir, buildReportMarkdown(report));
+  writeReportJson(runDir, report, extraSecrets);
+  writeReportMarkdown(runDir, buildReportMarkdown(report), extraSecrets);
+
+  if (profile && profile.target.environmentKind !== "local-fixture") {
+    const declaredWorkflows = profilesDir
+      ? summarizeDeclaredWorkflows(readSnapshot(runDir) ?? loadWorkflowManifest(profilesDir, profile.id), loadWorkflowStatus(runDir))
+      : undefined;
+    const pilotSummary = { ...buildPilotSummary(report, profile, declaredWorkflows), budget: budgetSnapshot, stopReason: finalCtx.stopReason, workflowOutcomes: loadWorkflowStatus(runDir).entries, authentication: existsSync(join(runDir, "authentication.json")) ? JSON.parse(readFileSync(join(runDir, "authentication.json"), "utf8")) : null, rawAnomalyCount: finalCtx.rawAnomalies ?? 0, groupedResults: grouping.groups.length };
+    writeFileSync(join(runDir, "pilot-summary.json"), redactSecrets(JSON.stringify(pilotSummary, null, 2), extraSecrets), "utf-8");
+    refreshPilotSummary(runDir);
+  }
 
   return { summary, report };
 }

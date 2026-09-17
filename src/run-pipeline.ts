@@ -1,3 +1,4 @@
+import type { WorkflowManifest } from "./pilot/workflow-manifest.js";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionBootstrap, TransientCredentials } from "./auth/session-bootstrap.js";
@@ -12,7 +13,9 @@ import { PageMapper } from "./mapping/mapper.js";
 import type { CriticProvider } from "./models/critic-provider.js";
 import { ModelRouter } from "./models/model-router.js";
 import { resolveProviderCredential } from "./models/provider-credentials.js";
+import { assertLiveModeAuthorized } from "./models/live-gate.js";
 import { AnthropicModelProvider, ExplabsModelProvider, MockModelProvider } from "./models/provider-implementation.js";
+import { GeminiModelProvider } from "./models/gemini-provider.js";
 import type { ExplorerProvider } from "./models/provider.js";
 import { buildOracleRegistry } from "./oracles.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
@@ -38,14 +41,24 @@ const UNIMPLEMENTED_PROVIDERS = new Set(["openai", "ollama"]);
  * fix) -- never passed to MockModelProvider, which makes no real request
  * to record.
  */
-export function selectProvider(config: AppConfig, logger: Logger, usageTracker?: UsageTracker): ExplorerProvider {
+export function selectProvider(config: AppConfig, logger: Logger, usageTracker?: UsageTracker, budget?: BudgetTracker): ExplorerProvider {
+  if (config.models.explorer.provider === "gemini") {
+    const key = resolveProviderCredential("gemini", "explorer");
+    const model = config.models.explorer.model;
+    if (!key?.trim() || !model?.trim()) {
+      throw new ConfigError("MODEL_CONFIGURATION_ERROR: Gemini Explorer requires GEMINI_API_KEY and models.explorer.model.");
+    }
+    const provider = new GeminiModelProvider(key, logger, model, usageTracker, budget, config.models.providerTimeoutMs);
+    logger.info({ provider: "gemini", model, credentialAvailable: true }, "Using GeminiModelProvider");
+    return provider;
+  }
   const apiKey = resolveProviderCredential("anthropic", "explorer");
   const wantsAnthropic =
     config.models.explorer.provider === "anthropic" || (config.models.explorer.provider === "auto" && Boolean(apiKey));
 
   if (UNIMPLEMENTED_PROVIDERS.has(config.models.explorer.provider)) {
     throw new ConfigError(
-      `AutoQA configuration error\n\nmodels.explorer.provider "${config.models.explorer.provider}" is not implemented in this build; supported: mock, anthropic — see README Known Limitations.`
+      `AutoQA configuration error\n\nmodels.explorer.provider "${config.models.explorer.provider}" is not implemented in this build; supported: mock, anthropic, explabs, gemini — see README Known Limitations.`
     );
   }
 
@@ -57,7 +70,7 @@ export function selectProvider(config: AppConfig, logger: Logger, usageTracker?:
     }
     const model = config.models.explorer.model as string; // schema requires this for a non-mock/auto provider
     logger.info({ provider: "anthropic", model }, "Using AnthropicModelProvider");
-    return new AnthropicModelProvider(apiKey, logger, model, usageTracker);
+    return new AnthropicModelProvider(apiKey, logger, model, usageTracker, budget);
   }
 
   if (config.models.explorer.provider === "explabs") {
@@ -67,7 +80,7 @@ export function selectProvider(config: AppConfig, logger: Logger, usageTracker?:
     }
     const model = config.models.explorer.model as string;
     logger.info({ provider: "explabs", model, credentialAvailable: true }, "Using ExplabsModelProvider");
-    return new ExplabsModelProvider(explabsKey, logger, model, usageTracker);
+    return new ExplabsModelProvider(explabsKey, logger, model, usageTracker, budget);
   }
 
   logger.info({ provider: "mock" }, "Using deterministic MockModelProvider");
@@ -79,7 +92,7 @@ export function selectProvider(config: AppConfig, logger: Logger, usageTracker?:
  * when the critic is disabled by config — not a no-op stub (see
  * ModelRouter's doc comment for why nullable is the deliberate choice).
  */
-export function selectCriticProvider(config: AppConfig, logger: Logger, usageTracker?: UsageTracker): CriticProvider | null {
+export function selectCriticProvider(config: AppConfig, logger: Logger, usageTracker?: UsageTracker, budget?: BudgetTracker): CriticProvider | null {
   if (!config.models.critic.enabled) {
     logger.info({}, "Critic disabled by config (models.critic.enabled=false)");
     return null;
@@ -100,7 +113,7 @@ export function selectCriticProvider(config: AppConfig, logger: Logger, usageTra
     }
     const model = config.models.critic.model as string; // schema requires this for a non-mock provider
     logger.info({ provider: "anthropic", model }, "Using AnthropicCriticProvider");
-    return new AnthropicCriticProvider(apiKey, logger, model, usageTracker);
+    return new AnthropicCriticProvider(apiKey, logger, model, usageTracker, budget);
   }
 
   if (config.models.critic.provider === "explabs") {
@@ -110,7 +123,7 @@ export function selectCriticProvider(config: AppConfig, logger: Logger, usageTra
     }
     const model = config.models.critic.model as string;
     logger.info({ provider: "explabs", model, credentialAvailable: true }, "Using ExplabsCriticProvider");
-    return new ExplabsCriticProvider(apiKey, logger, model, usageTracker);
+    return new ExplabsCriticProvider(apiKey, logger, model, usageTracker, budget);
   }
 
   logger.info({ provider: "mock" }, "Using deterministic MockCriticProvider");
@@ -166,6 +179,8 @@ export type PipelineResult = {
 
 export type PipelineOptions = {
   config: AppConfig;
+  workflowManifest?: WorkflowManifest;
+  authenticationOnly?: boolean;
   runId: string;
   runDir: string;
   logger: Logger;
@@ -177,6 +192,16 @@ export type PipelineOptions = {
   sessionAuth?: { sessionBootstrap: SessionBootstrap; profile: ProjectProfile; credentials?: TransientCredentials };
   /** UI-driven stop (Phase 4 Milestone B) -- absent for a CLI run. */
   abortSignal?: AbortSignal;
+  /**
+   * Live-execution gating (Phase 4 continuation) -- when supplied, asserts
+   * assertLiveModeAuthorized(config, argv) immediately after providers are
+   * resolved, before the browser (or any provider request) launches.
+   * Passed by every direct-CLI entry point (`qa`, `benchmark`, Phase 3
+   * capture); deliberately left absent for RunManager's UI-driven runs,
+   * which already enforce their own, separate mode/confirmedLimits gate
+   * and have no CLI argv to check.
+   */
+  requireLiveAuthorization?: { argv: readonly string[] };
 };
 
 /**
@@ -189,13 +214,19 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
   const { config, runId, runDir, logger, headless, onProgress, sessionAuth, abortSignal } = options;
   const actionPolicy = options.actionPolicy ?? (config.target.environment !== "local-fixture" ? buildFallbackActionPolicy(config) : undefined);
 
+  if (options.requireLiveAuthorization) {
+    assertLiveModeAuthorized(config, options.requireLiveAuthorization.argv);
+  }
+
   // Constructed BEFORE selectProvider()/selectCriticProvider() (Phase 4
   // continuation accounting fix) so it can be threaded into each real
   // provider's constructor -- usage is now recorded at the provider's own
   // request boundary, not wrapped around the whole logical decision.
   const usageTracker = new UsageTracker();
-  const modelRouter = new ModelRouter(selectProvider(config, logger, usageTracker), selectCriticProvider(config, logger, usageTracker));
-  const browserManager = new BrowserManager(config, logger, headless);
+  // §4 fix (2026-09-14 addendum): budget is now ALSO threaded into each
+  // real provider's constructor (same reason as usageTracker above) --
+  // moved ahead of selectProvider()/selectCriticProvider() so it exists
+  // before those calls need it.
   const budget = new BudgetTracker({
     maxActions: config.agent.maxActions,
     maxModelCalls: config.agent.maxModelCalls,
@@ -204,6 +235,11 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     maxDurationMs: config.agent.maxDurationMs,
     maxCriticCalls: config.agent.maxCriticCalls,
   });
+  const modelRouter = new ModelRouter(
+    selectProvider(config, logger, usageTracker, budget),
+    selectCriticProvider(config, logger, usageTracker, budget)
+  );
+  const browserManager = new BrowserManager(config, logger, headless, actionPolicy?.isDeclaredMode() ? budget : undefined);
   const mapper = new PageMapper();
   const oracles = buildOracleRegistry(config);
   const heuristics = allHeuristics(config);
@@ -225,9 +261,35 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
 
   try {
     if (config.target.environment === "local-fixture") {
-      const port = Number(new URL(config.target.url).port || "80");
-      fixtureServer = await startFixtureServer(port);
-      logger.info({ port }, "Local fixture server started");
+      // §Port isolation fix (2026-09-16): previously the literal port in
+      // config.target.url was read and passed to startFixtureServer(port),
+      // requiring every local-fixture test/config to hand-pick a port
+      // distinct from every other one that might run concurrently -- a
+      // registry of six hardcoded ports existed purely to dodge EADDRINUSE
+      // collisions (see tests/helpers/ports.ts, now retired). Always
+      // binding to port 0 (OS-assigned) and substituting the real bound
+      // origin back into `config` in place -- before anything below reads
+      // it -- makes every local-fixture run collision-free regardless of
+      // whatever port its config/profile happens to declare; that literal
+      // value is now inert placeholder text, never actually bound. `config`
+      // is captured by reference (not copied) by BrowserManager above and
+      // read lazily by everything downstream (including
+      // createRunContext()'s call just below), so mutating it here, before
+      // any of those reads actually happen, is sufficient -- no
+      // construction-order changes needed elsewhere in this function.
+      // Every other environment (self-hosted-real-app/owned-sandbox) never
+      // enters this branch at all, so a real user's own configured port is
+      // completely untouched.
+      const declaredUrl = new URL(config.target.url);
+      const declaredOrigin = declaredUrl.origin;
+      fixtureServer = await startFixtureServer(0);
+      declaredUrl.port = String(fixtureServer.port);
+      const realOrigin = declaredUrl.origin;
+      config.target.url = declaredUrl.toString();
+      // A local-fixture config/profile declares exactly one origin (its own
+      // fixture target); substitute it, preserving any other entry present.
+      config.safety.allowedOrigins = config.safety.allowedOrigins.map((origin) => (origin === declaredOrigin ? realOrigin : origin));
+      logger.info({ port: fixtureServer.port }, "Local fixture server started");
       preRunProgress("✓ Local fixture server started");
     }
 
@@ -236,6 +298,8 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
 
     const orchestrator = new Orchestrator({
       browserManager,
+      workflowManifest: options.workflowManifest,
+      authenticationOnly: options.authenticationOnly,
       config,
       modelRouter,
       logger,

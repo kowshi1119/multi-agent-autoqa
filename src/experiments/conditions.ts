@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { buildCriticInput, withTimeout } from "../critic/critic-runner.js";
+import { buildCriticInput, deriveTimeoutSignal, withTimeout } from "../critic/critic-runner.js";
 import { checkClaims, firstContradiction } from "../critic/claim-checks.js";
-import { BudgetTracker } from "../budget.js";
+import { BudgetTracker, CriticBudgetExhaustedError } from "../budget.js";
 import type { AppConfig } from "../config.js";
 import { decideDisposition, type CriticOutcome } from "../critic/disposition.js";
 import { groupFindings } from "../grouping/group-findings.js";
@@ -73,9 +73,6 @@ export async function runCondition(
     grouping: { enabled: groupingOn },
   };
 
-  const criticProvider = criticOn ? selectCriticProvider(conditionConfig, logger) : null;
-  const findings: Finding[] = [];
-
   // Same guardrails as the live per-run Critic.review() (src/critic/
   // critic-runner.ts): a bounded request count and a bounded per-call
   // timeout. Sharing buildCriticInput()/decideDisposition() alone does
@@ -83,7 +80,10 @@ export async function runCondition(
   // function used to call criticProvider.critique() directly with no
   // timeout and no request cap, unlike the live path. A fresh budget
   // scoped to this one condition run (mirrors run-pipeline.ts's own
-  // BudgetTracker construction from config.agent.*).
+  // BudgetTracker construction from config.agent.*). Constructed BEFORE
+  // selectCriticProvider() (§4 fix, 2026-09-14 addendum) so it can be
+  // threaded into the real provider's own constructor -- the same
+  // check-then-reserve-at-the-real-request-boundary fix as the live path.
   const budget = new BudgetTracker({
     maxActions: conditionConfig.agent.maxActions,
     maxModelCalls: conditionConfig.agent.maxModelCalls,
@@ -92,6 +92,8 @@ export async function runCondition(
     maxDurationMs: conditionConfig.agent.maxDurationMs,
     maxCriticCalls: conditionConfig.agent.maxCriticCalls,
   });
+  const criticProvider = criticOn ? selectCriticProvider(conditionConfig, logger, undefined, budget) : null;
+  const findings: Finding[] = [];
 
   for (const finding of capturedFindings) {
     if (finding.status !== "validated") {
@@ -130,16 +132,39 @@ export async function runCondition(
       logger.warn({ findingId: finding.id, conditionId }, "BUDGET_EXHAUSTED: skipping critic call (maxCriticCalls or maxDurationMs)");
       outcome = { kind: "unavailable", reason: "BUDGET_EXHAUSTED: maxCriticCalls or maxDurationMs" };
     } else {
-      budget.recordCriticCall();
+      // §4 fix (2026-09-14 addendum): diff-based fallback, mirroring
+      // critic-runner.ts#review() -- a real provider now records its own
+      // real HTTP requests at its own complete() boundary, so recording
+      // unconditionally here would double-count; only fall back to
+      // recording here when the provider consumed nothing itself
+      // (MockCriticProvider).
+      const criticCallsBefore = budget.criticCalls;
       try {
-        const decision = await withTimeout(criticProvider.critique(input), conditionConfig.models.providerTimeoutMs);
+        // 2026-09-15 fix: this used to call critique() with no signal at
+        // all, unlike the live Critic.review() path -- withTimeout()'s own
+        // race meant the CALLER gave up waiting on timeout, but a real
+        // provider's underlying HTTP request was never actually aborted
+        // (abandoned in the background, the exact anti-pattern withTimeout()
+        // itself exists to avoid -- see its own doc comment). Mirrors the
+        // live path exactly, including shrinking the deadline to the
+        // remaining run-duration budget.
+        const requestDeadlineMs = Math.min(conditionConfig.models.providerTimeoutMs, budget.remainingDurationMs());
+        const signal = deriveTimeoutSignal(requestDeadlineMs);
+        const decision = await withTimeout(criticProvider.critique(input, signal), requestDeadlineMs);
         const contradiction = firstContradiction(checkClaims(decision, input));
         outcome = contradiction
           ? { kind: "contradiction", reason: `CRITIC_EVIDENCE_CONTRADICTION: ${contradiction.claim} -- ${contradiction.detail}` }
           : { kind: "decided", decision };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        outcome = { kind: "unavailable", reason: `CRITIC_MODEL_ERROR: ${message}` };
+        if (error instanceof CriticBudgetExhaustedError) {
+          outcome = { kind: "unavailable", reason: `BUDGET_EXHAUSTED: ${error.message}` };
+        } else {
+          const message = error instanceof Error ? error.message : String(error);
+          outcome = { kind: "unavailable", reason: `CRITIC_MODEL_ERROR: ${message}` };
+        }
+      }
+      if (budget.criticCalls === criticCallsBefore) {
+        budget.recordCriticCall();
       }
     }
 

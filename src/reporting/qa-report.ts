@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { BudgetSnapshot } from "../budget.js";
 import type { FindingGroup } from "../grouping/types.js";
 import type { ApplicationMap } from "../mapping/types.js";
+import { redactSecrets } from "../redact.js";
 import type { Finding } from "../types.js";
 import type { BenchmarkResult } from "./benchmark.js";
 import type { Phase2Metrics } from "./phase2-metrics.js";
@@ -61,8 +62,9 @@ export function buildOracleBreakdown(findings: Finding[]): Record<string, number
   return breakdown;
 }
 
-export function writeReportJson(runDir: string, report: QaReport): void {
-  writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2), "utf-8");
+/** 2026-09-11 review fix: report.json had no redaction pass at all, unlike evidence.ts#writeJson() -- upstream fixes (Observation/NetworkRecord) already clean most fields, but this is the last line of defense for the whole serialized report. */
+export function writeReportJson(runDir: string, report: QaReport, extraSecrets: readonly string[] = []): void {
+  writeFileSync(join(runDir, "report.json"), redactSecrets(JSON.stringify(report, null, 2), extraSecrets), "utf-8");
 }
 
 /** Pure string templating over already-computed QaReport data — no model call. */
@@ -206,6 +208,6 @@ export function buildReportMarkdown(report: QaReport): string {
   return lines.join("\n");
 }
 
-export function writeReportMarkdown(runDir: string, markdown: string): void {
-  writeFileSync(join(runDir, "report.md"), markdown, "utf-8");
+export function writeReportMarkdown(runDir: string, markdown: string, extraSecrets: readonly string[] = []): void {
+  writeFileSync(join(runDir, "report.md"), redactSecrets(markdown, extraSecrets), "utf-8");
 }

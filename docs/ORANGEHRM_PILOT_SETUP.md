@@ -23,6 +23,12 @@ phase — Milestones A, B, and D proceed independently, and this milestone
 ships its adapter/profile/reporting machinery complete and tested against
 synthetic data, with the actual live run marked pending.
 
+**Re-checked 2026-09-15**: identical result — `docker`, `docker-compose`,
+`php`, `mysql` all still absent from PATH. No privileged software was
+installed to work around this (per instruction); everything else this
+pass could prepare independently (the `allowedFormSubmitEndpoints` fix,
+the declared-workflow manifest) is done and disclosed above.
+
 ## What a real run needs
 
 **Target**: a dedicated, self-hosted OrangeHRM instance with synthetic
@@ -61,6 +67,18 @@ confirm and adjust them once a real instance is reachable; `npm run
 doctor -- --profile orangehrm` will report a named `target-reachable`
 failure until then, which is the correct, honest result, not a bug.
 
+**2026-09-15 fix, disclosed placeholder**: `resources.allowedFormSubmitEndpoints`
+now declares `POST /web/index.php/auth/login` — the login form's own POST
+target must be explicitly allowlisted here, same as any other real-target
+form submit, because `installRouteGuard()`'s network-layer policy applies
+to the login request itself (login is deliberately not exempt from it —
+"authentication exceptions remain narrow" per the original review). This
+was a genuine, previously-undiscovered bug: without this entry, a real run
+against this profile would have its own login denied by its own policy,
+regardless of correct credentials. The exact pathname is OrangeHRM's
+publicly documented login-form action, same confidence level as the other
+locator placeholders above — confirm it once a real instance is reachable.
+
 ## Intended workflow set (once reachable)
 
 Start with login → dashboard (this is the positive-control expectation:
@@ -73,6 +91,20 @@ pagination, and reload where supported. Discover what actually exists;
 report a documented module that isn't present in the installed version as
 **unavailable**, never as a defect. At most a few bounded runs; do not
 measure success by finding a required number of bugs.
+
+**2026-09-15 fix: this is now a real, machine-readable manifest**, not just
+prose — `profiles/orangehrm.workflows.json` (see `src/pilot/workflow-
+manifest.ts` for the schema) declares exactly the 5 pages and 10 workflows
+described above, each with preconditions/authorized-actions/expected-
+outcome text. This is the concrete "prepare a pinned setup and workflow
+list" deliverable, completed independently of the environment blocker
+below — it has NOT been run (the target isn't reachable), so every
+workflow's status remains unrecorded until a real run happens. When a real
+instance becomes reachable, a human records each workflow's outcome
+(attempted/completed/blocked/unsupported) via `saveWorkflowStatus()`
+(mirrors `src/human-review/triage.ts`'s exact per-run JSON-file pattern),
+and `pilot-summary.json`'s new `declaredWorkflows` field aggregates the
+counts — kept entirely separate from `heuristicCoverage`, never conflated.
 
 ## Acceptance still pending
 
@@ -90,3 +122,9 @@ measure success by finding a required number of bugs.
 - [ ] Target/version/pages/workflows/failures/replay outcomes/grouped
       findings/human-review state/duration/limits recorded via
       `src/reporting/pilot-report.ts`'s `buildPilotSummary()`
+- [ ] `profiles/orangehrm.workflows.json` (5 pages / 10 declared
+      workflows — **prepared, 2026-09-15**) actually run, with each
+      workflow's real attempted/completed/blocked/unsupported status
+      recorded via `saveWorkflowStatus()`; `pilot-summary.json`'s
+      `declaredWorkflows` field shows real counts, not `{manifestPresent:
+      false}`

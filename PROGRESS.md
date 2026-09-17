@@ -1,7 +1,14 @@
 # AutoQA — Progress
 
 Phase 1 is COMPLETE. Phase 2 is COMPLETE. Phase 3 is COMPLETE. Phase 4 is
-IN PROGRESS. This file is kept for historical/resumability reference; see
+COMPLETE for every requirement that does not require a reachable
+OrangeHRM instance; the real-application pilot run itself (Milestone C)
+is **deferred by explicit user instruction as of 2026-09-16** (an
+environment blocker — Docker/PHP/MySQL absent — was also confirmed as
+recently as 2026-09-15, but the current reason it isn't attempted is the
+user's own scope decision, not only the environment) — see
+`PHASE4_FINAL_ACCEPTANCE.md` for the exact acceptance checklist and
+status. This file is kept for historical/resumability reference; see
 README.md for the actual system documentation.
 
 ## Phase 4 — Easy Local Use and a Real-Application Pilot (in progress)
@@ -588,6 +595,303 @@ checkpoint and stop for review rather than committing.
       last commit) -- every Phase 4 change is an uncommitted working-tree
       modification; no push, PR, or GitHub write occurred at any point.
 
+### 2026-09-11 continuation — corrections to the checklist above
+
+An independent review re-examined the Phase 4 pass above against the
+actual code (not its own "complete" claims) and found concrete, confirmed
+gaps this section corrects. **The checklist items above describe what was
+built at the time; several of their "complete"/"enforced"/"correct"
+characterizations did not hold up against the real code and are corrected
+here, not silently edited in place.** Full detail, file-by-file, is in
+`docs/PHASE4_ACCEPTANCE.md`'s "What the 2026-09-11 continuation fixed"
+section -- this entry is a pointer plus the specific corrections:
+
+- **A2's "action-level safety" was real but far narrower than its own
+  profile schema declared.** `allowedPathPrefixes`/`allowedApiOrigins`/
+  `allowedWorkflowKinds` were parsed and stored but never actually
+  enforced; a plain unrecognized click and every `fill` action got zero
+  policy check; `classifyResourceRequest` checked pathname only (a
+  cross-origin bypass); a direct CLI run against a real target bypassed
+  `ActionPolicy` entirely (it was only ever constructed by `RunManager`).
+  Rewritten this continuation -- see §1 in `docs/PHASE4_ACCEPTANCE.md`.
+- **A3's recorder-ordering doc comment was inaccurate.** It claimed
+  recorders attach after authentication; the code attached them before.
+  Also: a UI-submitted (non-env) password was never redacted from
+  evidence/logs at all, and `FormLoginBootstrap` could read a
+  never-navigated login page as a successful login if a signal element
+  happened to match elsewhere. Fixed -- see §2.
+- **D1's "provider usage accounting" undercounted real requests.**
+  `UsageTracker.recordAttempt()` wrapped a whole logical decision that
+  could internally make a first-attempt AND a repair-attempt HTTP
+  request, counting only one. Fixed by moving accounting into each real
+  provider's own request boundary -- see §3.
+- **"Cancellation is checked between FSM steps" (Milestone B entry above)
+  was true but incomplete** -- an in-flight Explorer/Critic SDK call was
+  never actually interrupted by Stop (no `AbortSignal` was ever passed
+  into an SDK call anywhere); `Promise.race`-based timeouts abandoned the
+  losing call rather than aborting it. Fixed -- see §3.
+- **"Manually verified live in a real browser" (Milestone B entry above)
+  covered a narrower path than the full UI.** This continuation's own
+  real-browser verification found and fixed two genuine bugs an HTTP-only
+  test could not have caught: the Orchestrator's terminal progress event
+  was emitted against the pre-transition FSM state, so the UI never
+  learned a run had finished via SSE; and the client fetched
+  `report.json` before `assembleReport()` had necessarily finished
+  writing it. See §5.
+- **A live-execution gate existed only in `RunManager`.** Every other
+  entry point that can make a live provider call (`qa`, `benchmark`,
+  `experiment:phase3` capture/replay, standalone replay) had none. New
+  `--live`-flag requirement added to all of them -- see §3.
+
+New work this continuation with no prior overstated claim to correct:
+§4a (Validator no longer reports "rejected" for an all-tooling-blocked
+replay), §4b (bounded workflow-prerequisite replay), evidence links,
+active-run recovery, live status counters, provider identity in the
+profile list, managed fixture-preflight status + server-side preflight
+enforcement, fixture/CLI oracle-config parity, and `buildPilotSummary()`
+wired into real report assembly (previously dead code).
+
+Verification: `npm run typecheck`/`build` clean; `npx vitest run` 60
+files / 470 tests pass (run in isolation); `npm run qa`/`benchmark --
+config qa.config.mock.yaml` unchanged (9 findings, same precision/recall);
+`npm run doctor -- --profile fixture` now READY with the target-reachable
+check correctly showing managed (`~`), not a false failure. `git status`/
+`git log` confirm HEAD is `17b6aa9` ("Update AutoQA project" -- the
+user's own manual commit of the original Phase 4 pass, made between
+sessions); this continuation's own changes remain entirely uncommitted
+working-tree modifications on top of it; no push, PR, or GitHub write
+occurred.
+
+### 2026-09-14 addendum — the 2026-09-11 continuation's own "Complete" claim for §1/§6 was premature
+
+A follow-up review re-examined specifically the navigation/redirect
+policy and preflight-ordering work above with real Chromium probes
+against disposable local servers, rather than trusting that the targeted
+tests above (49/49) had already passed. **Both claims of completion were
+premature.** The code comment claiming "Playwright's `context.route()`
+intercepts each hop of a redirect chain as its own separate request" was
+empirically wrong -- confirmed by a live probe: an allowed
+`/allowed/start` redirecting via 302 to an out-of-scope
+`/blocked/destination` resulted in the forbidden destination receiving a
+REAL request, policy checked only once. Separately,
+`checkScopeConsistency()` checked origin but never
+`allowedPathPrefixes`, so an allowed-origin/out-of-scope-path target
+still got probed. Full detail, file-by-file, is in
+`docs/PHASE4_ACCEPTANCE.md`'s "What the 2026-09-14 addendum fixed"
+section -- this entry is a pointer plus the specific corrections:
+
+- **§1a (redirect-chain bypass) -- real fix, not a comment correction.**
+  `installRouteGuard()` now manually walks and pre-validates every hop of
+  a redirect chain itself via `route.fetch({ maxRedirects: 0 })` before
+  ever letting the browser touch it, denying at the FIRST out-of-scope
+  hop rather than relying on Playwright to re-surface each hop to the
+  route handler (it doesn't). Verified via a real local server counting
+  hits on a forbidden destination -- zero, for same-origin, off-origin,
+  307, and 308 redirects -- not by inspecting Playwright-side request
+  events.
+- **§1b (direct `"navigate"` action) -- a real, separate gap the original
+  review also missed.** A direct `"navigate"` QaAction skipped the
+  `workflows.allowedWorkflowKinds` check a link-click navigation already
+  enforced. Fixed with the same check.
+- **§6a (preflight path-scope) -- real fix.** `checkScopeConsistency()`
+  now checks `allowedPathPrefixes` too, before any reachability probe is
+  issued. Verified via a `fetch` spy proving zero requests to an
+  out-of-scope path, not merely trusting the reported preflight status.
+- **Confirmed still-open, not new: the RunManager TOCTOU race (§5 above)
+  was never actually applied** -- only its imports had landed;
+  `startRun()` on disk still checked-then-awaited-then-assigned exactly
+  as before this addendum. Now genuinely closed with a synchronous
+  `starting` flag, verified via a real concurrent-call test (two
+  `startRun()` calls with no `await` between them), not a sequential-call
+  test.
+- **A direct `"navigate"` action and a `"fill"` action had no further
+  workflow-kind/other check beyond path-scope** -- the `"navigate"` gap
+  is fixed above (§1b); the `"fill"` gap is a disclosed judgment call
+  (§1c in the acceptance doc), not silently dropped: a fill alone causes
+  no network request, and any autosave-triggered request is still caught
+  by the network-layer defense.
+
+New work this addendum with no prior overstated claim to correct: §2
+(secret leakage via unredacted URLs/metadata -- `Observation.page.url`/
+`.title`, `links[].href`, and `networkRequests[].url` were never
+redacted, nor was `report.json`/`report.md`/`benchmark.json`/
+`phase2-metrics.json`/`grouping.json`/`pilot-summary.json`), §3
+(`phase2-experiment.ts` still bypassed live-gating -- the original
+review's fix mirrored `phase3-experiment.ts` but never touched this
+file), §7 (Validator's before/after window could include a
+prerequisite's own side effect as false reproduction; the
+prerequisite-prefix heuristic was unfiltered and unanchored;
+`decideStatus` could confidently reject from a single real attempt),
+§8a (`FormLoginBootstrap`/`BrowserManager` had no cancellation path at
+all), §4 (`BudgetTracker` was checked/recorded once per logical decision,
+not once per real HTTP request -- a first-attempt-then-repair decision
+could make 2 real requests against a budget of 1), and §9 (hardcoded
+test-server ports -- `startFixtureServer()` now defaults to an
+OS-assigned port for tests that manage their own lifecycle).
+
+Verification: `npm run typecheck`/`build` clean; full `npx vitest run`
+(run in isolation) passes -- see `docs/PHASE4_ACCEPTANCE.md`'s own
+"Final verification (raw results, 2026-09-14 addendum)" section for the
+exact file/test counts. `git status`/`git log` confirm HEAD is unchanged
+from the 2026-09-11 continuation's own confirmation; this addendum's
+changes remain entirely uncommitted working-tree modifications; no
+staging, commit, push, PR, or paid/live provider request occurred --
+mock providers and fake credentials throughout, exactly as instructed.
+
+### 2026-09-15 pass — verified against the working tree, not the prior handoff's own summary
+
+Governing instruction: treat "62 files / 513 tests pass, clean
+typecheck/build" as a *reported* result to verify, not proof every
+requirement was closed. It was not — this pass found one severe
+regression the 2026-09-14 addendum's own fix had introduced, one
+previously-undiscovered pilot-blocking bug, and a second bug found only
+by exercising the new UI in a real browser. Full detail in
+`docs/PHASE4_ACCEPTANCE.md`'s corrected sections; compact acceptance
+record in the new `PHASE4_FINAL_ACCEPTANCE.md`.
+
+**The regression**: `observe()` redacted `Observation.page.url`/`.title`/
+`links[].href` *in place* — the exact values `Planner` builds navigation
+candidates from and `executeAction()`/`Validator.validate()` actually
+`page.goto()`. A credential-bearing href became a navigation to a broken
+URL; a finding recorded on one could never replay again. No test caught
+it because redaction tests checked only that the secret was gone, never
+that navigation/replay still worked. Fixed: `Observation` stays raw;
+redaction moved to the Explorer prompt, candidate model-facing id/
+description (not the actual navigate action's url), and every report/
+evidence writer (including `writeFindingJson()`, found to have zero
+redaction — a second gap in the same subsystem, closed in the same pass).
+
+**The previously-undiscovered bug**: `profiles/orangehrm.json` had no
+`resources.allowedFormSubmitEndpoints` entry for its own login POST, so
+a real run would have denied its own login via its own policy. Survived
+three prior review passes because every existing auth test passed
+`actionPolicy: undefined`. Fixed, with new full-stack tests (route guard
++ action policy + login together, not in isolation for the first time).
+
+**Cancellation bound tightened and quantified**: was "between whole
+attempts" only (~80s/~40s worst case, undocumented). Now checked between
+individual steps in `FormLoginBootstrap.establish()` and both of
+`Validator`'s replay loops plus `Orchestrator.execute()`'s action loop —
+concrete new bound ≤15s login-step / ≤5s replay-or-exploration-step,
+proven with two new wall-clock-measuring tests.
+
+**Other fixes**: request deadlines now respect remaining run budget
+(`Math.min(providerTimeoutMs, remainingDurationMs())`) at all 3 call
+sites, including `experiments/conditions.ts`'s previously-missing signal;
+`generateRunId()` gained a random collision-resistant suffix; three
+narrow redirect-safety test gaps closed (307/308-off-origin, terminal-
+response no-double-fetch, native-form body/cookie continuity); a stale
+port-registry doc entry removed.
+
+**Profile create/edit UI**: implemented end-to-end (`POST /api/profiles`,
+`GET /api/profiles/:id`, a new form section) and verified live in a real
+browser via the Claude Browser MCP tools — create, a real inline
+validation-error rejection, edit, persistence, and a full "Check setup"
+pass against the new profile. **This live exercise found a third bug no
+test had caught**: `ProfileStore.list()` filtered `*.json` files, which
+also matched the new `profiles/orangehrm.workflows.json` declared-
+workflow manifest (added earlier in this same pass), so `GET
+/api/profiles` 500'd on every request once that file existed. Fixed
+(`list()` now excludes `*.workflows.json`) and covered by a new
+regression test.
+
+**Declared-workflow manifest**: new `src/pilot/workflow-manifest.ts`
+module (schema, load/save, per-run status tracking mirroring
+`human-review/triage.ts`'s exact pattern), wired into `PilotSummary` as a
+new `declaredWorkflows` field, honestly `{manifestPresent: false}` when
+absent. A real 5-page/10-workflow manifest authored for OrangeHRM
+(`profiles/orangehrm.workflows.json`) — prepared, not run (target still
+unreachable).
+
+**Real-app pilot**: re-checked, `docker`/`docker-compose`/`php`/`mysql`
+still absent from PATH (third consecutive check, identical result). No
+privileged software installed, no public demo substituted. Genuinely
+blocked by environment, not code — everything independently preparable
+(the login-policy fix, the workflow manifest) is done.
+
+**Verification**: `npm run typecheck`/`build` clean; full `npx vitest
+run` (isolated) — **64 files / 542 tests pass** (up from 62/513);
+`npm run qa -- --config qa.config.mock.yaml` — 9/9 validated, identical
+precision/recall/F1 to every prior baseline; `npm run doctor --profile
+fixture` READY; `npm run doctor --profile orangehrm` correctly NOT
+READY (target unreachable). `git status` confirms this is a real git
+repository, HEAD unchanged at `17b6aa9`, every touched file
+modified/untracked, nothing staged/committed/pushed. No live or paid
+provider request was made. Full detail: `PHASE4_FINAL_ACCEPTANCE.md`.
+
+### 2026-09-16 pass — OrangeHRM deferred by user; cancellation bound corrected after a real-Chromium probe found it false; test-port isolation finished; ordinary-user journey browser-verified
+
+Governing instruction redirected scope: defer the OrangeHRM pilot
+entirely ("do not install OrangeHRM, investigate its dependencies, or
+let it block further work... mark this acceptance item 'deferred by
+user'"), and focus on making AutoQA a reliable, usable *local* QA
+application.
+
+**The 2026-09-15 pass's own cancellation-bound claim was false.** An
+independent real-Chromium probe requested Stop during a 10-second `wait`
+action and found `executeAction()` still returned success ~9.9s later —
+the "checked between steps" fix from 2026-09-15 only ever prevented the
+*next* unit of work from starting; nothing was wired into whichever
+Playwright call was already in flight. Fixed by forwarding the run's
+`AbortSignal` directly into every Playwright call that natively supports
+one (`Locator.click`/`.fill`/`.press`/`.waitFor`, `Page.goto`/`.reload`/
+`.waitForURL`), and replacing `page.waitForTimeout()` (no native `signal`
+hook) with a `Promise.race`-based helper — mirroring this project's own
+pre-existing, working interruption pattern (`deriveTimeoutSignal()`/
+`withTimeout()` in `critic-runner.ts`) rather than inventing a new one.
+New measured bound: ~0.5–2s regardless of the interrupted operation's own
+timeout, wall-clock-proven in `tests/actions-cancellation.test.ts` (new)
+and strengthened tests in `tests/auth/session-bootstrap.test.ts`/
+`tests/validator.test.ts`. A pre-existing bug surfaced in the same pass:
+a login cancelled mid-retry threw `AuthenticationError{reason:
+"cancelled"}`, which `Orchestrator.initialize()` mapped to FSM state
+`FAILED` instead of `CANCELLED` — fixed (a cancelled run's report must
+say "stopped," never "failed").
+
+**Test-owned port isolation finished.** `runPipeline()`
+(`src/run-pipeline.ts`) now always binds a local-fixture target's server
+to an OS-assigned port and substitutes the real origin back into `config`
+in place before anything downstream reads it, regardless of whatever
+literal port the config/profile declares — making the six previously
+hardcoded test ports (`tests/helpers/ports.ts`) inert placeholder text,
+with *no test-file logic changes required* to become collision-free.
+Confirmed on the real `npm run qa -- --config qa.config.mock.yaml` CLI
+path too (ran against a dynamically-assigned port, identical findings to
+every prior baseline). New `tests/run-pipeline-port-isolation.test.ts`
+proves two concurrent runs declaring the same placeholder port land on
+distinct real ports.
+
+**Ordinary-user journey browser-verified end to end**, against both the
+bundled `fixture` profile and a newly-created `owned-sandbox` profile
+pointed at a disposable local HTTP server (never `local-fixture` for
+anything meant to exercise `ActionPolicy`, since that environment kind
+never constructs one). Confirmed: profile create/edit with explicit
+scope, a real inline validation error, provider identity/limits visible,
+a genuine reachability probe in Check setup, a mock run actually
+exploring the real target, active-run recovery on refresh, Stop halting
+in ~2s with partial results preserved (a cancelled fixture run retained 5
+validated findings and a full budget/usage snapshot — never zeroed), and
+inline screenshots resolving through the artifact route. **One real
+usability gap found and fixed**: the "Prior runs" list rendered
+unbounded (60+ entries pushed the run controls off-screen in this dev
+environment) — fixed with a bounded, scrollable container
+(`src/server/public/index.html`), nothing paginated away.
+
+**OrangeHRM**: explicitly deferred by user instruction this pass. No
+investigation, dependency check, or installation attempt occurred;
+`profiles/orangehrm.json`, `profiles/orangehrm.workflows.json`, and
+`docs/ORANGEHRM_PILOT_SETUP.md` are untouched from 2026-09-15 (confirmed
+via `git diff`).
+
+**Verification**: `npm run typecheck`/`build` clean; full `npx vitest
+run` (isolated) — **66 files / 550 tests pass** (up from 64/542);
+`npm run qa -- --config qa.config.mock.yaml` — 9/9 validated, identical
+baseline, target dynamically assigned. `npm run doctor --profile fixture`
+READY. `doctor --profile orangehrm` deliberately not re-run (deferred).
+`git status` confirms HEAD unchanged at `17b6aa9`, nothing
+staged/committed/pushed, no OrangeHRM file touched. No live or paid
+provider request was made. Full detail: `PHASE4_FINAL_ACCEPTANCE.md`.
+
 ## Phase 3 — Reliability and Research Evidence — all 9 sub-milestones
 complete (A1, A2, A3, B, C1, C2, C3, C4, D)
 
@@ -912,3 +1216,19 @@ end-to-end; two live chat-completion attempts both returned HTTP 429
 (rate-limited), not retried further per policy. All committed
 verification used `MockModelProvider`/`MockCriticProvider` via
 `qa.config.mock.yaml`.
+
+## Gemini Explorer integration (2026-09-17)
+
+Added optional Gemini Explorer using official @google/genai 2.23.0. Reuses the existing decision schema, ModelRouter, Playwright executor, deterministic validation, and Critic. Includes explicit model/key configuration, fixed endpoint, no hidden retries, one budgeted output repair, cancellation/timeout handling, usage accounting including thinking output, and secret-redaction coverage. No default profile/config switch, live provider requests, screenshot reasoning, or Gemini Critic.
+
+Targeted validation: typecheck plus 30 new tests passed, including real local Chromium pipeline execution with intercepted Gemini HTTP. Full regression verification passed: 580 tests in 68 files; build and typecheck passed. See docs/GEMINI_PROVIDER.md for scope and setup. Existing OpenAI/Ollama placeholders remain unchanged. No commits or pushes.
+
+## Phase 5 — Ajeer compatibility and workflow pilot (2026-09-17)
+
+Implemented scoped authentication exceptions, authentication-only RunManager/UI runs, optional executable declarations in the existing planner/FSM, exact action/route policies, bounded unsuccessful candidates, opaque navigation IDs, workflow assertions and immutable evidence, selected-workflow runs, phase-specific accounting and deadline propagation, validated annotations and derived pilot reports. Existing fixture defaults, oracles, reproduction, Critic disposition, grouping and human-review separation remain in place.
+
+Ajeer discovery stayed unauthenticated and separate from AutoQA acceptance. The prior failed run was verified as zero exploration actions/zero model calls; login success was not established. The existing private profile was updated, not recreated. Its auth placeholders are flagged unverified and the newly created ignored workflow manifest is intentionally empty. Doctor returned NOT READY for that precise blocker despite HTTP 200 reachability. No chat-supplied credentials were used or copied into artifacts, .env was not read by the assistant, and no real authentication was performed, and no authenticated features were invented. No paid provider calls, staging, commits, pushes, PRs, deployment or OrangeHRM changes were made by this pass.
+
+Full verification totals and remaining live gates are recorded in PHASE5_ACCEPTANCE.md. See AJEER_PILOT_REPORT.md and docs/AJEER_PILOT_SETUP.md for evidence and the next user action.
+
+Final Phase 5 verification: typecheck and build passed; full suite **598 tests / 70 files passed** in 218.64 seconds. This is 18 new tests over the current Gemini-era baseline. A first 597-test full pass was followed by one accounting-boundary correction/regression and a clean final full pass. The UI is running at http://127.0.0.1:4180 and serves the new controls. Live Ajeer acceptance remains pending observed authenticated URL/signal and credentials supplied through the transient UI.

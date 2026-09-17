@@ -21,6 +21,7 @@ const PAGES: Record<string, string> = {
 
 export type FixtureServer = {
   close: () => Promise<void>;
+  port: number;
 };
 
 /**
@@ -30,8 +31,14 @@ export type FixtureServer = {
  * fixture/requirements.json and never added to ground truth). POST routes
  * back the duplicate-request, http-failure, and ui-api-consistency
  * oracles. Never contacts any external system.
+ *
+ * `port` defaults to 0 (OS-assigned) -- pass a literal port only when a
+ * caller has an inherent ordering constraint (e.g. `runPipeline()`'s
+ * local-fixture auto-start, which derives the port from `config.target.url`
+ * before this server exists). The actual bound port is always returned on
+ * the result so callers using 0 can read it back.
  */
-export function startFixtureServer(port: number): Promise<FixtureServer> {
+export function startFixtureServer(port = 0): Promise<FixtureServer> {
   return new Promise((resolve, reject) => {
     const server: Server = createServer((req, res) => {
       const method = req.method ?? "GET";
@@ -90,7 +97,10 @@ export function startFixtureServer(port: number): Promise<FixtureServer> {
 
     server.once("error", reject);
     server.listen(port, "localhost", () => {
+      const address = server.address();
+      const boundPort = typeof address === "object" && address !== null ? address.port : port;
       resolve({
+        port: boundPort,
         close: () =>
           new Promise((closeResolve, closeReject) => {
             server.close((error) => (error ? closeReject(error) : closeResolve()));

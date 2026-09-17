@@ -14,7 +14,7 @@ import { parseProfile } from "../../src/profiles/schema.js";
 import { profileToAppConfig } from "../../src/profiles/to-app-config.js";
 import { runPipeline } from "../../src/run-pipeline.js";
 import { ActionPolicy, pathWithinPrefix, type ActionClassification } from "../../src/safety/action-policy.js";
-import { installRouteGuard } from "../../src/safety/navigation-guard.js";
+import { installAsyncRedirectGuard, installRouteGuard } from "../../src/safety/navigation-guard.js";
 import type { Finding, SafetyEvent } from "../../src/types.js";
 import { Validator } from "../../src/validator.js";
 
@@ -46,6 +46,53 @@ const PAGE_HTML = `<!doctype html><html><body>
 const ADMIN_PAGE_HTML = `<!doctype html><html><body><h1>Admin</h1></body></html>`;
 const ADMINISTRATOR_PAGE_HTML = `<!doctype html><html><body><h1>Administrator (different page entirely)</h1></body></html>`;
 
+// A REAL native <form> submission -- no JS preventDefault -- producing a
+// genuine navigation-type POST request at the network layer. The
+// mutate-form on PAGE_HTML always calls e.preventDefault(), which is
+// exactly why no prior test exercised this: a navigation-type mutation
+// bypassed classifyResourceRequest entirely (2026-09-11 review finding).
+const REAL_NAV_FORM_PAGE_HTML = `<!doctype html><html><body>
+  <form id="real-mutate-form" action="/mutate" method="post">
+    <button type="submit" id="real-submit">Real submit</button>
+  </form>
+</body></html>`;
+
+// 2026-09-14 addendum fix: real redirect-chain probes. Every "forbidden"
+// destination below increments its own server-side counter -- the actual
+// acceptance evidence is "the counter stayed at 0", not merely "Playwright
+// reported a denial event" (the addendum explicitly distinguishes these).
+const redirectHitCounts: Record<string, number> = {};
+function recordHit(key: string): void {
+  redirectHitCounts[key] = (redirectHitCounts[key] ?? 0) + 1;
+}
+
+function postFormPageHtml(actionPath: string, submitId: string): string {
+  return `<!doctype html><html><body>
+    <form id="${submitId}-form" action="${actionPath}" method="post">
+      <button type="submit" id="${submitId}">Submit</button>
+    </form>
+  </body></html>`;
+}
+
+let offOriginServer: Server;
+let OFF_ORIGIN: string;
+
+// 2026-09-15 fix: request-body/cookie continuity through the manual
+// route.fetch()/route.fulfill() redirect relay -- captured by the target
+// server itself, not asserted from the client side (which would only prove
+// Playwright's own native follow-through, not that AutoQA's manual chase
+// didn't somehow strip anything before relaying the first hop).
+let lastCookiePostTargetBody: string | undefined;
+let lastCookiePostTargetCookieHeader: string | undefined;
+
+function readRequestBody(req: import("node:http").IncomingMessage): Promise<string> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+  });
+}
+
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.method === "POST" && req.url === "/mutate") {
@@ -68,18 +115,194 @@ beforeAll(async () => {
       res.end(ADMINISTRATOR_PAGE_HTML);
       return;
     }
+    if (req.url === "/real-nav-form") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(REAL_NAV_FORM_PAGE_HTML);
+      return;
+    }
+
+    // --- redirect-chain fixture routes (2026-09-14 addendum fix) ---
+    if (req.url === "/allowed/start") {
+      res.writeHead(302, { Location: "/blocked/destination" });
+      res.end();
+      return;
+    }
+    if (req.url === "/blocked/destination") {
+      recordHit("same-origin-forbidden");
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body>you should never see this</body></html>");
+      return;
+    }
+    if (req.url === "/allowed/start-offorigin") {
+      res.writeHead(302, { Location: `${OFF_ORIGIN}/blocked` });
+      res.end();
+      return;
+    }
+    if (req.method === "POST" && req.url === "/allowed/redirect-307-out-of-scope") {
+      res.writeHead(307, { Location: "/blocked/destination-307" });
+      res.end();
+      return;
+    }
+    if (req.url === "/blocked/destination-307") {
+      recordHit("307-forbidden");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    if (req.method === "POST" && req.url === "/allowed/redirect-308-out-of-scope") {
+      res.writeHead(308, { Location: "/blocked/destination-308" });
+      res.end();
+      return;
+    }
+    if (req.url === "/blocked/destination-308") {
+      recordHit("308-forbidden");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    if (req.url === "/allowed/post-redirect-307") {
+      res.writeHead(307, { Location: "/allowed/post-redirect-307" });
+      res.end();
+      return;
+    }
+    if (req.url === "/allowed/legit-redirect") {
+      res.writeHead(302, { Location: "/allowed/legit-target" });
+      res.end();
+      return;
+    }
+    if (req.url === "/allowed/legit-target") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body><h1 id=\"legit-target-marker\">Legit target reached</h1></body></html>");
+      return;
+    }
+    if (req.url === "/allowed/legit-post-redirect") {
+      res.writeHead(307, { Location: "/allowed/legit-post-target" });
+      res.end();
+      return;
+    }
+    if (req.url === "/allowed/legit-post-target") {
+      if (req.method !== "POST") {
+        // Proves 307 preserved the original method through an ALLOWED
+        // chain -- if the browser (mis)followed this as a GET, the test
+        // must fail here, not silently pass.
+        res.writeHead(405);
+        res.end();
+        return;
+      }
+      recordHit("legit-post-target-post-hits");
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body><h1 id=\"legit-post-target-marker\">Legit POST target reached</h1></body></html>");
+      return;
+    }
+    if (req.url === "/allowed/loop") {
+      recordHit("loop-hits");
+      res.writeHead(302, { Location: "/allowed/loop" });
+      res.end();
+      return;
+    }
+    // 2026-09-15 fix: a plain, ALLOWED, non-redirecting endpoint with its
+    // own hit counter -- proves chaseAndValidate()'s hop===0 terminal-
+    // response path relays the already-fetched body via route.fulfill()
+    // rather than ALSO letting the browser natively re-fetch it (which
+    // would double the hit count, unlike the deliberate, disclosed 2x for
+    // an actual redirect chain).
+    if (req.url === "/allowed/terminal-endpoint") {
+      recordHit("terminal-endpoint-hits");
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body><h1 id=\"terminal-marker\">Terminal, no redirect</h1></body></html>");
+      return;
+    }
+    // 2026-09-15 fix: 307 (method-preserving) to a genuinely different
+    // ORIGIN -- the existing 307/308 tests above only cover an out-of-scope
+    // PATH on the same origin; this closes the "off-origin host" gap for
+    // a method-preserving redirect specifically (302-off-origin was already
+    // covered above).
+    if (req.method === "POST" && req.url === "/allowed/redirect-307-offorigin") {
+      res.writeHead(307, { Location: `${OFF_ORIGIN}/blocked-307` });
+      res.end();
+      return;
+    }
+    if (req.url === "/allowed/redirect-form-307-offorigin") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(postFormPageHtml("/allowed/redirect-307-offorigin", "post-307-offorigin-submit"));
+      return;
+    }
+    // 2026-09-15 fix: request-body and cookie continuity through the
+    // manual chase-and-relay -- captured server-side, not merely asserted
+    // client-side.
+    if (req.url === "/allowed/cookie-form") {
+      res.writeHead(200, { "Content-Type": "text/html", "Set-Cookie": "session=abc123-test-session" });
+      res.end(`<!doctype html><html><body>
+        <form id="cookie-post-form" action="/allowed/cookie-post-redirect" method="post">
+          <input type="hidden" name="note" value="hello-from-the-form" />
+          <button type="submit" id="cookie-post-submit">Submit</button>
+        </form>
+      </body></html>`);
+      return;
+    }
+    if (req.url === "/allowed/cookie-post-redirect") {
+      res.writeHead(307, { Location: "/allowed/cookie-post-target" });
+      res.end();
+      return;
+    }
+    if (req.url === "/allowed/cookie-post-target") {
+      lastCookiePostTargetCookieHeader = req.headers.cookie;
+      void readRequestBody(req).then((body) => {
+        lastCookiePostTargetBody = body;
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end("<html><body><h1 id=\"cookie-post-target-marker\">Cookie POST target reached</h1></body></html>");
+      });
+      return;
+    }
+    if (req.url === "/allowed/redirect-form") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(postFormPageHtml("/allowed/redirect-307-out-of-scope", "post-307-submit"));
+      return;
+    }
+    if (req.url === "/allowed/redirect-form-308") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(postFormPageHtml("/allowed/redirect-308-out-of-scope", "post-308-submit"));
+      return;
+    }
+    if (req.url === "/allowed/legit-post-form") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(postFormPageHtml("/allowed/legit-post-redirect", "legit-post-submit"));
+      return;
+    }
+
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(PAGE_HTML);
   });
   await new Promise<void>((resolve) => server.listen(0, "localhost", resolve));
   const port = (server.address() as AddressInfo).port;
   ORIGIN = `http://localhost:${port}`;
+
+  offOriginServer = createServer((req, res) => {
+    if (req.url === "/blocked") {
+      recordHit("off-origin-forbidden");
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body>you should never see this either</body></html>");
+      return;
+    }
+    if (req.url === "/blocked-307") {
+      recordHit("307-off-origin-forbidden");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => offOriginServer.listen(0, "localhost", resolve));
+  OFF_ORIGIN = `http://localhost:${(offOriginServer.address() as AddressInfo).port}`;
+
   browser = await chromium.launch({ headless: true });
 });
 
 afterAll(async () => {
   await browser.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await new Promise<void>((resolve) => offOriginServer.close(() => resolve()));
 });
 
 function realTargetProfile(overrides: (raw: Record<string, unknown>) => void = () => {}) {
@@ -291,6 +514,47 @@ describe("ActionPolicy.classifyResourceRequest", () => {
     const policy = new ActionPolicy(realTargetProfile());
     const result = policy.classifyResourceRequest("GET", "/app.css", "https://a-cdn.example", "stylesheet");
     expect(result.decision).toBe("allowed");
+  });
+
+  // 2026-09-11 independent-review fix: "document" (Playwright's
+  // resourceType for every navigation, including a native <form> POST
+  // submission) was previously blanket-exempted as an "asset" -- these
+  // four prove it now goes through the same origin/path/method/endpoint
+  // checks as an xhr/fetch request.
+  it("denies a document-typed navigation with a POST method to an unapproved endpoint (native form submit)", () => {
+    const policy = new ActionPolicy(realTargetProfile());
+    const result = policy.classifyResourceRequest("POST", "/mutate", ORIGIN, "document");
+    expect(result.decision).toBe("denied");
+  });
+
+  it("allows a document-typed GET navigation to an in-scope page", () => {
+    const policy = new ActionPolicy(
+      realTargetProfile((raw) => {
+        (raw["navigation"] as Record<string, unknown>)["allowedPathPrefixes"] = ["/app"];
+      })
+    );
+    const result = policy.classifyResourceRequest("GET", "/app/dashboard", ORIGIN, "document");
+    expect(result.decision).toBe("allowed");
+  });
+
+  it("denies a document-typed GET navigation outside the declared path-prefix scope", () => {
+    const policy = new ActionPolicy(
+      realTargetProfile((raw) => {
+        (raw["navigation"] as Record<string, unknown>)["allowedPathPrefixes"] = ["/app"];
+      })
+    );
+    const result = policy.classifyResourceRequest("GET", "/admin", ORIGIN, "document");
+    expect(result.decision).toBe("denied");
+  });
+
+  it("denies a document-typed request whose origin isn't in navigation.allowedOrigins, even if allowedApiOrigins would have permitted it", () => {
+    const policy = new ActionPolicy(
+      realTargetProfile((raw) => {
+        (raw["resources"] as Record<string, unknown>)["allowedApiOrigins"] = ["https://attacker.example"];
+      })
+    );
+    const result = policy.classifyResourceRequest("GET", "/", "https://attacker.example", "document");
+    expect(result.decision).toBe("denied");
   });
 });
 
@@ -525,6 +789,245 @@ describe("ActionPolicy request-level defense (installRouteGuard resourcePolicy)"
 
     expect(status).toBe("aborted");
   });
+
+  it("aborts a same-origin native <form method=post> submission to an unapproved endpoint at the network layer (2026-09-11 review fix: navigation-type requests previously bypassed resourcePolicy entirely)", async () => {
+    const profile = realTargetProfile();
+    const policy = new ActionPolicy(profile);
+    const context = await browser.newContext();
+    const events: SafetyEvent[] = [];
+    const logger = createLogger();
+    await installRouteGuard(context, [ORIGIN], logger, (e) => events.push(e), (method, pathname, origin, resourceType) => policy.classifyResourceRequest(method, pathname, origin, resourceType));
+    const page = await context.newPage();
+    // Same guard stack a real run actually installs (see
+    // BrowserManager#newPageSession): layer 1 (route guard, above) aborts
+    // the request before the browser commits to it, but the resulting
+    // chrome-error interstitial still needs layer 3 to revert it back
+    // on-origin -- this test isolates the POLICY decision, not the
+    // recovery mechanism, so install the same defense-in-depth stack
+    // production does rather than asserting on an interstitial page state
+    // this layer was never meant to clean up by itself.
+    installAsyncRedirectGuard(page, [ORIGIN], logger, (e) => events.push(e));
+    await page.goto(`${ORIGIN}/real-nav-form`);
+
+    await page.click("#real-submit");
+    await page.waitForTimeout(500);
+
+    expect(new URL(page.url()).origin).toBe(ORIGIN);
+    expect(page.url()).not.toContain("/mutate");
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("still allows an ordinary same-origin GET link navigation through the route guard (regression guard for the fix above)", async () => {
+    const profile = realTargetProfile();
+    const policy = new ActionPolicy(profile);
+    const context = await browser.newContext();
+    const logger = createLogger();
+    await installRouteGuard(context, [ORIGIN], logger, () => {}, (method, pathname, origin, resourceType) => policy.classifyResourceRequest(method, pathname, origin, resourceType));
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/`);
+
+    await page.click("#nav-link");
+    await page.waitForLoadState("domcontentloaded");
+
+    expect(page.url()).toBe(`${ORIGIN}/other`);
+    await context.close();
+  });
+});
+
+describe("redirect-chain policy enforcement (2026-09-14 addendum fix: route() only intercepts a request's first URL)", () => {
+  function scopedProfile() {
+    return realTargetProfile((raw) => {
+      (raw["navigation"] as Record<string, unknown>)["allowedPathPrefixes"] = ["/allowed"];
+    });
+  }
+
+  async function guardedContext(policy: ActionPolicy) {
+    const context = await browser.newContext();
+    const events: SafetyEvent[] = [];
+    const logger = createLogger();
+    await installRouteGuard(context, [ORIGIN], logger, (e) => events.push(e), (method, pathname, origin, resourceType) => policy.classifyResourceRequest(method, pathname, origin, resourceType));
+    return { context, events };
+  }
+
+  it("a same-origin redirect to an out-of-scope path never reaches the forbidden destination -- zero server hits, not just a denial event", async () => {
+    redirectHitCounts["same-origin-forbidden"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context, events } = await guardedContext(policy);
+    const page = await context.newPage();
+
+    await page.goto(`${ORIGIN}/allowed/start`).catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(redirectHitCounts["same-origin-forbidden"]).toBe(0);
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("a redirect to an off-origin destination never reaches the forbidden destination either -- zero hits on a SEPARATE server", async () => {
+    redirectHitCounts["off-origin-forbidden"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context, events } = await guardedContext(policy);
+    const page = await context.newPage();
+
+    await page.goto(`${ORIGIN}/allowed/start-offorigin`).catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(redirectHitCounts["off-origin-forbidden"]).toBe(0);
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("a 307 (method-preserving) redirect to an out-of-scope destination is denied -- zero hits", async () => {
+    redirectHitCounts["307-forbidden"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context, events } = await guardedContext(policy);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/allowed/redirect-form`);
+
+    await page.click("#post-307-submit").catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(redirectHitCounts["307-forbidden"]).toBe(0);
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("a 308 (method-preserving) redirect to an out-of-scope destination is denied -- zero hits", async () => {
+    redirectHitCounts["308-forbidden"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context, events } = await guardedContext(policy);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/allowed/redirect-form-308`);
+
+    await page.click("#post-308-submit").catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(redirectHitCounts["308-forbidden"]).toBe(0);
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("a fully in-scope redirect chain completes normally, with page.url() correctly reflecting the final destination (regression guard: must not break real post-login-style redirects)", async () => {
+    // Note: page.goto() itself is not a classifyAction()-mediated "navigate"
+    // QaAction -- it's a direct Playwright call the test makes, so no
+    // workflows.allowedWorkflowKinds check applies here; only the
+    // network-layer resourcePolicy (exercised by installRouteGuard) is
+    // under test.
+    const policy = new ActionPolicy(scopedProfile());
+    const { context } = await guardedContext(policy);
+    const page = await context.newPage();
+
+    await page.goto(`${ORIGIN}/allowed/legit-redirect`);
+
+    expect(page.url()).toBe(`${ORIGIN}/allowed/legit-target`);
+    expect(await page.locator("#legit-target-marker").isVisible()).toBe(true);
+    await context.close();
+  });
+
+  it("a fully in-scope 307 POST redirect preserves the method end-to-end (the final target only accepts POST)", async () => {
+    redirectHitCounts["legit-post-target-post-hits"] = 0;
+    // Both the redirecting endpoint AND its final destination must be
+    // explicitly allowlisted mutation endpoints -- a POST is never "in
+    // scope" just because its path prefix matches; this is the same
+    // strict-by-default endpoint allowlist classifyMethodAndPathname()
+    // already enforces for every other mutation in this file.
+    const profile = realTargetProfile((raw) => {
+      (raw["navigation"] as Record<string, unknown>)["allowedPathPrefixes"] = ["/allowed"];
+      (raw["resources"] as Record<string, unknown>)["allowedFormSubmitEndpoints"] = [
+        { method: "post", pathname: "/allowed/legit-post-redirect" },
+        { method: "post", pathname: "/allowed/legit-post-target" },
+      ];
+    });
+    const policy = new ActionPolicy(profile);
+    const { context } = await guardedContext(policy);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/allowed/legit-post-form`);
+
+    await page.click("#legit-post-submit");
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    await page.waitForTimeout(300);
+
+    // 2, not 1: one POST from the Node-side validation walk (confirming
+    // the whole chain is in-scope before relaying anything) and one
+    // genuine POST from the browser natively following the already-vetted
+    // redirect -- the disclosed, deliberate trade-off documented on
+    // chaseAndValidate() in navigation-guard.ts. Either hit missing (0 or
+    // 1) would mean either the method wasn't preserved end-to-end, or the
+    // legitimate chain was wrongly denied.
+    expect(redirectHitCounts["legit-post-target-post-hits"]).toBe(2);
+    expect(page.url()).toBe(`${ORIGIN}/allowed/legit-post-target`);
+    await context.close();
+  });
+
+  it("a redirect chain exceeding the bounded hop limit is denied rather than looped forever", async () => {
+    redirectHitCounts["loop-hits"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context, events } = await guardedContext(policy);
+    const page = await context.newPage();
+
+    await page.goto(`${ORIGIN}/allowed/loop`).catch(() => {});
+    await page.waitForTimeout(500);
+
+    // Bounded: the loop route must not have been hit an unbounded number
+    // of times, and the navigation must have been denied, not hung.
+    expect(redirectHitCounts["loop-hits"]).toBeLessThan(25);
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("a plain, non-redirecting allowed endpoint is fetched exactly once -- the terminal-response relay path doesn't double-fetch", async () => {
+    redirectHitCounts["terminal-endpoint-hits"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context } = await guardedContext(policy);
+    const page = await context.newPage();
+
+    await page.goto(`${ORIGIN}/allowed/terminal-endpoint`);
+
+    expect(redirectHitCounts["terminal-endpoint-hits"]).toBe(1);
+    expect(await page.locator("#terminal-marker").isVisible()).toBe(true);
+    await context.close();
+  });
+
+  it("a 307 (method-preserving) redirect to a genuinely different ORIGIN is denied -- zero hits (closes the off-origin gap for 307/308, previously only proven for an out-of-scope path on the SAME origin)", async () => {
+    redirectHitCounts["307-off-origin-forbidden"] = 0;
+    const policy = new ActionPolicy(scopedProfile());
+    const { context, events } = await guardedContext(policy);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/allowed/redirect-form-307-offorigin`);
+
+    await page.click("#post-307-offorigin-submit").catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(redirectHitCounts["307-off-origin-forbidden"]).toBe(0);
+    expect(events.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    await context.close();
+  });
+
+  it("a real request body and a cookie set earlier in the session both survive the manual chase-and-relay to the terminal target, not just method/final-URL", async () => {
+    lastCookiePostTargetBody = undefined;
+    lastCookiePostTargetCookieHeader = undefined;
+    const profile = realTargetProfile((raw) => {
+      (raw["navigation"] as Record<string, unknown>)["allowedPathPrefixes"] = ["/allowed"];
+      (raw["resources"] as Record<string, unknown>)["allowedFormSubmitEndpoints"] = [
+        { method: "post", pathname: "/allowed/cookie-post-redirect" },
+        { method: "post", pathname: "/allowed/cookie-post-target" },
+      ];
+    });
+    const policy = new ActionPolicy(profile);
+    const { context } = await guardedContext(policy);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/allowed/cookie-form`);
+
+    await page.click("#cookie-post-submit");
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(page.url()).toBe(`${ORIGIN}/allowed/cookie-post-target`);
+    expect(lastCookiePostTargetBody).toContain("note=hello-from-the-form");
+    expect(lastCookiePostTargetCookieHeader).toContain("session=abc123-test-session");
+    await context.close();
+  });
 });
 
 describe("CLI real-target protection: runPipeline() constructs a conservative fallback policy when none is supplied", () => {
@@ -556,7 +1059,9 @@ describe("CLI real-target protection: runPipeline() constructs a conservative fa
     // succeed at) submitting it.
     const result = await runPipeline({ config, runId, runDir, logger, headless: true });
 
-    expect(result.safetyEvents.some((e) => e.code === "ACTION_POLICY_DENIED")).toBe(true);
+    // Planning now rejects the unsafe candidate before it reaches the executor.
+    expect(result.finalCtx.recordedSteps.every(step => step.action.type === "fill" || step.action.type === "reload")).toBe(true);
+    expect(result.finalCtx.recordedSteps.some(step => step.action.type === "click" || step.action.type === "press")).toBe(false);
   }, 30_000);
 
   it("still allows the local fixture through unaffected (no fallback policy constructed)", async () => {

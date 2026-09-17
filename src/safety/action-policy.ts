@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import type { WorkflowManifest } from "../pilot/workflow-manifest.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 import type { QaAction } from "../types.js";
 
@@ -43,7 +45,27 @@ export function pathWithinPrefix(pathname: string, prefix: string): boolean {
 }
 
 const DESTRUCTIVE_PATHNAME_RE = /delete|destroy|purge|\bremove\b/i;
-const ASSET_RESOURCE_TYPES = new Set(["stylesheet", "script", "image", "font", "media", "document", "manifest"]);
+// "document" deliberately excluded (Phase 4 continuation, 2026-09-11
+// review fix): Playwright reports resourceType "document" for every
+// navigation request, including a native <form method="post"> submission
+// -- blanket-exempting it as an "asset" meant a same-origin destructive
+// POST navigation was allowed regardless of method/endpoint, as soon as
+// (or even before) installRouteGuard's `else if` gap was fixed. True
+// static assets (stylesheet/script/image/font/media/manifest) stay
+// exempted; a document request now goes through the same origin/path/
+// method/endpoint checks as an xhr/fetch request below.
+const ASSET_RESOURCE_TYPES = new Set(["stylesheet", "script", "image", "font", "media", "manifest"]);
+
+/**
+ * Exported so installRouteGuard() (src/safety/navigation-guard.ts) can
+ * decide, before doing any work, whether a request needs the full
+ * manual redirect-chase-and-validate treatment (2026-09-14 addendum fix)
+ * or can take the cheap native route.continue() path -- single source of
+ * truth for "what counts as a static asset" shared between both files.
+ */
+export function isStaticAssetResourceType(resourceType: string): boolean {
+  return ASSET_RESOURCE_TYPES.has(resourceType);
+}
 
 function allowed(): ActionClassification {
   return { decision: "allowed" };
@@ -75,7 +97,22 @@ function denied(reason: string): ActionClassification {
  * hoped for from candidate generation.
  */
 export class ActionPolicy {
-  constructor(private readonly profile: ProjectProfile) {}
+  constructor(private readonly profile: ProjectProfile, private readonly manifest?: WorkflowManifest) {}
+
+  isDeclaredMode(): boolean { return this.profile.workflows.executionMode === "declared"; }
+
+  classifyPlannedAction(action: QaAction, pathname: string): ActionClassification {
+    if (!this.isDeclaredMode()) return this.classifyAction(action, { routePathname: pathname });
+    if (!this.pathnameInScope(pathname)) return denied("workflow route outside scope");
+    const declared = this.manifest?.workflows.some(w => this.profile.workflows.allowedWorkflowKinds.includes(w.kind ?? "navigate") && w.execution?.steps.some(s => s.pathname === pathname && isDeepStrictEqual(s.action, action)));
+    if (!declared) return denied("action is not explicitly declared for this route");
+    if (action.type === "navigate") {
+      try { const url = new URL(action.url);
+        if (!this.profile.navigation.allowedOrigins.includes(url.origin) || !this.pathnameInScope(url.pathname)) return denied("workflow destination outside scope");
+      } catch { return denied("invalid workflow destination"); }
+    }
+    return allowed();
+  }
 
   private isExempt(): boolean {
     return this.profile.target.environmentKind === "local-fixture";
@@ -97,6 +134,12 @@ export class ActionPolicy {
       return denied(`route "${context.routePathname}" is outside the profile's allowed path scope.`);
     }
 
+    if (this.isDeclaredMode()) {
+      const scoped = this.classifyPlannedAction(action, context.routePathname ?? "");
+      if (scoped.decision === "denied") return scoped;
+      // Exact configured SPA controls are permitted; the network guard still denies undeclared mutations.
+      if (!context.isSubmitControl && !context.isAmbiguousEnter) return allowed();
+    }
     if (action.type === "fill") return allowed();
 
     // Enter pressed in a field with no enclosing form -- cannot resolve
@@ -147,32 +190,26 @@ export class ActionPolicy {
       return denied("click on an unrecognized control is denied by default for this real-target profile -- only explicitly identified navigate/search/filter/sort/paginate actions are permitted.");
     }
 
+    // 2026-09-14 addendum fix: a direct "navigate" QaAction (a
+    // Planner-generated navigation candidate, distinct from a link click
+    // that resolves via context.isLink above) previously fell through to
+    // the final `return allowed()` below, skipping the exact same
+    // "navigate" workflow-kind requirement a link-click navigation already
+    // enforces -- the path-scope gate at the top of this function still
+    // applied, but nothing checked whether this profile declares
+    // navigation as an allowed workflow at all.
+    if (action.type === "navigate") {
+      if (!this.profile.workflows.allowedWorkflowKinds.includes("navigate")) {
+        return denied(`direct navigation is denied -- "navigate" is not a declared workflow kind for this profile.`);
+      }
+      return allowed();
+    }
+
     return allowed();
   }
 
-  /**
-   * Network-layer counterpart to classifyAction()'s click/Enter detection
-   * -- catches a state-changing (or destructive-looking read) XHR/fetch
-   * that never went through an observed submit-type click at all. Wired
-   * into installRouteGuard() (src/safety/navigation-guard.ts). Never
-   * blocks asset-shaped requests (stylesheet/script/image/font/media/
-   * document) regardless of origin -- required application assets are
-   * never blanket-blocked.
-   */
-  classifyResourceRequest(method: string, pathname: string, origin: string, resourceType: string): ActionClassification {
-    if (this.isExempt()) return allowed();
-    if (ASSET_RESOURCE_TYPES.has(resourceType)) return allowed();
-
-    // API-shaped request (xhr/fetch/other): origin must be explicitly in
-    // scope. Previously only the pathname was checked, so a cross-origin
-    // request whose pathname happened to match an allowlisted endpoint
-    // (e.g. https://attacker.example/login) was not denied by this
-    // method-based check at all.
-    const apiOrigins = this.profile.resources.allowedApiOrigins.length > 0 ? this.profile.resources.allowedApiOrigins : this.profile.navigation.allowedOrigins;
-    if (!apiOrigins.includes(origin)) {
-      return denied(`${method.toUpperCase()} to origin "${origin}" is not within this real-target profile's allowed API origins.`);
-    }
-
+  /** Shared by both the document and xhr/fetch branches of classifyResourceRequest() below -- the mutating-method/destructive-GET check is identical either way, only the origin scope differs. */
+  private classifyMethodAndPathname(method: string, pathname: string): ActionClassification {
     const upperMethod = method.toUpperCase();
     if (["POST", "PUT", "PATCH", "DELETE"].includes(upperMethod)) {
       const endpointAllowed = this.profile.resources.allowedFormSubmitEndpoints.some(
@@ -193,5 +230,52 @@ export class ActionPolicy {
     }
 
     return allowed();
+  }
+
+  /**
+   * Network-layer counterpart to classifyAction()'s click/Enter detection
+   * -- catches a state-changing (or destructive-looking read) XHR/fetch,
+   * OR a navigation-type request (a native <form> submit, a JS-triggered
+   * form.submit()/location assignment, a page.reload() resubmission, or
+   * any hop of a redirect chain -- installRouteGuard() now calls this for
+   * every request, not just non-navigation ones, see navigation-guard.ts)
+   * that never went through an observed submit-type click at all. Never
+   * blocks true static-asset requests (stylesheet/script/image/font/
+   * media/manifest) regardless of origin -- required application assets
+   * are never blanket-blocked. "document" is deliberately NOT in that
+   * asset set -- see ASSET_RESOURCE_TYPES's own comment for why.
+   */
+  classifyResourceRequest(method: string, pathname: string, origin: string, resourceType: string, authenticating = false): ActionClassification {
+    if (this.isExempt()) return allowed();
+    if (ASSET_RESOURCE_TYPES.has(resourceType) && ["GET", "HEAD"].includes(method.toUpperCase())) return allowed();
+    const authException = this.profile.auth.allowedRequests?.some(r => r.origin === origin && r.pathname === pathname && r.method === method.toUpperCase());
+    if (authException) return authenticating ? allowed() : denied("authentication endpoint is unavailable outside login");
+
+    if (resourceType === "document") {
+      // An ordinary page load/navigation -- governed by the profile's
+      // *navigation* scope (allowedOrigins/allowedPathPrefixes), not
+      // resources.allowedApiOrigins (a document request is not an "API
+      // call" whose origin might legitimately differ from the app's own).
+      // Previously classifyResourceRequest never checked path scope at
+      // all here -- only classifyAction() did, for click/fill actions.
+      if (!this.profile.navigation.allowedOrigins.includes(origin)) {
+        return denied(`${method.toUpperCase()} navigation to origin "${origin}" is not within this real-target profile's allowed origins.`);
+      }
+      if (!this.pathnameInScope(pathname)) {
+        return denied(`${method.toUpperCase()} navigation to "${pathname}" is outside the profile's allowed path scope.`);
+      }
+      return this.classifyMethodAndPathname(method, pathname);
+    }
+
+    // xhr/fetch/other API-shaped request: origin must be explicitly in
+    // scope. Previously only the pathname was checked, so a cross-origin
+    // request whose pathname happened to match an allowlisted endpoint
+    // (e.g. https://attacker.example/login) was not denied by this
+    // method-based check at all.
+    const apiOrigins = this.profile.resources.allowedApiOrigins.length > 0 ? this.profile.resources.allowedApiOrigins : this.profile.navigation.allowedOrigins;
+    if (!apiOrigins.includes(origin)) {
+      return denied(`${method.toUpperCase()} to origin "${origin}" is not within this real-target profile's allowed API origins.`);
+    }
+    return this.classifyMethodAndPathname(method, pathname);
   }
 }

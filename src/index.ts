@@ -4,6 +4,7 @@ import { BrowserLaunchError } from "./browser/browser.js";
 import { ConfigError, loadConfig, resolveHeadless, type AppConfig } from "./config.js";
 import { ensureDir } from "./evidence.js";
 import { createLogger } from "./logger.js";
+import { LiveModeNotAuthorizedError } from "./models/live-gate.js";
 import { generateRunId } from "./report.js";
 import { assembleReport } from "./reporting/assemble.js";
 import { isMainModule } from "./main-module-guard.js";
@@ -56,9 +57,10 @@ async function main(): Promise<void> {
       logger,
       headless,
       onProgress: (event) => console.log(event.detail),
+      requireLiveAuthorization: { argv: process.argv },
     });
   } catch (error) {
-    if (error instanceof ConfigError || error instanceof BrowserLaunchError) {
+    if (error instanceof ConfigError || error instanceof BrowserLaunchError || error instanceof LiveModeNotAuthorizedError) {
       console.error(error.message);
       logger.error({ error: error.message }, error.name);
       process.exitCode = 1;

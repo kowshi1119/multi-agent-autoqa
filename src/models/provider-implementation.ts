@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { explorerDecisionSchema } from "../actions.js";
+import type { BudgetTracker } from "../budget.js";
+import { ModelBudgetExhaustedError } from "../budget.js";
 import { EXPLORER_SYSTEM_PROMPT, formatUserMessage } from "../explorer.js";
 import type { Logger } from "../logger.js";
 import type { ExplorerDecision, ExplorerInput, TestCandidate } from "../types.js";
@@ -72,7 +74,8 @@ export class AnthropicModelProvider implements ExplorerProvider {
     apiKey: string,
     private readonly logger: Logger,
     private readonly model: string,
-    private readonly usageTracker?: UsageTracker
+    private readonly usageTracker?: UsageTracker,
+    private readonly budget?: BudgetTracker
   ) {
     // maxRetries:0 -- see src/models/explabs-client.ts's comment on the same setting.
     this.client = new Anthropic({ apiKey, maxRetries: 0 });
@@ -110,6 +113,15 @@ export class AnthropicModelProvider implements ExplorerProvider {
    * internally made.
    */
   private async complete(userMessage: string, signal?: AbortSignal): Promise<string> {
+    // §4 fix (2026-09-14 addendum): checked/reserved HERE, at the actual
+    // request boundary, not once per logical decision -- a first-attempt-
+    // then-repair decision makes 2 of these calls, and the second must be
+    // refused (never sent) once the budget is exhausted, even if the first
+    // succeeded.
+    if (this.budget && !this.budget.canCallModel()) {
+      throw new ModelBudgetExhaustedError();
+    }
+    this.budget?.recordModelCall();
     this.requestCounter += 1;
     const attemptNumber = this.requestCounter;
     const call = (): Promise<Anthropic.Message> =>
@@ -150,7 +162,13 @@ export class ExplabsModelProvider implements ExplorerProvider {
   private readonly client: ExplabsClient;
   private requestCounter = 0;
 
-  constructor(apiKey: string, private readonly logger: Logger, private readonly model: string, private readonly usageTracker?: UsageTracker) {
+  constructor(
+    apiKey: string,
+    private readonly logger: Logger,
+    private readonly model: string,
+    private readonly usageTracker?: UsageTracker,
+    private readonly budget?: BudgetTracker
+  ) {
     this.client = new ExplabsClient(apiKey, model);
     this.modelId = model;
   }
@@ -177,6 +195,10 @@ export class ExplabsModelProvider implements ExplorerProvider {
 
   /** The actual SDK request boundary (Phase 4 continuation accounting fix) -- see AnthropicModelProvider#complete for the identical rationale. */
   private async complete(system: string, user: string, signal?: AbortSignal): Promise<string> {
+    if (this.budget && !this.budget.canCallModel()) {
+      throw new ModelBudgetExhaustedError();
+    }
+    this.budget?.recordModelCall();
     this.requestCounter += 1;
     const attemptNumber = this.requestCounter;
     const call = () => this.client.complete(system, user, signal);

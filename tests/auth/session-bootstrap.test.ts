@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chromium, type Browser } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createLogger } from "../../src/logger.js";
 import { parseProfile, type ProjectProfile } from "../../src/profiles/schema.js";
 import { FormLoginBootstrap, NoAuthBootstrap, selectSessionBootstrap } from "../../src/auth/session-bootstrap.js";
@@ -51,9 +51,19 @@ const FAKE_SUCCESS_PAGE_HTML = `<!doctype html><html><body><h1>Dashboard</h1></b
 
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (req.url === "/dashboard") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      return res.end(DASHBOARD_PAGE_HTML);
+    }
+    if (req.url === "/fake-dashboard") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      return res.end(FAKE_SUCCESS_PAGE_HTML);
+    }
+    // Deliberately never responds -- lets a test hold `page.goto()` in
+    // flight indefinitely to prove Stop interrupts it mid-call rather than
+    // waiting for either a response or the navigation's own timeout.
+    if (req.url === "/login-stall") return;
     res.writeHead(200, { "Content-Type": "text/html" });
-    if (req.url === "/dashboard") return res.end(DASHBOARD_PAGE_HTML);
-    if (req.url === "/fake-dashboard") return res.end(FAKE_SUCCESS_PAGE_HTML);
     res.end(LOGIN_PAGE_HTML);
   });
   await new Promise<void>((resolve) => server.listen(0, "localhost", resolve));
@@ -185,4 +195,87 @@ describe("FormLoginBootstrap (real browser, synthetic login page)", () => {
     expect(page.url()).toContain("/dashboard");
     await context.close();
   });
+
+  it("§8a fix (2026-09-14 addendum): an already-aborted signal returns cancelled without attempting any Playwright action", async () => {
+    const profile = loginProfile();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const bootstrap = new FormLoginBootstrap();
+    const controller = new AbortController();
+    controller.abort();
+
+    const gotoSpy = vi.spyOn(page, "goto");
+    const result = await bootstrap.establish(context, page, profile, { username: VALID_USERNAME, password: VALID_PASSWORD }, createLogger(), controller.signal);
+
+    expect(result).toEqual({ status: "failed", reason: "cancelled" });
+    expect(gotoSpy).not.toHaveBeenCalled();
+    await context.close();
+  });
+
+  it("2026-09-15 cancellation-bound fix: Stop mid-sequence (not just mid-retry) halts within one step's own timeout, wall-clock measured -- the fill step never starts once the signal aborts right after goto()", async () => {
+    const profile = loginProfile();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const bootstrap = new FormLoginBootstrap();
+    const controller = new AbortController();
+
+    // Aborts as a side effect of the FIRST step (goto) actually completing --
+    // proves the check fires between steps, not just once at entry, and
+    // that no later step (fill/click/wait, each with its own up-to-15s or
+    // up-to-10s timeout) ever starts.
+    const realGoto = page.goto.bind(page);
+    const gotoSpy = vi.spyOn(page, "goto").mockImplementation(async (...args: Parameters<typeof page.goto>) => {
+      const result = await realGoto(...args);
+      controller.abort();
+      return result;
+    });
+    // Playwright constructs a fresh Locator instance per call -- there is no
+    // importable class to spy on directly. Grab a real instance's own
+    // prototype first (shared by every Locator this page creates), mirroring
+    // the same idiom tests/validator-auth.test.ts already uses for
+    // BrowserContext.
+    const locatorProto = Object.getPrototypeOf(page.locator("body")) as { fill: (...args: unknown[]) => Promise<void> };
+    const fillSpy = vi.spyOn(locatorProto, "fill");
+
+    const startedAt = Date.now();
+    const result = await bootstrap.establish(context, page, profile, { username: VALID_USERNAME, password: VALID_PASSWORD }, createLogger(), controller.signal);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(result).toEqual({ status: "failed", reason: "cancelled" });
+    expect(gotoSpy).toHaveBeenCalledTimes(1);
+    expect(fillSpy).not.toHaveBeenCalled();
+    // Well under LOGIN_NAV_TIMEOUT_MS (15s) -- if the old ~80s-summed
+    // behavior were still in effect, a subsequent step's own fresh timeout
+    // would need to elapse before this resolved.
+    expect(elapsedMs).toBeLessThan(5_000);
+
+    await context.close();
+  }, 20_000);
+
+  it("2026-09-16 cancellation fix: Stop DURING an already-in-flight step (not just between steps) interrupts it directly -- reproduces the real-Chromium probe's own scenario (Stop during a long-running Playwright call returned success ~9.9s later) for the login path specifically", async () => {
+    const profile = loginProfile((raw) => {
+      (raw.auth as Record<string, unknown>).loginUrl = `${ORIGIN}/login-stall`;
+    });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const bootstrap = new FormLoginBootstrap();
+    const controller = new AbortController();
+
+    // The server never responds to /login-stall, so this goto() is
+    // genuinely in-flight (not merely about to start) when abort() fires.
+    setTimeout(() => controller.abort(), 500);
+
+    const startedAt = Date.now();
+    const result = await bootstrap.establish(context, page, profile, { username: VALID_USERNAME, password: VALID_PASSWORD }, createLogger(), controller.signal);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(result).toEqual({ status: "failed", reason: "cancelled" });
+    // Genuinely interrupted, not bounded by LOGIN_NAV_TIMEOUT_MS (15s) --
+    // this is the property the prior "checked between steps only" fix did
+    // NOT provide: an already-in-flight goto() used to run to its own full
+    // timeout regardless of Stop.
+    expect(elapsedMs).toBeLessThan(3_000);
+
+    await context.close();
+  }, 20_000);
 });

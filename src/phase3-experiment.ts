@@ -9,6 +9,7 @@ import { replayExperiment } from "./experiments/replay.js";
 import { ensureDir } from "./evidence.js";
 import { createLogger } from "./logger.js";
 import { isMainModule } from "./main-module-guard.js";
+import { assertLiveModeAuthorized, LiveModeNotAuthorizedError } from "./models/live-gate.js";
 import { redactSecrets } from "./redact.js";
 import { generateRunId } from "./report.js";
 import { loadGroundTruth } from "./reporting/benchmark.js";
@@ -98,6 +99,18 @@ async function main(): Promise<void> {
   }
 
   // capture
+  // Checked once, up front, against the ORIGINAL config (not
+  // captureConfig, which forces critic.enabled=false only for the
+  // capture run itself) -- the post-hoc conditions loop below always
+  // exercises critic_on_* conditions too, live provider or not, so both
+  // the explorer (capture) and critic (post-hoc conditions) must be
+  // authorized here regardless of which specific step would make the
+  // request.
+  assertLiveModeAuthorized(
+    { models: { explorer: config.models.explorer, critic: { ...config.models.critic, enabled: true } } },
+    process.argv
+  );
+
   const startedAt = new Date();
   const runId = generateRunId(startedAt);
   const experimentId = `EXPERIMENT3-${runId.replace(/^RUN-/, "")}`;
