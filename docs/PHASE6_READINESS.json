@@ -1,0 +1,92 @@
+{
+  "recordedAt": "2026-09-18T12:05:41.715Z",
+  "kind": "readiness-not-live-acceptance",
+  "profileId": "ajeer",
+  "providers": {
+    "explorer": "mock",
+    "critic": "mock",
+    "criticEnabled": true
+  },
+  "authenticationChecksVerified": false,
+  "workflowCount": 0,
+  "limits": {
+    "maxActions": 25,
+    "maxModelCalls": 20,
+    "maxPages": 5,
+    "maxFindings": 5,
+    "maxDurationMs": 180000,
+    "maxCriticCalls": 5
+  },
+  "ui": {
+    "url": "http://127.0.0.1:4180/",
+    "httpStatus": 200
+  },
+  "preflight": {
+    "profileId": "ajeer",
+    "overallReady": false,
+    "checks": [
+      {
+        "id": "profile-schema",
+        "name": "Profile schema",
+        "status": "pass",
+        "detail": "Profile parsed and validated successfully."
+      },
+      {
+        "id": "browser",
+        "name": "Chromium launchable",
+        "status": "pass",
+        "detail": "Chromium launched and closed successfully."
+      },
+      {
+        "id": "scope-consistency",
+        "name": "Navigation scope consistency",
+        "status": "pass",
+        "detail": "Target and login origins are within the profile's allowed navigation scope."
+      },
+      {
+        "id": "target-reachable",
+        "name": "Target reachable",
+        "status": "pass",
+        "detail": "https://portal.sandbox.ajeer.money/ responded with HTTP 200."
+      },
+      {
+        "id": "auth-config",
+        "name": "Login configuration",
+        "status": "fail",
+        "detail": "Authenticated URL and visible signal are unverified placeholders.",
+        "nextStep": "Observe the authenticated landing URL and a specific visible page signal using the dedicated sandbox account, then update auth success checks and set checksVerified=true. Do not paste credentials into chat."
+      },
+      {
+        "id": "providers",
+        "name": "Provider configuration",
+        "status": "pass",
+        "detail": "Explorer: not-configured (Explorer provider resolved: mock.) | Critic: not-configured (Critic provider resolved: mock.)"
+      }
+    ]
+  },
+  "existingAjeerRuns": [
+    {
+      "runId": "RUN-20260916-121442769Z-0b77",
+      "status": "failed",
+      "actionsPerformed": 0,
+      "modelCalls": 0,
+      "usage": {
+        "explorerRequests": 0,
+        "criticRequests": 0
+      },
+      "coverage": {
+        "pagesDiscovered": 0,
+        "pagesVisited": 0,
+        "interactiveControlsDiscovered": 0,
+        "heuristicsApplicable": 0,
+        "heuristicsExecuted": 0,
+        "heuristicCoverage": 0
+      },
+      "authentication": null,
+      "evidenceRef": "runs/RUN-20260916-121442769Z-0b77/run-summary.json"
+    }
+  ],
+  "newAjeerRunIds": [],
+  "browserObservation": "Unavailable: CUA Windows sandbox initialization failed",
+  "liveAcceptance": "pending"
+}

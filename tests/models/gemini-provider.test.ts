@@ -251,7 +251,7 @@ describe("Gemini configuration, routing, and the existing Explorer", () => {
       config.models.explorer = { provider, model: "test-model" };
       expect(selectProvider(config, logger).name).toBe(provider);
     }
-    for (const provider of ["openai", "ollama"] as const) {
+    for (const provider of ["openai"] as const) {
       config.models.explorer = { provider, model: "test-model" };
       expect(() => selectProvider(config, logger)).toThrow("not implemented");
     }

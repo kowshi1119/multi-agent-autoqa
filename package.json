@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "provider:check": "tsx src/provider-check.ts",
+    "local-explorer:benchmark": "tsx src/experiments/local-explorer-benchmark.ts",
     "qa": "tsc && node dist/src/index.js",
     "qa:debug": "tsc && cross-env DEBUG=pw:api node dist/src/index.js",
     "benchmark": "tsc && node dist/src/benchmark.js",

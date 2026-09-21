@@ -23,3 +23,7 @@ Only unauthenticated browser discovery and a read-only preflight reachability pr
 Milestone A live authentication: **pending**. Milestone B Ajeer workflow declarations: **pending authenticated observation**. Milestone C generic execution/reporting: **implemented and verified**. Milestone D bounded sequential Ajeer pilot and repeatability: **pending**. OrangeHRM and live-provider evaluation remain deferred.
 
 See `docs/AJEER_PILOT_SETUP.md` for exact startup steps, credential handling, counters, local configuration and the remaining user action.
+
+## Phase 6 follow-up — 2026-09-18
+
+The current profile, manifest, source path and sanitized run history were rechecked. Live milestones A, B and D remain pending; no successful Ajeer login or executable workflow was added. Both providers remain mock, readiness rejects the unverified login checks, and the manifest is empty. Phase 6 adds a current readiness record and explicit resumption/evidence requirements; see [PHASE6_ACCEPTANCE.md](PHASE6_ACCEPTANCE.md). Its offline verification result is separate from the historical Phase 5 result above.

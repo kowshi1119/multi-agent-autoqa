@@ -16,6 +16,7 @@ import { resolveProviderCredential } from "./models/provider-credentials.js";
 import { assertLiveModeAuthorized } from "./models/live-gate.js";
 import { AnthropicModelProvider, ExplabsModelProvider, MockModelProvider } from "./models/provider-implementation.js";
 import { GeminiModelProvider } from "./models/gemini-provider.js";
+import { OllamaModelProvider } from "./models/ollama-provider.js";
 import type { ExplorerProvider } from "./models/provider.js";
 import { buildOracleRegistry } from "./oracles.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
@@ -29,7 +30,7 @@ import { ActionPolicy } from "./safety/action-policy.js";
 import type { RequirementRule, SafetyEvent } from "./types.js";
 import { startFixtureServer, type FixtureServer } from "../fixture/server.js";
 
-const UNIMPLEMENTED_PROVIDERS = new Set(["openai", "ollama"]);
+const UNIMPLEMENTED_PROVIDERS = new Set(["openai"]);
 
 /**
  * Shared by both `qa` and `benchmark` entry points so the pipeline exists
@@ -58,8 +59,20 @@ export function selectProvider(config: AppConfig, logger: Logger, usageTracker?:
 
   if (UNIMPLEMENTED_PROVIDERS.has(config.models.explorer.provider)) {
     throw new ConfigError(
-      `AutoQA configuration error\n\nmodels.explorer.provider "${config.models.explorer.provider}" is not implemented in this build; supported: mock, anthropic, explabs, gemini — see README Known Limitations.`
+      `AutoQA configuration error\n\nmodels.explorer.provider "${config.models.explorer.provider}" is not implemented in this build; supported: mock, anthropic, explabs, gemini, ollama — see README Known Limitations.`
     );
+  }
+
+  if (config.models.explorer.provider === "ollama") {
+    // No API key: resolveProviderCredential() deliberately has no "ollama"
+    // branch (see provider-credentials.ts). Base URL is local-adapter
+    // configuration, not a secret, so it's read directly here rather than
+    // forced through that (provider, role) -> secret shape.
+    const baseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
+    const model = config.models.explorer.model as string; // schema requires this for a non-mock/auto provider
+    const provider = new OllamaModelProvider(baseUrl, model, logger, usageTracker, budget, config.models.providerTimeoutMs);
+    logger.info({ provider: "ollama", model, baseUrl }, "Using OllamaModelProvider");
+    return provider;
   }
 
   if (wantsAnthropic) {

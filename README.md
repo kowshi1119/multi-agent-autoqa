@@ -2,7 +2,18 @@
 
 ## Optional Gemini Explorer
 
-Gemini can now select existing approved test candidates through the same Explorer and ModelRouter interfaces. Configure `GEMINI_API_KEY` and an explicit model; defaults remain unchanged. This integration uses text/DOM observations, with no screenshot uploads or Gemini Critic. OpenAI/Ollama adapters remain unimplemented. See [Gemini setup, review, and verification](docs/GEMINI_PROVIDER.md) and the optional `qa.config.gemini.yaml` local-fixture example.
+Gemini can now select existing approved test candidates through the same Explorer and ModelRouter interfaces. Configure `GEMINI_API_KEY` and an explicit model; defaults remain unchanged. This integration uses text/DOM observations, with no screenshot uploads or Gemini Critic. OpenAI adapter remains unimplemented. See [Gemini setup, review, and verification](docs/GEMINI_PROVIDER.md) and the optional `qa.config.gemini.yaml` local-fixture example.
+
+## Optional Local Explorer (Ollama, zero API cost)
+
+`models.explorer.provider: "ollama"` selects `OllamaModelProvider` (`src/models/ollama-provider.ts`), a text/DOM Explorer adapter for a **local** Ollama server — no API key, no billing, no network egress beyond `127.0.0.1`/`localhost`/`::1`. It refuses any non-loopback `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`) or redirect at construction/request time, and requires `models.explorer.model` (e.g. `OLLAMA_MODEL=qwen2.5:0.5b-instruct`) exactly like every other non-mock provider. See [docs/LOCAL_EXPLORER_RESEARCH.md](docs/LOCAL_EXPLORER_RESEARCH.md) for the research/decision record and the optional `qa.config.ollama.yaml` example.
+
+**Status on this machine: implemented and offline-tested (`tests/models/ollama-provider.test.ts`, 24 tests, zero network/server required), but Ollama itself is not installed and no model has been downloaded** — the user's disk space was tight, and installing/downloading always requires separate, explicit approval before this adapter can be exercised for real. Two opt-in, explicitly-triggered commands become usable once the user installs Ollama and pulls a model themselves:
+
+- `npm run provider:check -- --config qa.config.ollama.yaml --live` — one bounded real decision against a synthetic local observation (reachability + model-presence checks first; installs/downloads nothing).
+- `npm run local-explorer:benchmark` (with `OLLAMA_MODEL` set) — a small decision-quality evaluation (schema validity, offered-candidate compliance, appropriate stopping, prompt-injection resistance) comparing Mock vs. Ollama on frozen synthetic cases. This is **not** a defect-detection precision/recall measurement; it always runs against Mock even when Ollama is unavailable, and reports the Ollama arm's status honestly (e.g. `"skipped: OLLAMA_MODEL not set"`) rather than omitting it.
+
+An Ollama Critic and the full end-to-end fixture-pipeline benchmark (comparing raw AutoQA runs, not just isolated decisions) were left out of this pass — see `docs/LOCAL_EXPLORER_RESEARCH.md`'s "Not done" section.
 
 
 ## What it is
@@ -881,12 +892,14 @@ Copy `.env.example` to `.env`. `models.explorer.provider` and
 independently (a `ModelRouter` composes the two — see Phase 2 above):
 `"auto"` (explorer only) uses `AnthropicModelProvider` if
 `ANTHROPIC_API_KEY` is set, else falls back to `MockModelProvider`;
-`"mock"`/`"anthropic"`/`"explabs"` force a specific provider per role.
-`"openai"`/`"ollama"` are interface-ready (`CriticProvider`/
-`ExplorerProvider` conformance only needs a class, not a rewrite) but
-**not implemented** in this build — selecting either throws a clear,
-actionable `ConfigError` rather than silently falling back to mock.
-`models.<role>.model` is required for any non-mock, non-auto provider.
+`"mock"`/`"anthropic"`/`"explabs"`/`"gemini"`/`"ollama"` (explorer only;
+zero-cost local, see above) force a specific provider per role.
+`"openai"` remains interface-ready (`CriticProvider`/`ExplorerProvider`
+conformance only needs a class, not a rewrite) but **not implemented** in
+this build — selecting it throws a clear, actionable `ConfigError` rather
+than silently falling back to mock. `models.<role>.model` is required for
+any non-mock, non-auto provider (for Ollama this is the local model name,
+not a credential — no API key is read or required).
 
 `npm run provider:check` (optionally `-- --live` to attempt one real
 completion) prints each configured role's provider/model/credential
@@ -1082,6 +1095,14 @@ No paid model calls anywhere. 397/397 passing at last verification
   `AnthropicModelProvider` is implemented and wired through
   `models.provider: "anthropic"` but has not been exercised against the
   live API.
+- **`OllamaModelProvider` is implemented and offline-tested but never
+  exercised against a real local model** — Ollama is not installed and no
+  model has been downloaded on this machine (explicit user disk-space
+  constraint; see `docs/LOCAL_EXPLORER_RESEARCH.md`). The adapter, its
+  loopback-only URL guard, and its wiring through `selectProvider`/
+  `ModelRouter` are covered by `tests/models/ollama-provider.test.ts`
+  (24 tests, fake HTTP server, zero real network). A real local-model
+  smoke result is pending the user's own install/pull step.
 - **A `--live` CLI flag is required (2026-09-11 continuation) whenever the
   resolved explorer or critic provider is not `mock`** — `npm run qa`,
   `npm run benchmark`, and `npm run experiment:phase3` (both capture and
@@ -1221,3 +1242,7 @@ human-review scaffolding) is complete — see the Phase 3 section above and
 Profiles can opt into `workflows.executionMode: "declared"`. Executable workflow manifests supply exact scoped actions and deterministic URL/visible-signal completion assertions through the existing AutoQA pipeline. The local UI supports authentication-only runs, selected workflow IDs, evidence-backed outcomes and annotations; `pilot-summary.latest.json` reflects later coverage/triage without rewriting original evidence. Authentication request exceptions are scoped to bootstrap. Declared runs include authentication and validation in their action accounting.
 
 Ajeer live acceptance remains pending: authenticated URL/signal checks and 3–5 read-only workflows have not been observed with transient credentials. Its private profile explicitly fails readiness until those checks are verified; its private manifest is empty. Read the [Phase 5 acceptance record](PHASE5_ACCEPTANCE.md), [Ajeer pilot report](AJEER_PILOT_REPORT.md), and [verified setup/user guide](docs/AJEER_PILOT_SETUP.md). The UI command remains `npm run ui`; choose Demo/mock. `qa` uses `--config`, not `--profile`. OrangeHRM and paid-provider evaluation remain deferred.
+
+## Phase 6 — authenticated Ajeer acceptance
+
+Live acceptance remains pending authenticated observation and transient credential entry in the local UI. The existing Phase 5 execution path is reused; no paid provider call is authorized by the configured Gemini key. See [Phase 6 acceptance](PHASE6_ACCEPTANCE.md) for the current evidence, exact next action, sequential run requirements and a separate unexecuted Gemini proposal. The current [readiness record](docs/PHASE6_READINESS.json) verifies mock providers and UI/target reachability, not successful login.

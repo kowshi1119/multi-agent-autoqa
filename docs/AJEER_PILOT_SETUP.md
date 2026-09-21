@@ -1,6 +1,12 @@
-# Ajeer sandbox pilot setup — Phase 5
+# Ajeer sandbox pilot setup — Phases 5–6
 
 Status: **independent implementation verified (598 tests / 70 files); Ajeer live acceptance pending**. OrangeHRM remains deferred. Paid/live-provider evaluation is separate.
+
+## Phase 6 checkpoint — 2026-09-18
+
+The local UI address was checked again: http://127.0.0.1:4180/ responds HTTP 200. Both configured providers resolve to mock. Ajeer reachability passes, but readiness still fails for the unverified authenticated URL/signal. No live run was started and no workflow declaration was guessed. See [Phase 6 readiness](PHASE6_READINESS.json) and [acceptance record](../PHASE6_ACCEPTANCE.md).
+
+The immediate action is a user-controlled sign-in to the Ajeer website, followed by sharing **only the final URL and an exact visible heading or navigation label**. Those are configuration observations, not account credentials. Browser inspection currently cannot initialize in this environment. Once the checks are configured from observation, enter credentials only in the local AutoQA panel for the authentication-only run. A sign-in performed manually for discovery does not count as AutoQA authentication acceptance.
 
 ## Authorized boundary
 

@@ -1,0 +1,82 @@
+# Optional local-fixture smoke configuration. Requires explicit --live to run,
+# AND a locally running Ollama server (http://127.0.0.1:11434 by default,
+# override with OLLAMA_BASE_URL) with OLLAMA_MODEL already pulled.
+# This adapter refuses any non-loopback endpoint -- see src/models/ollama-provider.ts.
+# Mock Critic is plumbing validation only, not independent LLM verification.
+# Zero API cost: no credential is required or read for this provider.
+project:
+  name: AutoQA Demo (local Ollama, zero API cost)
+target:
+  url: http://localhost:4173/
+  environment: local-fixture
+browser:
+  engine: chromium
+  headless: true
+  viewport:
+    width: 1440
+    height: 900
+agent:
+  maxActions: 5
+  maxModelCalls: 3
+  maxPages: 3
+  maxFindings: 3
+  maxDurationMs: 60000
+  maxCriticCalls: 3
+heuristics:
+  longTextBoundaryChars: 500
+  safeControlClick:
+    enabled: true
+    allowedControls: []
+validation:
+  attempts: 3
+  minimumSuccesses: 2
+oracles:
+  uiApiConsistency:
+    enabled: true
+    rules:
+      - id: payment-consistency
+        request:
+          method: POST
+          pathname: /api/payment-consistency
+        failureStatusMin: 500
+        forbiddenVisibleText: Payment successful
+  console:
+    enabled: true
+    ignorePatterns:
+      - "Failed to load resource:"
+  pageError:
+    enabled: true
+  httpFailure:
+    enabled: true
+  duplicateRequest:
+    enabled: true
+    patterns:
+      - method: POST
+        pathname: /api/submit
+        expectedMax: 1
+evidence:
+  screenshots: true
+  trace: true
+  console: true
+  network: true
+models:
+  explorer:
+    provider: ollama
+    # A small instruct model, e.g. qwen2.5:0.5b-instruct -- not installed by
+    # this config; the user pulls it themselves via `ollama pull <name>`.
+    model: qwen2.5:0.5b-instruct
+  critic:
+    enabled: true
+    provider: mock
+    requireIndependentProvider: false
+    maxCallsPerFinding: 1
+  providerTimeoutMs: 30000
+requirements:
+  enabled: true
+  path: fixture/requirements.json
+grouping:
+  enabled: true
+safety:
+  safeMode: true
+  allowedOrigins:
+    - http://localhost:4173

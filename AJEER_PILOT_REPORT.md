@@ -1,6 +1,14 @@
-# Ajeer pilot report — Phase 5
+# Ajeer pilot report — Phases 5–6
 
 **Ajeer live acceptance: pending.** This report separates offline implementation verification, read-only browser discovery, and AutoQA execution evidence. It makes no live-model performance claim.
+
+## Phase 6 continuation — 2026-09-18
+
+A fresh source/configuration audit and read-only preflight confirm that the existing runner is usable, but authenticated acceptance remains pending. Both providers were explicitly verified as mock before the probe; the target and local UI responded HTTP 200. Readiness correctly fails because the authenticated URL/signal are still unverified. The private manifest remains empty. Browser-session inspection failed to initialize because of a Windows sandbox error; no authenticated observation was obtained from the user.
+
+**New Ajeer AutoQA run IDs: none. Workflow outcomes: none. Repeatability: not demonstrated.** The only historical Ajeer run remains the failed run below. No production source/configuration changes, additional login attempts or live provider calls were justified. One offline preflight test was corrected after a startup-time assertion failed; it now directly verifies that no network probe occurs. Private profile and manifest values are retained until observation supports an update. Existing standalone browser reports are not AutoQA acceptance evidence.
+
+Current sanitized setup evidence: [PHASE6_READINESS.json](docs/PHASE6_READINESS.json). Acceptance matrix, verification, resumption steps and separate unexecuted Gemini proposal: [PHASE6_ACCEPTANCE.md](PHASE6_ACCEPTANCE.md). Phase 5 implementation verification below remains historical; the Phase 6 record identifies checks rerun now.
 
 ## What AutoQA actually executed on Ajeer
 

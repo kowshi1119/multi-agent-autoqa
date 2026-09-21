@@ -12,5 +12,6 @@ profiles/*.json
 !.env.example
 *.log
 .DS_Store
+local-explorer-benchmark-latest.json
 playwright-report/
 test-results/

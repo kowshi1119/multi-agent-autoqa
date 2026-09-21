@@ -84,14 +84,18 @@ describe("runPreflight", () => {
       (raw["navigation"] as Record<string, unknown>)["allowedOrigins"] = ["http://localhost:1"];
     });
     const config = profileToAppConfig(closedPortFixtureProfile);
-    const started = Date.now();
-    const report = await runPreflight(closedPortFixtureProfile, config, createLogger());
-    const elapsedMs = Date.now() - started;
-    const targetCheck = report.checks.find((c) => c.id === "target-reachable");
-    expect(targetCheck?.status).toBe("managed");
-    expect(report.overallReady).toBe(true);
-    // Never even attempted a network probe -- effectively instant.
-    expect(elapsedMs).toBeLessThan(1_000);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const report = await runPreflight(closedPortFixtureProfile, config, createLogger());
+      const targetCheck = report.checks.find((c) => c.id === "target-reachable");
+      expect(targetCheck?.status).toBe("managed");
+      expect(report.overallReady).toBe(true);
+      // Check the actual no-probe contract. The whole preflight also launches
+      // Chromium, so its elapsed time cannot prove that no request occurred.
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("fails the target-reachable check for a real-target profile pointed at an unreachable port, with a bounded timeout", async () => {
