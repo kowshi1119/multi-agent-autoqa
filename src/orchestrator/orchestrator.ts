@@ -262,10 +262,24 @@ export class Orchestrator {
         // this fix introduced.
         if (error.reason === "cancelled") {
           this.deps.logger.info({}, "CANCELLED: stop requested during login");
-          return this.transition(ctx, this.deps.abortSignal?.aborted ? "CANCELLED" : "FAILED", { stopReason: this.deps.abortSignal?.aborted ? "CANCELLED: stop requested during login" : "BUDGET_EXHAUSTED: maxDurationMs during login" });
+          ctx = this.transition(ctx, this.deps.abortSignal?.aborted ? "CANCELLED" : "FAILED", { stopReason: this.deps.abortSignal?.aborted ? "CANCELLED: stop requested during login" : "BUDGET_EXHAUSTED: maxDurationMs during login" });
+          // §Cancellation event-loss fix (2026-09-21): every early return out
+          // of initialize() used to skip this.progress() entirely -- run()'s
+          // while loop (below) is the only other place that emits a terminal
+          // event, but its condition is already false once initialize()
+          // itself returns a terminal ctx, so that loop body never runs. A
+          // Stop landing during login (or a genuine login failure) left
+          // run-summary.json correct but subscribers never saw a terminal
+          // phase -- the UI just froze on the last "checking-setup"/
+          // "signing-in" line. Mirrors the established post-transition
+          // progress() pattern used by run()'s own cancellation branch.
+          this.progress(ctx, ctx.state === "CANCELLED" ? "Stopping: cancelled by user" : `Failed: ${ctx.stopReason}`);
+          return ctx;
         }
         this.deps.logger.error({ reason: error.reason }, "AUTH_FAILED");
-        return this.transition(ctx, "FAILED", { stopReason: error.message });
+        ctx = this.transition(ctx, "FAILED", { stopReason: error.message });
+        this.progress(ctx, `Failed: ${error.message}`);
+        return ctx;
       }
       throw error;
     }
@@ -280,7 +294,11 @@ export class Orchestrator {
       this.authStorageState = await this.session.context.storageState();
     }
 
-    if (this.deps.actionPolicy?.isDeclaredMode() && !this.deps.budget.canAct()) return this.transition(ctx, "FAILED", { stopReason: "BUDGET_EXHAUSTED: no action budget remains after authentication" });
+    if (this.deps.actionPolicy?.isDeclaredMode() && !this.deps.budget.canAct()) {
+      ctx = this.transition(ctx, "FAILED", { stopReason: "BUDGET_EXHAUSTED: no action budget remains after authentication" });
+      this.progress(ctx, `Failed: ${ctx.stopReason}`);
+      return ctx;
+    }
     try {
       if (this.deps.actionPolicy?.isDeclaredMode()) this.deps.budget.recordAttempt("setup");
       await this.session.page.goto(this.deps.config.target.url, {
@@ -291,11 +309,16 @@ export class Orchestrator {
     } catch (error) {
       if (this.deps.actionPolicy?.isDeclaredMode()) this.deps.budget.recordOutcome("failed");
       if (isCancellationError(error)) {
-        return this.transition(ctx, this.deps.abortSignal?.aborted ? "CANCELLED" : "FAILED", { stopReason: this.deps.abortSignal?.aborted ? "CANCELLED: stop requested during initial navigation" : "BUDGET_EXHAUSTED: maxDurationMs during initial navigation" });
+        ctx = this.transition(ctx, this.deps.abortSignal?.aborted ? "CANCELLED" : "FAILED", { stopReason: this.deps.abortSignal?.aborted ? "CANCELLED: stop requested during initial navigation" : "BUDGET_EXHAUSTED: maxDurationMs during initial navigation" });
+        // See the identical fix/comment on the login-cancellation branch above.
+        this.progress(ctx, ctx.state === "CANCELLED" ? "Stopping: cancelled by user" : `Failed: ${ctx.stopReason}`);
+        return ctx;
       }
       const message = error instanceof Error ? error.message : String(error);
       this.deps.logger.error({ error: message, url: this.deps.config.target.url }, "TARGET_ERROR");
-      return this.transition(ctx, "FAILED", { stopReason: `TARGET_ERROR: ${message}` });
+      ctx = this.transition(ctx, "FAILED", { stopReason: `TARGET_ERROR: ${message}` });
+      this.progress(ctx, `Failed: TARGET_ERROR: ${message}`);
+      return ctx;
     }
     return this.transition(ctx, "MAP");
   }

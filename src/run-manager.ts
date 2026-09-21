@@ -51,6 +51,22 @@ export class PreflightFailedError extends Error {
   }
 }
 
+/**
+ * A typed, actionable version of the plain Error this used to throw (2026-
+ * 09-21 fix): a declared-mode profile with no workflows selected/available
+ * fell through to routes/runs.ts's generic 500 handler, and "Check setup"
+ * never surfaced this ahead of time either (runPreflight() had no
+ * workflow-related check at all) -- so a user could see overallReady:true
+ * and still hit an unguided dead-end at Start. Mirrors PreflightFailedError's
+ * pattern so the route layer can map it to a clear 400 instead.
+ */
+export class NoWorkflowsConfiguredError extends Error {
+  constructor() {
+    super("No observed workflows configured. Run authentication-only acceptance first, then declare workflows before starting an exploration run.");
+    this.name = "NoWorkflowsConfiguredError";
+  }
+}
+
 export type RunMode = "demo" | "live";
 
 export type StartRunInput = {
@@ -160,7 +176,7 @@ export class RunManager {
         workflowManifest = workflowManifest ? { ...workflowManifest, workflows: workflowManifest.workflows.filter(w => input.workflowIds!.includes(w.id)) } : undefined;
       }
       if (input.authenticationOnly) workflowManifest = workflowManifest ? { ...workflowManifest, workflows: [] } : undefined;
-      if (profile.workflows.executionMode === "declared" && !input.authenticationOnly && !workflowManifest?.workflows.length) throw new Error("No observed workflows configured. Run authentication-only acceptance first.");
+      if (profile.workflows.executionMode === "declared" && !input.authenticationOnly && !workflowManifest?.workflows.length) throw new NoWorkflowsConfiguredError();
       const config = profileToAppConfig(profile);
       if (input.mode === "demo") {
         // Demo mode is a hard safety property, not just a UI label: force
@@ -174,7 +190,7 @@ export class RunManager {
       // button (Phase 4 continuation fix) -- checked against the EFFECTIVE
       // selected mode, so Demo mode (mock providers forced above) never
       // needs live credentials to pass. "managed"/"skipped" never block.
-      const preflight = await runPreflight(profile, config, createLogger());
+      const preflight = await runPreflight(profile, config, createLogger(), workflowManifest);
       const failedChecks = preflight.checks.filter((c) => c.status === "fail");
       if (failedChecks.length > 0) {
         throw new PreflightFailedError(failedChecks);

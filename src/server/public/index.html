@@ -7,7 +7,18 @@
 <style>
   :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fafafa; --border: #d0d0d0; --accent: #2563eb; --danger: #b91c1c; --ok: #15803d; --muted: #6b7280; }
   @media (prefers-color-scheme: dark) { :root { --fg: #e5e5e5; --bg: #17181a; --border: #3a3a3a; --accent: #60a5fa; --muted: #9aa0a6; } }
-  body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 900px; }
+  /* 2026-09-21 fix: this container had no horizontal centering and zero
+     responsive breakpoints -- on a real (non-embedded-pane) monitor, e.g.
+     1920x1080, the whole form hugged the left edge inside its 900px column,
+     leaving ~80% of the screen blank and making every control look "very
+     small" relative to the window. Confirmed live, not a browser-zoom
+     artifact (viewport meta tag and font sizes were already correct). */
+  body { margin: 0 auto; padding: 24px; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 900px; }
+  @media (max-width: 640px) {
+    body { padding: 16px; }
+    .counters { grid-template-columns: repeat(auto-fit, minmax(110px,1fr)); }
+    select, input[type=text], input[type=password] { max-width: 100%; }
+  }
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.05rem; margin-top: 2em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
   section { margin-bottom: 1.5em; }
@@ -59,6 +70,10 @@
     <button id="edit-profile-btn">Edit profile</button>
   </div>
   <div id="preflight-results" style="margin-top:0.6em;"></div>
+</section>
+
+<section id="setup-status-section">
+  <div class="status-line" id="setup-status-line"></div>
 </section>
 
 <section id="profile-editor-section" hidden>
@@ -148,7 +163,11 @@
     return fetch(path, Object.assign({}, opts, { headers: headers }))
       .then(function (res) {
         return res.json().then(function (data) {
-          if (!res.ok) throw new Error(data && data.error ? data.error : ("HTTP " + res.status));
+          if (!res.ok) {
+            var err = new Error(data && data.error ? data.error : ("HTTP " + res.status));
+            err.data = data; // preserves e.g. {code, failedChecks} so a caller can react, not just display text
+            throw err;
+          }
           return data;
         });
       });
@@ -170,6 +189,7 @@
         select.appendChild(opt);
       });
       updateAuthVisibility();
+      runCheckSetup();
     });
   }
 
@@ -283,13 +303,39 @@
       });
   });
 
-  el("check-setup-btn").addEventListener("click", function () {
+  // 2026-09-21 fix: this used to only run when the user clicked "Check
+  // setup" -- if they skipped it (nothing forced them to click it), Start
+  // was the FIRST place any of this ever surfaced, as a raw error string.
+  // Now also runs automatically whenever the selected profile changes, and
+  // drives a plain-language "next action" line so the guidance is visible
+  // before Start is ever clicked. This is informational only -- the Start
+  // button itself is never disabled by it; the server remains the
+  // authoritative check (see run-manager.ts's own runPreflight() call).
+  function summarizeSetupStatus(report) {
+    var byId = {};
+    report.checks.forEach(function (c) { byId[c.id] = c; });
+    var reachable = byId["target-reachable"];
+    var authConfig = byId["auth-config"];
+    var workflows = byId["workflows-configured"];
+
+    if (reachable && reachable.status === "fail") return "Application is not reachable yet -- " + reachable.detail;
+    if (authConfig && authConfig.status === "fail") return "Login is configured but not yet verified -- " + authConfig.detail + " Use \"Authentication only\" once this is fixed to test it.";
+    if (workflows && workflows.status === "skipped" && workflows.detail.indexOf("No workflows") === 0) {
+      return "No workflows declared yet -- run \"Authentication only\" first, then declare workflows before a normal Start.";
+    }
+    if (workflows && workflows.status === "pass") return "Setup looks ready: " + workflows.detail + " Demo mode needs no API key or local model.";
+    return report.overallReady ? "Setup looks ready. Demo mode needs no API key or local model." : "Setup is not ready -- see the checks above.";
+  }
+
+  function runCheckSetup() {
     var profile = currentProfile();
     if (!profile) return;
     var container = el("preflight-results");
+    var statusLine = el("setup-status-line");
     container.innerHTML = "";
     setText(container, "Checking...");
-    api("/api/preflight?profileId=" + encodeURIComponent(profile.id)).then(function (report) {
+    setText(statusLine, "");
+    return api("/api/preflight?profileId=" + encodeURIComponent(profile.id)).then(function (report) {
       container.innerHTML = "";
       report.checks.forEach(function (check) {
         var row = document.createElement("div");
@@ -316,11 +362,15 @@
       overall.className = "status-line";
       setText(overall, "Overall: " + (report.overallReady ? "READY" : "NOT READY"));
       container.appendChild(overall);
+      statusLine.className = "status-line" + (report.overallReady ? "" : " error-text");
+      setText(statusLine, summarizeSetupStatus(report));
     }).catch(function (err) {
       setText(container, "Setup check failed: " + err.message);
       container.className = "error-text";
     });
-  });
+  }
+  el("check-setup-btn").addEventListener("click", runCheckSetup);
+  el("profile-select").addEventListener("change", runCheckSetup);
 
   function updateLiveNotice() {
     var profile = currentProfile();
@@ -391,7 +441,16 @@
       setText(el("status-line"), "Starting...");
       subscribeToRun(data.runId);
     }).catch(function (err) {
-      setText(el("status-line"), "Could not start: " + err.message);
+      var suffix = "";
+      // Guides to the actual next valid action, not just a raw error string
+      // (2026-09-21 fix) -- checking the box means the identical Start click
+      // now succeeds, rather than leaving the user to re-derive that from
+      // the message text alone.
+      if (err.data && err.data.code === "NO_WORKFLOWS_CONFIGURED" && !el("auth-only").checked) {
+        el("auth-only").checked = true;
+        suffix = " \"Authentication only\" has been checked for you -- click Start again to test login.";
+      }
+      setText(el("status-line"), "Could not start: " + err.message + suffix);
       el("status-line").className = "status-line error-text";
       el("start-btn").disabled = false;
     });

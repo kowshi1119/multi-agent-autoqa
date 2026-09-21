@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import type { AppConfig, ConfigError } from "../config.js";
 import { selectCriticProvider, selectProvider } from "../run-pipeline.js";
 import type { Logger } from "../logger.js";
+import type { WorkflowManifest } from "../pilot/workflow-manifest.js";
 import type { ProjectProfile } from "./../profiles/schema.js";
 import { pathWithinPrefix } from "../safety/action-policy.js";
 
@@ -199,17 +200,33 @@ function checkAuthConfiguration(profile: ProjectProfile): PreflightCheck {
  * "configured-but-unverified", not upgraded to "verified" without an
  * actual request having happened.
  */
+/**
+ * 2026-09-21 wording fix: the raw ProviderState label "not-configured" for
+ * a deliberately-selected mock provider read as if something were broken
+ * or missing -- mock needs no credential by design, and every case this
+ * function reaches "not-configured" for IS mock (a real provider missing
+ * its credential throws ConfigError and lands in the "unavailable" catch
+ * branch instead, never here). Detail text now says so explicitly; the
+ * ProviderState enum value itself is left unchanged since other callers
+ * may depend on its exact string.
+ */
+function describeResolvedProvider(name: string, role: "Explorer" | "Critic"): string {
+  return name === "mock"
+    ? `${role}: mock (deterministic, no API key or local model needed)`
+    : `${role}: ${name} (configured; not verified by an actual request)`;
+}
+
 function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
   let explorerState: ProviderState;
   let explorerDetail: string;
   try {
     const provider = selectProvider(config, logger);
     explorerState = provider.name === "mock" ? "not-configured" : "configured-but-unverified";
-    explorerDetail = `Explorer provider resolved: ${provider.name}.`;
+    explorerDetail = describeResolvedProvider(provider.name, "Explorer");
   } catch (error) {
     const configError = error as ConfigError;
     explorerState = "unavailable";
-    explorerDetail = configError.message;
+    explorerDetail = `Explorer: ${configError.message}`;
   }
 
   let criticState: ProviderState;
@@ -218,15 +235,15 @@ function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
     const provider = selectCriticProvider(config, logger);
     if (!provider) {
       criticState = "not-configured";
-      criticDetail = "Critic disabled by config (models.critic.enabled=false).";
+      criticDetail = "Critic: disabled by config (models.critic.enabled=false)";
     } else {
       criticState = provider.name === "mock" ? "not-configured" : "configured-but-unverified";
-      criticDetail = `Critic provider resolved: ${provider.name}.`;
+      criticDetail = describeResolvedProvider(provider.name, "Critic");
     }
   } catch (error) {
     const configError = error as ConfigError;
     criticState = "unavailable";
-    criticDetail = configError.message;
+    criticDetail = `Critic: ${configError.message}`;
   }
 
   const failed = explorerState === "unavailable" || criticState === "unavailable";
@@ -234,9 +251,35 @@ function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
     id: "providers",
     name: "Provider configuration",
     status: failed ? "fail" : "pass",
-    detail: `Explorer: ${explorerState} (${explorerDetail}) | Critic: ${criticState} (${criticDetail})`,
+    detail: `${explorerDetail} | ${criticDetail}`,
     ...(failed ? { nextStep: "Set the required API key environment variable, or switch the profile's provider to \"mock\"." } : {}),
   };
+}
+
+/**
+ * Informational only, never blocks overallReady (2026-09-21 fix): a
+ * declared-mode profile with no workflows is a completely valid state for
+ * an authentication-only acceptance run, so this must not fail readiness --
+ * it exists so "Check setup" can tell the user ahead of time exactly what
+ * Start will do, instead of the prior gap where runPreflight() said nothing
+ * about workflows at all and the "No observed workflows configured" error
+ * only ever surfaced as an unguided failure at Start time.
+ */
+function checkWorkflowsConfigured(profile: ProjectProfile, workflowManifest: WorkflowManifest | undefined): PreflightCheck {
+  if (profile.workflows.executionMode !== "declared") {
+    return { id: "workflows-configured", name: "Declared workflows", status: "skipped", detail: `Not applicable: this profile uses heuristic exploration${profile.workflows.executionMode ? ` (executionMode: "${profile.workflows.executionMode}")` : ""}, not declared workflows.` };
+  }
+  const count = workflowManifest?.workflows.length ?? 0;
+  if (count === 0) {
+    return {
+      id: "workflows-configured",
+      name: "Declared workflows",
+      status: "skipped",
+      detail: "No workflows are declared yet. An authentication-only run is still available; a normal exploration Start will be refused until workflows are declared.",
+      nextStep: "Run \"Authentication only\" first, observe the authenticated app, then declare workflows in the profile's workflow manifest before starting a normal exploration run.",
+    };
+  }
+  return { id: "workflows-configured", name: "Declared workflows", status: "pass", detail: `${count} workflow${count === 1 ? "" : "s"} declared and ready to run.` };
 }
 
 /**
@@ -244,7 +287,7 @@ function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
  * run, never makes a paid model call, never probes anything beyond the
  * one URL the profile itself configures.
  */
-export async function runPreflight(profile: ProjectProfile, config: AppConfig, logger: Logger): Promise<PreflightReport> {
+export async function runPreflight(profile: ProjectProfile, config: AppConfig, logger: Logger, workflowManifest?: WorkflowManifest): Promise<PreflightReport> {
   // Scope consistency now runs BEFORE the live reachability probe (2026-09-11
   // independent-review fix) -- checkTargetReachable() reads its result and
   // skips issuing any request at all when the target's own origin isn't
@@ -256,6 +299,7 @@ export async function runPreflight(profile: ProjectProfile, config: AppConfig, l
     scopeConsistency,
     await checkTargetReachable(profile, scopeConsistency.status !== "fail"),
     checkAuthConfiguration(profile),
+    checkWorkflowsConfigured(profile, workflowManifest),
     checkProviders(config, logger),
   ];
 

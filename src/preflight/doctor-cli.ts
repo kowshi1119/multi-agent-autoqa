@@ -2,6 +2,7 @@ import "dotenv/config";
 import { resolve } from "node:path";
 import { createLogger } from "../logger.js";
 import { isMainModule } from "../main-module-guard.js";
+import { loadWorkflowManifest } from "../pilot/workflow-manifest.js";
 import { ProfileError } from "../profiles/schema.js";
 import { ProfileStore } from "../profiles/store.js";
 import { profileToAppConfig } from "../profiles/to-app-config.js";
@@ -37,7 +38,8 @@ async function main(): Promise<void> {
   try {
     const profile = store.load(profileId);
     const config = profileToAppConfig(profile);
-    report = await runPreflight(profile, config, logger);
+    const workflowManifest = loadWorkflowManifest(store.getDir(), profile.id);
+    report = await runPreflight(profile, config, logger, workflowManifest);
   } catch (error) {
     if (error instanceof ProfileError) {
       report = schemaFailureReport(profileId, error.message);

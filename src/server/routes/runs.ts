@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { ProfileError } from "../../profiles/schema.js";
-import { LiveModeNotConfirmedError, PreflightFailedError, RunAlreadyActiveError, type RunManager } from "../../run-manager.js";
+import { LiveModeNotConfirmedError, NoWorkflowsConfiguredError, PreflightFailedError, RunAlreadyActiveError, type RunManager } from "../../run-manager.js";
 import { readJsonBody, sendJson } from "../http-helpers.js";
 
 const limitsSchema = z.object({
@@ -51,6 +51,10 @@ export async function handleStartRun(req: IncomingMessage, res: ServerResponse, 
     }
     if (error instanceof PreflightFailedError) {
       sendJson(res, 400, { error: error.message, failedChecks: error.failedChecks });
+      return;
+    }
+    if (error instanceof NoWorkflowsConfiguredError) {
+      sendJson(res, 400, { error: error.message, code: "NO_WORKFLOWS_CONFIGURED" });
       return;
     }
     if (error instanceof ProfileError) {

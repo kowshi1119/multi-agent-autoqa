@@ -1,6 +1,7 @@
 import type { ServerResponse } from "node:http";
 import { createLogger } from "../../logger.js";
 import { runPreflight, schemaFailureReport } from "../../preflight/doctor.js";
+import { loadWorkflowManifest } from "../../pilot/workflow-manifest.js";
 import { ProfileError } from "../../profiles/schema.js";
 import type { ProfileStore } from "../../profiles/store.js";
 import { profileToAppConfig } from "../../profiles/to-app-config.js";
@@ -10,7 +11,11 @@ export async function handlePreflight(res: ServerResponse, profileStore: Profile
   try {
     const profile = profileStore.load(profileId);
     const config = profileToAppConfig(profile);
-    const report = await runPreflight(profile, config, createLogger());
+    // Unfiltered -- the true declared-workflow count for this profile, not
+    // scoped to any particular not-yet-started run's own selection (see
+    // run-manager.ts's own runPreflight() call for that narrower case).
+    const workflowManifest = loadWorkflowManifest(profileStore.getDir(), profile.id);
+    const report = await runPreflight(profile, config, createLogger(), workflowManifest);
     sendJson(res, 200, report);
   } catch (error) {
     if (error instanceof ProfileError) {
