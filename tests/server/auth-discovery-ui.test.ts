@@ -122,7 +122,12 @@ describe("Authentication discovery through the local UI", () => {
     const pending = fetch(url, { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body, signal: controller.signal }).catch(() => undefined);
     await loginReached;
     expect((await fetch(url, { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body })).status).toBe(409);
-    expect((await fetch(base + "/api/runs", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: "{}" })).status).toBe(409);
+    // A schema-valid body is required here: the discovery-vs-run overlap
+    // check now lives inside RunManager.startRun()'s own synchronous lock
+    // prelude (2026-09-23 TOCTOU fix), which only runs after handleStartRun
+    // has already parsed/validated the request body -- an empty body would
+    // 400 on validation before ever reaching that check.
+    expect((await fetch(base + "/api/runs", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ profileId: "sandbox", mode: "demo" }) })).status).toBe(409);
     controller.abort(); await pending;
     expect(JSON.parse(readFileSync(profilePath, "utf8")).auth.checksVerified).toBe(false);
   });

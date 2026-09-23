@@ -828,6 +828,40 @@
     }).catch(function(error){setText(panel,"Workflow results unavailable: " + error.message);});
   }
 
+  // Declared API/security check results (2026-09-23): distinct from
+  // browser workflow results above -- every check the profile declared
+  // gets its own card here regardless of outcome, including one that was
+  // blocked and never ran, so "not tested" is never visually
+  // indistinguishable from "passed". A card whose check produced a Finding
+  // links to it in the Findings sections below via the same evidence
+  // route, not duplicated here.
+  function renderCheckResults(container, runId) {
+    var panel = document.createElement("div"); container.appendChild(panel);
+    api("/api/runs/" + encodeURIComponent(runId) + "/checks").then(function (data) {
+      var entries = data.entries || [];
+      if (!entries.length) return; // no declared checks for this profile/run -- nothing to show
+      var heading = document.createElement("h3"); setText(heading, "API and security checks"); panel.appendChild(heading);
+      entries.forEach(function (entry) {
+        var card = document.createElement("div"); card.className = "card";
+        var title = document.createElement("h4");
+        setText(title, "[" + (entry.kind === "api" ? "API" : "Security") + "] " + entry.checkId + " — " + entry.classification);
+        card.appendChild(title);
+        var assertion = document.createElement("p"); setText(assertion, entry.assertion); card.appendChild(assertion);
+        var outcome = document.createElement("p"); outcome.className = "next-step";
+        setText(outcome, entry.ran ? entry.observation : "Not run: " + entry.blockedReason);
+        card.appendChild(outcome);
+        entry.evidenceRefs.forEach(function (ref) {
+          var a = document.createElement("a");
+          a.href = "/api/artifacts/" + encodeURIComponent(runId) + "/" + ref.split("/").map(encodeURIComponent).join("/");
+          a.target = "_blank"; a.rel = "noopener noreferrer"; a.style.marginRight = "10px";
+          setText(a, ref + " ");
+          card.appendChild(a);
+        });
+        panel.appendChild(card);
+      });
+    }).catch(function () { /* No checks manifest for this profile -- nothing to render, not an error worth surfacing. */ });
+  }
+
   function renderResults(report, runId) {
     el("results-section").hidden = false;
     var container = el("results");
@@ -837,6 +871,7 @@
     setText(identity, runId + " — " + (report.target && report.target.environment === "local-fixture" ? "Local fixture" : "Application run"));
     container.appendChild(identity);
     renderWorkflowResults(container, runId);
+    renderCheckResults(container, runId);
     var canonicalIds = new Set((report.groups || []).map(function (g) { return g.canonicalFindingId; }));
     var groupedMemberIds = new Set();
     (report.groups || []).forEach(function (g) { g.memberFindingIds.forEach(function (id) { groupedMemberIds.add(id); }); });

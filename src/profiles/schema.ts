@@ -117,7 +117,40 @@ export const projectProfileSchema = z.object({
     maxFindings: z.number().int().positive(),
     maxDurationMs: z.number().int().positive().finite(),
     maxCriticCalls: z.number().int().positive(),
+    /** Defaults to maxActions when absent -- no migration needed for existing profiles. */
+    maxApiRequests: z.number().int().positive().optional(),
   }),
+  /**
+   * Declared HTTP-request checks (src/checks/run-api-checks.ts) -- fired
+   * directly by AutoQA itself, independent of any browser action, with
+   * deterministic assertions on the response. Distinct from the existing
+   * oracle-based passive traffic diffing (src/oracles/*.ts), which only
+   * ever reacts to requests the browser already made. Off by default.
+   */
+  apiChecks: z
+    .object({
+      enabled: z.boolean().default(false),
+      /**
+       * A mutating declared check is denied unless its (method, pathname)
+       * pair appears here -- deliberately a SEPARATE allowlist from
+       * resources.allowedFormSubmitEndpoints, which scopes browser-
+       * originated requests only, not standalone declared calls this
+       * feature fires itself.
+       */
+      allowedMutatingEndpoints: z
+        .array(z.object({ method: z.enum(["POST", "PUT", "PATCH", "DELETE"]), pathname: z.string().min(1).startsWith("/") }))
+        .default([]),
+      responseSizeCapBytes: z.number().int().positive().default(262_144),
+    })
+    .default({ enabled: false, allowedMutatingEndpoints: [], responseSizeCapBytes: 262_144 }),
+  /**
+   * Passive security checks (src/checks/run-security-checks.ts): cookie
+   * attributes, security response headers, response-body secret leakage,
+   * and session-boundary checks using seeded local accounts declared in the
+   * checks manifest. Off by default; never performs mutation, fuzzing, or
+   * credential guessing.
+   */
+  securityChecks: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
 });
 
 export type ProjectProfile = z.infer<typeof projectProfileSchema>;

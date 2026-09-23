@@ -56,4 +56,19 @@ describe("ProfileStore.list() (2026-09-15 fix: a sibling <id>.workflows.json man
 
     expect(ids).toEqual(["orangehrm"]);
   });
+
+  it("a checks manifest file (<id>.checks.json -- see src/checks/checks-manifest.ts) sitting alongside profiles does not break list() -- the same bug class as the .workflows.json fix above, reintroduced by the new manifest type and reproduced live via GET /api/profiles 500ing once profiles/checks-demo.checks.json existed", () => {
+    const dir = tempDir();
+    const store = new ProfileStore(dir);
+    store.save(validProfile("checks-demo"));
+    writeFileSync(
+      join(dir, "checks-demo.checks.json"),
+      JSON.stringify({ schemaVersion: 1, profileId: "checks-demo", apiChecks: [], securityChecks: [] }, null, 2),
+      "utf-8"
+    );
+
+    const ids = store.list().map((p) => p.id);
+
+    expect(ids).toEqual(["checks-demo"]);
+  });
 });

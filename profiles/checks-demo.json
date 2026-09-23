@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "checks-demo",
+  "name": "API/security checks demo (local fixture, no key needed)",
+  "target": {
+    "url": "http://localhost:4173/",
+    "environmentKind": "local-fixture"
+  },
+  "navigation": {
+    "allowedOrigins": ["http://localhost:4173"],
+    "allowedPathPrefixes": ["/"]
+  },
+  "resources": {
+    "allowedApiOrigins": ["http://localhost:4173"]
+  },
+  "workflows": {
+    "allowedWorkflowKinds": ["navigate"]
+  },
+  "auth": {
+    "mode": "none"
+  },
+  "provider": {
+    "explorer": { "provider": "mock" },
+    "critic": {
+      "enabled": true,
+      "provider": "mock",
+      "requireIndependentProvider": false,
+      "maxCallsPerFinding": 1
+    },
+    "providerTimeoutMs": 30000
+  },
+  "limits": {
+    "maxActions": 10,
+    "maxModelCalls": 10,
+    "maxPages": 5,
+    "maxFindings": 15,
+    "maxDurationMs": 120000,
+    "maxCriticCalls": 5,
+    "maxApiRequests": 10
+  },
+  "apiChecks": {
+    "enabled": true,
+    "allowedMutatingEndpoints": [],
+    "responseSizeCapBytes": 262144
+  },
+  "securityChecks": {
+    "enabled": true
+  }
+}

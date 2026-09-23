@@ -48,7 +48,21 @@ export function redactSecrets(text: string, extraSecrets: readonly string[] = []
     // Keep delimiters intact when redacting an already-serialized JSON
     // string (e.g. a landing URL with ?token=... immediately before its
     // closing quote). Consuming that quote made run evidence unparseable.
-    .replace(/\b(authorization|token|password|secret)\s*[=:]\s*(?:bearer\s+)?[^\\\s,;"'<>}\]&]+/gi, "$1=<REDACTED>");
+    //
+    // 2026-09-23 widening: the key-name group used to require an exact
+    // word (authorization|token|password|secret), missing camelCase/
+    // snake_case/hyphenated forms like sessionToken=, api_key=, or
+    // X-Auth-Token: that the new API/security-check evidence can contain
+    // in plain (non-JSON-quoted) text -- e.g. a flattened header line or a
+    // URL query string. Allowing word-char/hyphen runs before and after one
+    // of the core keywords (plus a dedicated api[_-]?key and cookie
+    // alternative) catches those without changing the match for any bare
+    // keyword, which is why the existing "token=...", "password=..." etc.
+    // regression tests are unaffected. This still cannot see inside a
+    // JSON-quoted key like {"Set-Cookie": "..."} -- see
+    // redactStructuredEvidence() in src/checks/redact-structured.ts for
+    // that structurally-aware case.
+    .replace(/\b([a-z0-9_-]*(?:authorization|token|password|secret|cookie|api[_-]?key)[a-z0-9_-]*)\s*[=:]\s*(?:bearer\s+)?[^\\\s,;"'<>}\]&]+/gi, "$1=<REDACTED>");
 }
 
 /**

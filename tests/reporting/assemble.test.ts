@@ -52,6 +52,25 @@ describe("assembleReport() (Phase 4 Milestone B extraction)", () => {
     expect(savedReport.runId).toBe(runId);
     expect(savedReport.groups.length).toBeGreaterThan(0); // grouping.enabled:true in qa.config.mock.yaml, and Phase 3's known duplicate-manifestation pair groups.
 
+    // Three-tier metric lock (2026-09-23): the 0.667 detection-level
+    // precision asserted above is NOT a residual bug -- one of its three
+    // false positives (the /expected-failure REQ-001 case) is a detection-
+    // level artifact that final-report disposition already suppresses
+    // (report.phase2.finalReport.precision===0.75 above), and the other
+    // two (H10's double-click producing a second, structurally distinct
+    // Finding for the same seeded defect via a different reproduction
+    // path) are exactly what grouping exists to canonicalize. This asserts
+    // grouping.json's OWN benchmark -- computed over one representative
+    // finding per group instead of every raw Finding -- independently
+    // reaches a perfect score, proving the underlying detections are
+    // correct and complete; the lower headline numbers reflect the
+    // (intentional) absence of cross-finding dedup at the detection/
+    // disposition layer, not a missed or wrong detection anywhere.
+    const groupingJson = JSON.parse(readFileSync(join(runDir, "grouping.json"), "utf-8")) as { benchmark?: { precision: number; recall: number; f1: number } };
+    expect(groupingJson.benchmark?.precision).toBeCloseTo(1.0, 2);
+    expect(groupingJson.benchmark?.recall).toBeCloseTo(1.0, 2);
+    expect(groupingJson.benchmark?.f1).toBeCloseTo(1.0, 2);
+
     // canonicalFindingsOnly() is exported specifically so a UI computes the
     // same deduplicated count the CLI's own grouping.json benchmark used --
     // sanity-check it here directly against the real grouping result.

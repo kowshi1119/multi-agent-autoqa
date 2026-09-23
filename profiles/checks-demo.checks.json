@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "profileId": "checks-demo",
+  "apiChecks": [
+    {
+      "id": "API-USERS-OK",
+      "method": "GET",
+      "pathname": "/api/users/demo-a",
+      "description": "GET /api/users/demo-a returns the required id/email/role fields",
+      "assertions": {
+        "expectedStatus": 200,
+        "expectedContentType": "application/json",
+        "requiredFields": ["id", "email", "role"]
+      }
+    },
+    {
+      "id": "API-USERS-MISSING",
+      "method": "GET",
+      "pathname": "/api/users/does-not-exist",
+      "description": "GET /api/users/does-not-exist should still return 200 per this (deliberately wrong) declared expectation, demonstrating a confirmed finding",
+      "assertions": {
+        "expectedStatus": 200
+      }
+    },
+    {
+      "id": "API-DELETE-BLOCKED",
+      "method": "POST",
+      "pathname": "/api/users/demo-a",
+      "description": "Mutating check with no apiChecks.allowedMutatingEndpoints entry -- demonstrates the authorization gate blocking a check before it ever fires",
+      "assertions": {
+        "expectedStatus": 200
+      }
+    }
+  ],
+  "securityChecks": [
+    {
+      "id": "SEC-COOKIE",
+      "kind": "cookie-attributes",
+      "pathname": "/api/session-check",
+      "description": "Session cookie from /api/session-check should carry HttpOnly/Secure/SameSite"
+    },
+    {
+      "id": "SEC-HEADERS",
+      "kind": "security-headers",
+      "pathname": "/api/users/demo-a",
+      "description": "API responses should carry standard security headers"
+    },
+    {
+      "id": "SEC-LEAK",
+      "kind": "secret-leakage",
+      "pathname": "/api/users/demo-a",
+      "description": "API responses should not contain credential- or token-shaped values"
+    },
+    {
+      "id": "SEC-SESSION-BOUNDARY",
+      "kind": "session-boundary",
+      "pathname": "/",
+      "description": "demo-a's session should not be able to read demo-b's account resource",
+      "sessionBoundary": {
+        "loginPathname": "/api/login-demo",
+        "accountAId": "demo-a",
+        "accountBId": "demo-b",
+        "resourcePathnameTemplate": "/api/account/{accountId}/resource"
+      }
+    }
+  ]
+}

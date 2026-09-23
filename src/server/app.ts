@@ -6,12 +6,13 @@ import { ProfileStore } from "../profiles/store.js";
 import { RunManager } from "../run-manager.js";
 import { sendJson } from "./http-helpers.js";
 import { handleGetProfile, handleListProfiles, handleSaveProfile } from "./routes/profiles.js";
-import { handleAuthDiscovery, isAuthDiscoveryActive, stopAuthDiscovery } from "./routes/auth-discovery.js";
+import { handleAuthDiscovery, stopAuthDiscovery } from "./routes/auth-discovery.js";
 import { handlePreflight } from "./routes/preflight.js";
 import { handleArtifact } from "./routes/artifacts.js";
 import { handleListRuns, handleRunEvents, handleRunStatus, handleStartRun, handleStopRun } from "./routes/runs.js";
 import { handleWorkflows } from "./routes/workflows.js";
 import { handleSaveTriage } from "./routes/triage.js";
+import { handleChecks } from "./routes/checks.js";
 import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -97,10 +98,11 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     }
 
     if (path === "/api/runs" && method === "POST") {
-      if (isAuthDiscoveryActive(profileStore)) {
-        sendJson(res, 409, { error: "Finish or cancel authentication discovery before starting a run." });
-        return;
-      }
+      // isAuthDiscoveryActive() is no longer checked here -- that left a
+      // TOCTOU window (this check ran before handleStartRun's own body-read
+      // await, while RunManager.startRun()'s lock-acquire ran after it).
+      // RunManager.startRun() now checks it itself, synchronously adjacent
+      // to acquiring its own lock (see run-manager.ts's 2026-09-23 addendum).
       await handleStartRun(req, res, runManager);
       return;
     }
@@ -138,6 +140,12 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const triageMatch = /^\/api\/runs\/([^/]+)\/triage$/.exec(path);
     if (triageMatch && method === "POST") {
       await handleSaveTriage(req, res, runsRootDir, decodeURIComponent(triageMatch[1] as string));
+      return;
+    }
+
+    const checksMatch = /^\/api\/runs\/([^/]+)\/checks$/.exec(path);
+    if (checksMatch && method === "GET") {
+      handleChecks(res, runsRootDir, decodeURIComponent(checksMatch[1] as string));
       return;
     }
 

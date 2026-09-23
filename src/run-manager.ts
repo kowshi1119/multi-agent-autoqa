@@ -18,10 +18,15 @@ import { generateRunId, writeRunSummary, type RunSummary } from "./report.js";
 import { assembleReport } from "./reporting/assemble.js";
 import { runPipeline, type PipelineResult } from "./run-pipeline.js";
 import { ActionPolicy } from "./safety/action-policy.js";
+import { isAuthDiscoveryActive } from "./server/routes/auth-discovery.js";
+import { loadChecksManifest } from "./checks/checks-manifest.js";
+import { runApiChecks } from "./checks/run-api-checks.js";
+import { runSecurityChecks } from "./checks/run-security-checks.js";
+import { startFixtureServer } from "../fixture/server.js";
 
 export class RunAlreadyActiveError extends Error {
-  constructor() {
-    super("A run is already active. Stop it before starting another.");
+  constructor(message = "A run is already active. Stop it before starting another.") {
+    super(message);
     this.name = "RunAlreadyActiveError";
   }
 }
@@ -138,6 +143,18 @@ export class RunManager {
    * synchronously, before any `await`, and checking it alongside
    * `this.current` closes the window completely: the guard-check-and-
    * reserve is now one synchronous unit.
+   *
+   * 2026-09-23 addendum: the same class of race existed between this guard
+   * and auth-discovery's own lock (src/server/routes/auth-discovery.ts) --
+   * app.ts used to check isAuthDiscoveryActive() *before* awaiting the
+   * request body, then this check-and-set ran afterward, leaving a window
+   * where a concurrent discovery request could acquire its lock in between.
+   * Folding isAuthDiscoveryActive() into this same synchronous prelude
+   * closes that window the same way: JS's single-threaded execution makes
+   * two synchronous check-and-set blocks mutually atomic regardless of
+   * where in each caller's own async flow they run, as long as neither has
+   * an await between its own check and its own set (auth-discovery.ts's
+   * lock already satisfies this).
    */
   private starting = false;
 
@@ -163,6 +180,7 @@ export class RunManager {
 
   async startRun(input: StartRunInput): Promise<{ runId: string }> {
     if (this.current || this.starting) throw new RunAlreadyActiveError();
+    if (isAuthDiscoveryActive(this.profileStore)) throw new RunAlreadyActiveError("Finish or cancel authentication discovery before starting a run.");
     this.starting = true;
 
     try {
@@ -278,6 +296,45 @@ export class RunManager {
         ...(sessionAuth ? { sessionAuth } : {}),
         abortSignal: controller.signal,
       });
+      // Declared API/security checks (opt-in per profile): run only when
+      // the pipeline wasn't already cancelled by the time we get here -- a
+      // user-requested Stop should stop everything, not kick off a fresh
+      // batch of HTTP checks afterward. Each runner appends its own
+      // check-results.json ledger entries directly and returns any Finding
+      // it produced, which is folded into finalCtx.findings BEFORE
+      // assembleReport() runs so grouping/reporting/redaction see it like
+      // any other finding -- no change needed to either of those.
+      if (!controller.signal.aborted && (profile.apiChecks.enabled || profile.securityChecks.enabled)) {
+        const checksManifest = loadChecksManifest(this.profileStore.getDir(), profile.id);
+        if (checksManifest) {
+          // runPipeline() already closed ITS OWN fixture server in its own
+          // finally block by the time we get here (it owns that instance's
+          // lifecycle for the browser-exploration phase only) -- so for a
+          // local-fixture profile, checks need a fresh instance of their
+          // own rather than reusing config.target.url's now-dead origin.
+          // Every other environment kind targets an already-running,
+          // externally-owned server, so config.target.url's origin is used
+          // directly and nothing extra is started or stopped here.
+          const isLocalFixture = profile.target.environmentKind === "local-fixture";
+          const checksFixtureServer = isLocalFixture ? await startFixtureServer(0) : undefined;
+          try {
+            const resolvedOrigin = checksFixtureServer ? `http://localhost:${checksFixtureServer.port}` : new URL(config.target.url).origin;
+            let nextFindingIndex = pipelineResult.finalCtx.findings.length + 1;
+            if (profile.apiChecks.enabled && checksManifest.apiChecks.length > 0) {
+              const apiResult = await runApiChecks(profile, checksManifest.apiChecks, runDir, nextFindingIndex, resolvedOrigin, extraSecrets, controller.signal);
+              pipelineResult.finalCtx.findings.push(...apiResult.findings);
+              nextFindingIndex = apiResult.nextFindingIndex;
+            }
+            if (profile.securityChecks.enabled && checksManifest.securityChecks.length > 0) {
+              const securityResult = await runSecurityChecks(profile, checksManifest.securityChecks, runDir, nextFindingIndex, resolvedOrigin, extraSecrets, controller.signal);
+              pipelineResult.finalCtx.findings.push(...securityResult.findings);
+            }
+          } finally {
+            await checksFixtureServer?.close();
+          }
+        }
+      }
+
       assembleReport(pipelineResult, config, runId, runDir, startedAt, profile, extraSecrets, this.profileStore.getDir());
     } catch (error) {
       // runPipeline() itself only throws for a genuine setup failure

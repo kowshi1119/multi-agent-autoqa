@@ -196,7 +196,7 @@ export type FindingStatus =
   | "rejected"
   | "needs_human";
 
-export type FindingCategory = "console" | "runtime" | "network" | "validation" | "state" | "functional";
+export type FindingCategory = "console" | "runtime" | "network" | "validation" | "state" | "functional" | "api" | "security";
 
 /**
  * L1 = deterministic domain/business invariant (very strong, e.g.

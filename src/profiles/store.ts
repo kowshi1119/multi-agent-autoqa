@@ -25,7 +25,15 @@ export class ProfileStore {
   list(): ProjectProfile[] {
     if (!existsSync(this.dir)) return [];
     return readdirSync(this.dir)
-      .filter((f) => f.endsWith(".json") && !f.endsWith(".workflows.json"))
+      // 2026-09-23 fix: a sibling <id>.checks.json manifest (see
+      // src/checks/checks-manifest.ts) was being mistaken for a profile of
+      // its own -- ".checks.json" also ends in ".json", and stripping only
+      // the trailing ".json" left an id like "checks-demo.checks", which
+      // pathFor()'s id regex correctly rejects, surfacing as a 500 on the
+      // whole profile list rather than skipping the manifest file. Every
+      // sibling manifest type (.workflows.json, .checks.json) must be
+      // excluded here, not just the one that existed first.
+      .filter((f) => f.endsWith(".json") && !f.endsWith(".workflows.json") && !f.endsWith(".checks.json"))
       .map((f) => this.load(f.replace(/\.json$/, "")));
   }
 
