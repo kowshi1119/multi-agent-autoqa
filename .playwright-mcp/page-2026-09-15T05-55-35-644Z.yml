@@ -1,0 +1,78 @@
+- generic [ref=f7e1]:
+  - main [ref=f7e6]:
+    - generic [ref=f7e188]:
+      - generic [ref=f7e190]:
+        - button [ref=f7e191] [cursor=pointer]
+        - generic [ref=f7e194]:
+          - heading "Add Cash Pickup" [level=1] [ref=f7e195]
+          - paragraph [ref=f7e196]: Enter details
+      - generic [ref=f7e198]:
+        - generic [ref=f7e199]:
+          - heading "Add Cash Pickup Details" [level=2] [ref=f7e200]
+          - paragraph [ref=f7e201]: Enter their details to ensure your money is sent correctly.
+        - generic [ref=f7e202]:
+          - generic [ref=f7e204]:
+            - textbox "Nickname*" [ref=f7e205]:
+              - /placeholder: " "
+            - generic: Nickname*
+          - generic [ref=f7e207]:
+            - textbox "First Name*" [ref=f7e208]:
+              - /placeholder: " "
+            - generic: First Name*
+          - generic [ref=f7e209]:
+            - generic [ref=f7e211]:
+              - textbox "Middle Name (optional)" [ref=f7e212]:
+                - /placeholder: " "
+              - generic: Middle Name (optional)
+            - generic [ref=f7e214]:
+              - textbox "Last Name*" [ref=f7e215]:
+                - /placeholder: " "
+              - generic: Last Name*
+          - generic [ref=f7e217]:
+            - combobox [disabled] [aria-hidden]
+            - button "Country* Sri Lanka" [disabled] [ref=f7e218] [cursor=pointer]:
+              - generic: Country*
+              - generic [ref=f7e219]: Sri Lanka
+          - generic [ref=f7e225]:
+            - button "+94" [disabled] [ref=f7e226] [cursor=pointer]
+            - generic [ref=f7e228]:
+              - textbox [ref=f7e229]:
+                - /placeholder: " "
+              - generic: Contact number*
+          - generic [ref=f7e231]:
+            - textbox "Email Address (optional)" [ref=f7e232]:
+              - /placeholder: " "
+            - generic: Email Address (optional)
+          - generic [ref=f7e233]:
+            - generic [ref=f7e235]:
+              - combobox [aria-hidden]
+              - button "ID proof type" [active] [ref=f7e236] [cursor=pointer]
+            - generic [ref=f7e240]:
+              - textbox "ID proof No" [ref=f7e241]:
+                - /placeholder: " "
+              - generic: ID proof No
+          - paragraph [ref=f7e242]: The collector will need to show this ID when picking up cash
+          - generic [ref=f7e244]:
+            - textbox "Address line 1*" [ref=f7e245]:
+              - /placeholder: " "
+            - generic: Address line 1*
+          - generic [ref=f7e247]:
+            - textbox "Address Line 2 (optional)" [ref=f7e248]:
+              - /placeholder: " "
+            - generic: Address Line 2 (optional)
+          - generic [ref=f7e249]:
+            - generic [ref=f7e251]:
+              - textbox "City (optional)" [ref=f7e252]:
+                - /placeholder: " "
+              - generic: City (optional)
+            - generic [ref=f7e254]:
+              - textbox "Postal/ZIP Code*" [ref=f7e255]:
+                - /placeholder: " "
+              - generic: Postal/ZIP Code*
+          - button "Save & Continue" [ref=f7e257] [cursor=pointer]
+  - alert [ref=f7e2]
+  - generic [ref=f7e259]:
+    - button "Passport" [ref=f7e260] [cursor=pointer]
+    - button "National ID Card (NIC)" [ref=f7e262] [cursor=pointer]
+    - button "Driver's License" [ref=f7e264] [cursor=pointer]
+    - button "Other" [ref=f7e266] [cursor=pointer]

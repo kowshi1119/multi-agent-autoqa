@@ -1,0 +1,101 @@
+- generic [active] [ref=f13e1]:
+  - generic [ref=f13e3]:
+    - main [ref=f13e6]:
+      - generic [ref=f13e165]:
+        - generic [ref=f13e166]:
+          - generic [ref=f13e167]:
+            - generic [ref=f13e168]:
+              - heading "Recipients" [level=1] [ref=f13e169]
+              - paragraph [ref=f13e170]: Manage your saved recipients
+            - button "Add Cash Pickup" [ref=f13e172] [cursor=pointer]
+          - generic [ref=f13e174]:
+            - button "Bank Accounts" [ref=f13e175] [cursor=pointer]
+            - button "Cash Pickup" [ref=f13e179] [cursor=pointer]
+            - button "Wallets" [ref=f13e184] [cursor=pointer]
+          - textbox "Search cash pickups..." [ref=f13e190]
+        - generic [ref=f13e193]:
+          - generic [ref=f13e194]:
+            - generic [ref=f13e196]:
+              - generic [ref=f13e197]:
+                - generic [ref=f13e198]: "-"
+                - generic [ref=f13e199]: Pakistan
+              - generic [ref=f13e205]:
+                - heading "Electricbill55555555 Personal" [level=3] [ref=f13e206]:
+                  - generic [ref=f13e207]: Electricbill55555555
+                  - generic [ref=f13e208]: Personal
+                - paragraph [ref=f13e209]: Kowshikan Mathivarnan
+              - generic [ref=f13e210]:
+                - button [ref=f13e212] [cursor=pointer]
+                - button [ref=f13e217] [cursor=pointer]
+                - button [ref=f13e222] [cursor=pointer]
+                - button [ref=f13e227] [cursor=pointer]
+            - generic [ref=f13e232]:
+              - generic [ref=f13e233]:
+                - generic [ref=f13e234]: "-"
+                - generic [ref=f13e235]: Pakistan
+              - generic [ref=f13e241]:
+                - heading "Electricbill004 Personal" [level=3] [ref=f13e242]:
+                  - generic [ref=f13e243]: Electricbill004
+                  - generic [ref=f13e244]: Personal
+                - paragraph [ref=f13e245]: Kowshikan Mathivarnan
+              - generic [ref=f13e246]:
+                - button [ref=f13e248] [cursor=pointer]
+                - button [ref=f13e253] [cursor=pointer]
+                - button [ref=f13e258] [cursor=pointer]
+                - button [ref=f13e263] [cursor=pointer]
+            - generic [ref=f13e268]:
+              - generic [ref=f13e269]:
+                - generic [ref=f13e270]: National ID Card (NIC)
+                - generic [ref=f13e271]: Sri Lanka
+              - generic [ref=f13e277]:
+                - heading "QA Cash 001 Personal" [level=3] [ref=f13e278]:
+                  - generic [ref=f13e279]: QA Cash 001
+                  - generic [ref=f13e280]: Personal
+                - paragraph [ref=f13e281]: Nimal Perera
+              - generic [ref=f13e282]:
+                - button [ref=f13e284] [cursor=pointer]
+                - button [ref=f13e289] [cursor=pointer]
+                - button [ref=f13e294] [cursor=pointer]
+                - button [ref=f13e299] [cursor=pointer]
+            - generic [ref=f13e304]:
+              - generic [ref=f13e305]:
+                - generic [ref=f13e306]: "-"
+                - generic [ref=f13e307]: Sri Lanka
+              - generic [ref=f13e313]:
+                - heading "Electricbill Personal" [level=3] [ref=f13e314]:
+                  - generic [ref=f13e315]: Electricbill
+                  - generic [ref=f13e316]: Personal
+                - paragraph [ref=f13e317]: Kowshikan Mathivarnan
+              - generic [ref=f13e318]:
+                - button [ref=f13e320] [cursor=pointer]
+                - button [ref=f13e325] [cursor=pointer]
+                - button [ref=f13e330] [cursor=pointer]
+                - button [ref=f13e335] [cursor=pointer]
+          - generic [ref=f13e339]:
+            - generic [ref=f13e341]:
+              - generic [ref=f13e342]: "Rows per page:"
+              - combobox [ref=f13e343] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "25"
+                - option "50"
+            - generic [ref=f13e344]:
+              - button "First page" [disabled] [ref=f13e345] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f13e349] [cursor=pointer]
+              - button "1" [ref=f13e353] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f13e354] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f13e357] [cursor=pointer]
+            - generic [ref=f13e361]: 1-4 of 4
+    - navigation [ref=f13e136]:
+      - generic [ref=f13e137]:
+        - link "Home" [ref=f13e138] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f13e143] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f13e150] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f13e155] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f13e160] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f13e2]

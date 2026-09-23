@@ -1,0 +1,131 @@
+- generic [ref=f20e1]:
+  - generic [ref=f20e3]:
+    - banner [ref=f20e4]:
+      - generic [ref=f20e6]:
+        - link [ref=f20e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f20e8]
+        - button [ref=f20e11] [cursor=pointer]:
+          - generic [ref=f20e16]:
+            - paragraph [ref=f20e17]: Kowshi Mathi
+            - paragraph [ref=f20e18]: Personal
+    - generic [ref=f20e22]:
+      - navigation [ref=f20e23]:
+        - list [ref=f20e24]:
+          - listitem [ref=f20e25]:
+            - link "Home" [ref=f20e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f20e31]:
+            - link "Recipients" [ref=f20e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f20e39]:
+            - link "Bill Payments" [ref=f20e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f20e45]:
+            - link "Transactions" [ref=f20e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f20e51]:
+            - link "My Account" [ref=f20e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f20e57]:
+        - generic [ref=f20e59]:
+          - generic [ref=f20e60]:
+            - generic [ref=f20e61]:
+              - heading "Recipients" [level=1] [ref=f20e62]
+              - paragraph [ref=f20e63]: Keep track of your recipients and streamline your transactions.
+            - generic [ref=f20e64]:
+              - button "Bank account holder" [ref=f20e65] [cursor=pointer]
+              - button "Cash pickups" [ref=f20e66] [cursor=pointer]
+              - button "Wallets" [ref=f20e67] [cursor=pointer]
+            - generic [ref=f20e68]:
+              - textbox "Search bank account holder" [ref=f20e70]
+              - button "Add Bank Recipient" [ref=f20e72] [cursor=pointer]
+          - generic [ref=f20e74]:
+            - generic [ref=f20e75]:
+              - generic [ref=f20e76]: Recipient
+              - generic [ref=f20e77]: Bank Details
+              - generic [ref=f20e78]: Country
+              - generic [ref=f20e79]: Contact No
+            - generic [ref=f20e81]:
+              - generic [ref=f20e83]:
+                - generic [ref=f20e88]:
+                  - generic [ref=f20e89]:
+                    - paragraph [ref=f20e90]: QA Switch Test 001
+                    - generic [ref=f20e91]: Personal
+                  - paragraph [ref=f20e92]: Kamal Fernando
+                - generic [ref=f20e93]:
+                  - paragraph [ref=f20e94]: Bank of Ceylon
+                  - paragraph [ref=f20e95]: "*****22"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f20e97]
+                - generic "+94712345679" [ref=f20e99]
+                - generic [ref=f20e100]:
+                  - button "Send money" [ref=f20e102] [cursor=pointer]
+                  - generic [ref=f20e103]:
+                    - button "More actions" [active] [ref=f20e104] [cursor=pointer]
+                    - generic [ref=f20e213]:
+                      - button "View" [ref=f20e214] [cursor=pointer]
+                      - button "Edit" [ref=f20e218] [cursor=pointer]
+                      - button "Delete" [disabled] [ref=f20e222] [cursor=pointer]
+              - generic [ref=f20e110]:
+                - generic [ref=f20e115]:
+                  - generic [ref=f20e116]:
+                    - paragraph [ref=f20e117]: QA Personal XSS 001
+                    - generic [ref=f20e118]: Personal
+                  - paragraph [ref=f20e119]: Jose O'Connor
+                - generic [ref=f20e120]:
+                  - paragraph [ref=f20e121]: Bank of Ceylon
+                  - paragraph [ref=f20e122]: "*****66"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f20e124]
+                - generic "+94712345678" [ref=f20e126]
+                - generic [ref=f20e127]:
+                  - button "Send money" [ref=f20e129] [cursor=pointer]
+                  - button "More actions" [ref=f20e131] [cursor=pointer]
+              - generic [ref=f20e137]:
+                - generic [ref=f20e142]:
+                  - generic [ref=f20e143]:
+                    - paragraph [ref=f20e144]: QA Personal 001
+                    - generic [ref=f20e145]: Personal
+                  - paragraph [ref=f20e146]: John Silva
+                - generic [ref=f20e147]:
+                  - paragraph [ref=f20e148]: Bank of Ceylon
+                  - paragraph [ref=f20e149]: "*****78"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f20e151]
+                - generic "+94712345678" [ref=f20e153]
+                - generic [ref=f20e154]:
+                  - button "Send money" [ref=f20e156] [cursor=pointer]
+                  - button "More actions" [ref=f20e158] [cursor=pointer]
+              - generic [ref=f20e164]:
+                - generic [ref=f20e169]:
+                  - generic [ref=f20e170]:
+                    - paragraph [ref=f20e171]: Test Recipient
+                    - generic [ref=f20e172]: Personal
+                  - paragraph [ref=f20e173]: John Silva
+                - generic [ref=f20e174]:
+                  - paragraph [ref=f20e175]: Bank of Ceylon
+                  - paragraph [ref=f20e176]: "*****67"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f20e178]
+                - generic "+94771234567" [ref=f20e180]
+                - generic [ref=f20e181]:
+                  - button "Send money" [ref=f20e183] [cursor=pointer]
+                  - button "More actions" [ref=f20e185] [cursor=pointer]
+            - generic [ref=f20e190]:
+              - generic [ref=f20e191]:
+                - generic [ref=f20e192]:
+                  - generic [ref=f20e193]: "Rows per page:"
+                  - combobox [ref=f20e194] [cursor=pointer]:
+                    - option "5" [selected]
+                    - option "10"
+                    - option "25"
+                    - option "50"
+                - generic [ref=f20e195]: 1-4 of 4
+              - generic [ref=f20e196]:
+                - button "First page" [disabled] [ref=f20e197] [cursor=pointer]
+                - button "Previous page" [disabled] [ref=f20e201] [cursor=pointer]
+                - button "1" [ref=f20e205] [cursor=pointer]
+                - button "Next page" [disabled] [ref=f20e206] [cursor=pointer]
+                - button "Last page" [disabled] [ref=f20e209] [cursor=pointer]
+  - alert [ref=f20e2]

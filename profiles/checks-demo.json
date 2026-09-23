@@ -40,7 +40,7 @@
   },
   "apiChecks": {
     "enabled": true,
-    "allowedMutatingEndpoints": [],
+    "allowedMutatingEndpoints": [{ "method": "POST", "pathname": "/api/login-demo" }],
     "responseSizeCapBytes": 262144
   },
   "securityChecks": {

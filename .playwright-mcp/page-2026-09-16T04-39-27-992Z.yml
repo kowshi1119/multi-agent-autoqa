@@ -1,0 +1,137 @@
+- generic [active] [ref=f8e1]:
+  - main [ref=f8e6]:
+    - generic [ref=f8e217]:
+      - generic [ref=f8e219]:
+        - button [ref=f8e220] [cursor=pointer]
+        - generic [ref=f8e223]:
+          - heading "Send Money" [level=1] [ref=f8e224]
+          - paragraph [ref=f8e225]: Select a recipient
+      - generic [ref=f8e227]:
+        - textbox "Search recipient" [ref=f8e232]
+        - generic [ref=f8e233]:
+          - button "All" [ref=f8e234] [cursor=pointer]
+          - button "Bank" [ref=f8e235] [cursor=pointer]
+          - button "Cash" [ref=f8e238] [cursor=pointer]
+          - button "Wallet" [ref=f8e242] [cursor=pointer]
+        - generic [ref=f8e246]:
+          - paragraph [ref=f8e247]: Your recipients
+          - separator [ref=f8e248]
+          - generic [ref=f8e249]:
+            - button "QA Switch Test 001 Bank Transfer Bank of Ceylon - *****22 - LKR" [ref=f8e250] [cursor=pointer]:
+              - generic [ref=f8e256]:
+                - generic [ref=f8e257]:
+                  - paragraph [ref=f8e258]: QA Switch Test 001
+                  - generic [ref=f8e259]: Bank Transfer
+                - generic [ref=f8e262]:
+                  - generic [ref=f8e263]: Bank of Ceylon
+                  - generic [ref=f8e264]: "-"
+                  - generic [ref=f8e265]: "*****22"
+                  - generic [ref=f8e266]: "-"
+                  - generic [ref=f8e267]: LKR
+            - button "QA Personal XSS 001 Bank Transfer Bank of Ceylon - *****66 - LKR" [ref=f8e270] [cursor=pointer]:
+              - generic [ref=f8e276]:
+                - generic [ref=f8e277]:
+                  - paragraph [ref=f8e278]: QA Personal XSS 001
+                  - generic [ref=f8e279]: Bank Transfer
+                - generic [ref=f8e282]:
+                  - generic [ref=f8e283]: Bank of Ceylon
+                  - generic [ref=f8e284]: "-"
+                  - generic [ref=f8e285]: "*****66"
+                  - generic [ref=f8e286]: "-"
+                  - generic [ref=f8e287]: LKR
+            - button "QA Personal 001 Bank Transfer Bank of Ceylon - *****78 - LKR" [ref=f8e290] [cursor=pointer]:
+              - generic [ref=f8e296]:
+                - generic [ref=f8e297]:
+                  - paragraph [ref=f8e298]: QA Personal 001
+                  - generic [ref=f8e299]: Bank Transfer
+                - generic [ref=f8e302]:
+                  - generic [ref=f8e303]: Bank of Ceylon
+                  - generic [ref=f8e304]: "-"
+                  - generic [ref=f8e305]: "*****78"
+                  - generic [ref=f8e306]: "-"
+                  - generic [ref=f8e307]: LKR
+            - button "Test Recipient Bank Transfer Bank of Ceylon - *****67 - LKR" [ref=f8e310] [cursor=pointer]:
+              - generic [ref=f8e316]:
+                - generic [ref=f8e317]:
+                  - paragraph [ref=f8e318]: Test Recipient
+                  - generic [ref=f8e319]: Bank Transfer
+                - generic [ref=f8e322]:
+                  - generic [ref=f8e323]: Bank of Ceylon
+                  - generic [ref=f8e324]: "-"
+                  - generic [ref=f8e325]: "*****67"
+                  - generic [ref=f8e326]: "-"
+                  - generic [ref=f8e327]: LKR
+            - button "Kowshikan Mathivarnan Cash Pickup PKR" [ref=f8e330] [cursor=pointer]:
+              - generic [ref=f8e337]:
+                - generic [ref=f8e338]:
+                  - paragraph [ref=f8e339]: Kowshikan Mathivarnan
+                  - generic [ref=f8e340]: Cash Pickup
+                - generic [ref=f8e344]: PKR
+            - button "Kowshikan Mathivarnan Cash Pickup PKR" [ref=f8e348] [cursor=pointer]:
+              - generic [ref=f8e355]:
+                - generic [ref=f8e356]:
+                  - paragraph [ref=f8e357]: Kowshikan Mathivarnan
+                  - generic [ref=f8e358]: Cash Pickup
+                - generic [ref=f8e362]: PKR
+            - button "Nimal Perera Cash Pickup National ID Card (NIC) - *****8V - LKR" [ref=f8e366] [cursor=pointer]:
+              - generic [ref=f8e373]:
+                - generic [ref=f8e374]:
+                  - paragraph [ref=f8e375]: Nimal Perera
+                  - generic [ref=f8e376]: Cash Pickup
+                - generic [ref=f8e380]:
+                  - generic [ref=f8e381]: National ID Card (NIC)
+                  - generic [ref=f8e382]: "-"
+                  - generic [ref=f8e383]: "*****8V"
+                  - generic [ref=f8e384]: "-"
+                  - generic [ref=f8e385]: LKR
+            - button "Kowshikan Mathivarnan Cash Pickup LKR" [ref=f8e388] [cursor=pointer]:
+              - generic [ref=f8e395]:
+                - generic [ref=f8e396]:
+                  - paragraph [ref=f8e397]: Kowshikan Mathivarnan
+                  - generic [ref=f8e398]: Cash Pickup
+                - generic [ref=f8e402]: LKR
+            - button "Electricbill334545 Wallet Easypaisa - *******4567 - PKR" [ref=f8e406] [cursor=pointer]:
+              - generic [ref=f8e413]:
+                - generic [ref=f8e414]:
+                  - paragraph [ref=f8e415]: Electricbill334545
+                  - generic [ref=f8e416]: Wallet
+                - generic [ref=f8e420]:
+                  - generic [ref=f8e421]: Easypaisa
+                  - generic [ref=f8e422]: "-"
+                  - generic "*******4567" [ref=f8e423]
+                  - generic [ref=f8e424]: "-"
+                  - generic [ref=f8e425]: PKR
+            - button "Electricbill33444 Wallet Easypaisa - ********5678 - PKR" [ref=f8e428] [cursor=pointer]:
+              - generic [ref=f8e435]:
+                - generic [ref=f8e436]:
+                  - paragraph [ref=f8e437]: Electricbill33444
+                  - generic [ref=f8e438]: Wallet
+                - generic [ref=f8e442]:
+                  - generic [ref=f8e443]: Easypaisa
+                  - generic [ref=f8e444]: "-"
+                  - generic "********5678" [ref=f8e445]
+                  - generic [ref=f8e446]: "-"
+                  - generic [ref=f8e447]: PKR
+            - button "Electricbill33 Wallet Easypaisa - ******3456 - PKR" [ref=f8e450] [cursor=pointer]:
+              - generic [ref=f8e457]:
+                - generic [ref=f8e458]:
+                  - paragraph [ref=f8e459]: Electricbill33
+                  - generic [ref=f8e460]: Wallet
+                - generic [ref=f8e464]:
+                  - generic [ref=f8e465]: Easypaisa
+                  - generic [ref=f8e466]: "-"
+                  - generic "******3456" [ref=f8e467]
+                  - generic [ref=f8e468]: "-"
+                  - generic [ref=f8e469]: PKR
+            - button "QA Wallet 001 Wallet Easypaisa - *******4567 - PKR" [ref=f8e472] [cursor=pointer]:
+              - generic [ref=f8e479]:
+                - generic [ref=f8e480]:
+                  - paragraph [ref=f8e481]: QA Wallet 001
+                  - generic [ref=f8e482]: Wallet
+                - generic [ref=f8e486]:
+                  - generic [ref=f8e487]: Easypaisa
+                  - generic [ref=f8e488]: "-"
+                  - generic "*******4567" [ref=f8e489]
+                  - generic [ref=f8e490]: "-"
+                  - generic [ref=f8e491]: PKR
+  - alert [ref=f8e2]

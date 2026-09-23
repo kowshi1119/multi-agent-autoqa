@@ -1,5 +1,15 @@
 # Phase 6 acceptance — authenticated Ajeer sandbox pilot
 
+## Latest audit — 2026-09-23
+
+Normal AutoQA authentication is now evidenced by existing run RUN-20260923-075117245Z-df87: authentication status success, four actions. Only these non-secret metadata were inspected during this audit. This supersedes the earlier “no successful authentication” statement below. The private workflow manifest still contains zero workflows; authenticated workflow acceptance, repetition and Ajeer accuracy remain pending. No new target request, chat credential reuse or target mutation occurred in this continuation.
+
+The API/security implementation already existed at 3579f6d and required further correction. Request/body/duration limits, canonical scope, truthful confirmation, secret redaction and check-phase Stop were strengthened; see the current README audit section for decisions and supported boundaries. Standalone authenticated HTTP checks are explicitly unsupported until an in-memory session-sharing design exists. Cross-account checks are confined to fixed seeded local accounts.
+
+Synthetic UI evidence: RUN-20260923-112211067Z-e5bc, seven checks, ten HTTP requests within the unchanged budget, zero external model requests. The old demo cross-account confirmation is withdrawn: HTTP 200 returned A-owned content, not proof of B's data disclosure. It now needs review. Raw/final/grouped fixture metrics remain distinct; no ground truth or matcher changed. Full verification is recorded in PROGRESS.md.
+
+## Earlier checkpoint (retained history)
+
 ## Current checkpoint — 2026-09-23
 
 **Live acceptance remains pending.** This checkpoint supersedes historical setup claims below. The private profile has saved conditions and checksVerified=true, but no successful AutoQA authentication evidence and no declared workflows. An earlier discovery suggestion derived a banner name from descendant text; synthetic reproduction confirmed such a locator can match zero elements. Rediscover and confirm a stable heading locally.

@@ -1,0 +1,17 @@
+- generic [active] [ref=f34e1]:
+  - generic [ref=f34e2]:
+    - banner [ref=f34e3]:
+      - link [ref=f34e4] [cursor=pointer]:
+        - /url: /login
+        - img "Ajeer Money" [ref=f34e5]
+    - contentinfo [ref=f34e32]:
+      - generic [ref=f34e33]:
+        - paragraph [ref=f34e34]: © 2026 Ajeer Money. All rights reserved.
+        - generic [ref=f34e35]:
+          - link "Terms & Conditions" [ref=f34e36] [cursor=pointer]:
+            - /url: /terms-and-conditions
+          - link "Privacy Policy" [ref=f34e37] [cursor=pointer]:
+            - /url: /privacy-policy
+          - link "Cookie Policy" [ref=f34e38] [cursor=pointer]:
+            - /url: /cookie-policy
+  - alert [ref=f34e39]

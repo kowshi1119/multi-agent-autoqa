@@ -1,0 +1,126 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e3]:
+    - banner [ref=f4e4]:
+      - generic [ref=f4e6]:
+        - link [ref=f4e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f4e8]
+        - button [ref=f4e11] [cursor=pointer]:
+          - generic [ref=f4e16]:
+            - paragraph [ref=f4e17]: Kowshi Mathi
+            - paragraph [ref=f4e18]: Personal
+    - generic [ref=f4e22]:
+      - navigation [ref=f4e23]:
+        - list [ref=f4e24]:
+          - listitem [ref=f4e25]:
+            - link "Home" [ref=f4e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f4e31]:
+            - link "Recipients" [ref=f4e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f4e39]:
+            - link "Bill Payments" [ref=f4e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f4e45]:
+            - link "Transactions" [ref=f4e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f4e51]:
+            - link "My Account" [ref=f4e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f4e57]:
+        - generic [ref=f4e59]:
+          - generic [ref=f4e60]:
+            - generic [ref=f4e61]:
+              - heading "Recipients" [level=1] [ref=f4e62]
+              - paragraph [ref=f4e63]: Keep track of your recipients and streamline your transactions.
+            - generic [ref=f4e64]:
+              - button "Bank account holder" [ref=f4e65] [cursor=pointer]
+              - button "Cash pickups" [ref=f4e66] [cursor=pointer]
+              - button "Wallets" [ref=f4e67] [cursor=pointer]
+            - generic [ref=f4e68]:
+              - textbox "Search bank account holder" [ref=f4e70]
+              - button "Add Bank Recipient" [ref=f4e72] [cursor=pointer]
+          - generic [ref=f4e74]:
+            - generic [ref=f4e75]:
+              - generic [ref=f4e76]: Recipient
+              - generic [ref=f4e77]: Bank Details
+              - generic [ref=f4e78]: Country
+              - generic [ref=f4e79]: Contact No
+            - generic [ref=f4e81]:
+              - generic [ref=f4e83]:
+                - generic [ref=f4e88]:
+                  - generic [ref=f4e89]:
+                    - paragraph [ref=f4e90]: QA Switch Test 001
+                    - generic [ref=f4e91]: Personal
+                  - paragraph [ref=f4e92]: Kamal Fernando
+                - generic [ref=f4e93]:
+                  - paragraph [ref=f4e94]: Bank of Ceylon
+                  - paragraph [ref=f4e95]: "*****22"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f4e97]
+                - generic "+94712345679" [ref=f4e99]
+                - generic [ref=f4e100]:
+                  - button "Send money" [ref=f4e102] [cursor=pointer]
+                  - button "More actions" [ref=f4e104] [cursor=pointer]
+              - generic [ref=f4e110]:
+                - generic [ref=f4e115]:
+                  - generic [ref=f4e116]:
+                    - paragraph [ref=f4e117]: QA Personal XSS 001
+                    - generic [ref=f4e118]: Personal
+                  - paragraph [ref=f4e119]: Jose O'Connor
+                - generic [ref=f4e120]:
+                  - paragraph [ref=f4e121]: Bank of Ceylon
+                  - paragraph [ref=f4e122]: "*****66"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f4e124]
+                - generic "+94712345678" [ref=f4e126]
+                - generic [ref=f4e127]:
+                  - button "Send money" [ref=f4e129] [cursor=pointer]
+                  - button "More actions" [ref=f4e131] [cursor=pointer]
+              - generic [ref=f4e137]:
+                - generic [ref=f4e142]:
+                  - generic [ref=f4e143]:
+                    - paragraph [ref=f4e144]: QA Personal 001
+                    - generic [ref=f4e145]: Personal
+                  - paragraph [ref=f4e146]: John Silva
+                - generic [ref=f4e147]:
+                  - paragraph [ref=f4e148]: Bank of Ceylon
+                  - paragraph [ref=f4e149]: "*****78"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f4e151]
+                - generic "+94712345678" [ref=f4e153]
+                - generic [ref=f4e154]:
+                  - button "Send money" [ref=f4e156] [cursor=pointer]
+                  - button "More actions" [ref=f4e158] [cursor=pointer]
+              - generic [ref=f4e164]:
+                - generic [ref=f4e169]:
+                  - generic [ref=f4e170]:
+                    - paragraph [ref=f4e171]: Test Recipient
+                    - generic [ref=f4e172]: Personal
+                  - paragraph [ref=f4e173]: John Silva
+                - generic [ref=f4e174]:
+                  - paragraph [ref=f4e175]: Bank of Ceylon
+                  - paragraph [ref=f4e176]: "*****67"
+                  - paragraph
+                - generic "Sri Lanka" [ref=f4e178]
+                - generic "+94771234567" [ref=f4e180]
+                - generic [ref=f4e181]:
+                  - button "Send money" [ref=f4e183] [cursor=pointer]
+                  - button "More actions" [ref=f4e185] [cursor=pointer]
+            - generic [ref=f4e190]:
+              - generic [ref=f4e191]:
+                - generic [ref=f4e192]:
+                  - generic [ref=f4e193]: "Rows per page:"
+                  - combobox [ref=f4e194] [cursor=pointer]:
+                    - option "5" [selected]
+                    - option "10"
+                    - option "25"
+                    - option "50"
+                - generic [ref=f4e195]: 1-4 of 4
+              - generic [ref=f4e196]:
+                - button "First page" [disabled] [ref=f4e197] [cursor=pointer]
+                - button "Previous page" [disabled] [ref=f4e201] [cursor=pointer]
+                - button "1" [ref=f4e205] [cursor=pointer]
+                - button "Next page" [disabled] [ref=f4e206] [cursor=pointer]
+                - button "Last page" [disabled] [ref=f4e209] [cursor=pointer]
+  - alert [ref=f4e2]

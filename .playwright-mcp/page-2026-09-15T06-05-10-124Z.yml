@@ -1,0 +1,29 @@
+- generic [active] [ref=f12e1]:
+  - main [ref=f12e6]:
+    - generic [ref=f12e170]:
+      - generic [ref=f12e172]:
+        - button [ref=f12e173] [cursor=pointer]
+        - generic [ref=f12e176]:
+          - heading "Personal Recipient's Bank Details" [level=1] [ref=f12e177]
+          - paragraph [ref=f12e178]: Bank details
+      - generic [ref=f12e180]:
+        - generic [ref=f12e181]:
+          - heading "Personal Recipient's Bank Details" [level=2] [ref=f12e182]
+          - paragraph [ref=f12e183]: Enter the bank account information for your personal recipient.
+        - generic [ref=f12e184]:
+          - generic [ref=f12e186]:
+            - combobox [aria-hidden]
+            - button "Bank name*" [ref=f12e187] [cursor=pointer]
+          - generic [ref=f12e191]:
+            - combobox "Branch name" [disabled] [ref=f12e192]
+            - generic: Branch name
+          - generic [ref=f12e194]:
+            - textbox "Account Number*" [ref=f12e195]:
+              - /placeholder: " "
+            - generic: Account Number*
+          - generic [ref=f12e197]:
+            - textbox "Bank Code*" [ref=f12e198]:
+              - /placeholder: " "
+            - generic: Bank Code*
+          - button "Save & Continue" [ref=f12e200] [cursor=pointer]
+  - alert [ref=f12e2]

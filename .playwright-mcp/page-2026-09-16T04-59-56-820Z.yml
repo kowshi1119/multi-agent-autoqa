@@ -1,0 +1,59 @@
+- generic [active] [ref=f29e1]:
+  - generic [ref=f29e3]:
+    - banner [ref=f29e4]:
+      - generic [ref=f29e6]:
+        - link [ref=f29e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f29e8]
+        - button [ref=f29e11] [cursor=pointer]:
+          - generic [ref=f29e16]:
+            - paragraph [ref=f29e17]: Kowshi Mathi
+            - paragraph [ref=f29e18]: Personal
+    - generic [ref=f29e22]:
+      - navigation [ref=f29e23]:
+        - list [ref=f29e24]:
+          - listitem [ref=f29e25]:
+            - link "Home" [ref=f29e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f29e31]:
+            - link "Recipients" [ref=f29e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f29e39]:
+            - link "Bill Payments" [ref=f29e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f29e45]:
+            - link "Transactions" [ref=f29e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f29e51]:
+            - link "My Account" [ref=f29e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f29e57]:
+        - generic [ref=f29e193]:
+          - generic [ref=f29e195]:
+            - button [ref=f29e196] [cursor=pointer]
+            - generic [ref=f29e199]:
+              - heading "Change Password" [level=1] [ref=f29e200]
+              - paragraph [ref=f29e201]: Update your account password
+          - generic [ref=f29e202]:
+            - generic [ref=f29e209]:
+              - generic [ref=f29e211]:
+                - textbox "Enter your current password" [ref=f29e212]
+                - button [ref=f29e213] [cursor=pointer]
+              - generic [ref=f29e218]:
+                - textbox "Enter new password" [ref=f29e219]
+                - button [ref=f29e220] [cursor=pointer]
+              - generic [ref=f29e225]:
+                - textbox "Confirm New Password" [ref=f29e226]:
+                  - /placeholder: " "
+                - button [ref=f29e227] [cursor=pointer]
+                - generic: Confirm New Password
+              - generic [ref=f29e231]:
+                - button "Cancel" [ref=f29e232] [cursor=pointer]
+                - button "Update Password" [ref=f29e233] [cursor=pointer]
+            - generic [ref=f29e238]:
+              - paragraph [ref=f29e239]: Security Tips
+              - list [ref=f29e240]:
+                - listitem [ref=f29e241]: Use a unique password that you don't use elsewhere
+                - listitem [ref=f29e242]: Avoid using personal information in your password
+                - listitem [ref=f29e243]: Consider using a password manager
+  - alert [ref=f29e2]

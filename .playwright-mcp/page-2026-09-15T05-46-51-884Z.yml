@@ -1,0 +1,69 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e3]:
+    - main [ref=f3e6]:
+      - generic [ref=f3e368]:
+        - generic [ref=f3e369]:
+          - generic [ref=f3e370]:
+            - generic [ref=f3e371]:
+              - heading "Recipients" [level=1] [ref=f3e372]
+              - paragraph [ref=f3e373]: Manage your saved recipients
+            - button "Add Bank Recipient" [ref=f3e375] [cursor=pointer]
+          - generic [ref=f3e377]:
+            - button "Bank Accounts" [ref=f3e378] [cursor=pointer]
+            - button "Cash Pickup" [ref=f3e382] [cursor=pointer]
+            - button "Wallets" [ref=f3e387] [cursor=pointer]
+          - textbox "Search bank accounts..." [ref=f3e393]
+        - generic [ref=f3e396]:
+          - generic [ref=f3e397]:
+            - generic [ref=f3e399]:
+              - generic [ref=f3e400]: Sri Lanka
+              - generic [ref=f3e406]:
+                - heading "QA Personal 001 Personal" [level=3] [ref=f3e407]:
+                  - generic [ref=f3e408]: QA Personal 001
+                  - generic [ref=f3e409]: Personal
+                - paragraph [ref=f3e410]: John Silva
+              - generic [ref=f3e411]:
+                - button [ref=f3e413] [cursor=pointer]
+                - button [ref=f3e418] [cursor=pointer]
+                - button [ref=f3e423] [cursor=pointer]
+                - button [ref=f3e428] [cursor=pointer]
+            - generic [ref=f3e433]:
+              - generic [ref=f3e434]: Sri Lanka
+              - generic [ref=f3e440]:
+                - heading "Test Recipient Personal" [level=3] [ref=f3e441]:
+                  - generic [ref=f3e442]: Test Recipient
+                  - generic [ref=f3e443]: Personal
+                - paragraph [ref=f3e444]: John Silva
+              - generic [ref=f3e445]:
+                - button [ref=f3e447] [cursor=pointer]
+                - button [ref=f3e452] [cursor=pointer]
+                - button [ref=f3e457] [cursor=pointer]
+                - button [ref=f3e462] [cursor=pointer]
+          - generic [ref=f3e466]:
+            - generic [ref=f3e468]:
+              - generic [ref=f3e469]: "Rows per page:"
+              - combobox [ref=f3e470] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "25"
+                - option "50"
+            - generic [ref=f3e471]:
+              - button "First page" [disabled] [ref=f3e472] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f3e476] [cursor=pointer]
+              - button "1" [ref=f3e480] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f3e481] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f3e484] [cursor=pointer]
+            - generic [ref=f3e488]: 1-2 of 2
+    - navigation [ref=f3e489]:
+      - generic [ref=f3e490]:
+        - link "Home" [ref=f3e491] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f3e496] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f3e503] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f3e508] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f3e513] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f3e2]

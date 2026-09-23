@@ -1,0 +1,94 @@
+- generic [ref=f26e1]:
+  - generic [ref=f26e3]:
+    - banner [ref=f26e4]:
+      - generic [ref=f26e6]:
+        - link [ref=f26e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f26e8]
+        - button [ref=f26e11] [cursor=pointer]:
+          - generic [ref=f26e16]:
+            - paragraph [ref=f26e17]: Kowshi Mathi
+            - paragraph [ref=f26e18]: Personal
+    - generic [ref=f26e22]:
+      - navigation [ref=f26e23]:
+        - list [ref=f26e24]:
+          - listitem [ref=f26e25]:
+            - link "Home" [ref=f26e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f26e31]:
+            - link "Recipients" [ref=f26e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f26e39]:
+            - link "Bill Payments" [ref=f26e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f26e45]:
+            - link "Transactions" [ref=f26e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f26e51]:
+            - link "My Account" [ref=f26e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f26e57]:
+        - generic [ref=f26e59]:
+          - generic [ref=f26e60]:
+            - heading "Transaction History" [level=1] [ref=f26e61]
+            - paragraph [ref=f26e62]: View and manage all your transactions.
+          - generic [ref=f26e63]:
+            - button "All" [ref=f26e64] [cursor=pointer]
+            - button "Ongoing" [ref=f26e65] [cursor=pointer]
+            - button "Completed" [ref=f26e66] [cursor=pointer]
+          - generic [ref=f26e67]:
+            - textbox "Search Transaction by name, number or date" [ref=f26e69]
+            - generic [ref=f26e70]:
+              - button "Filters" [expanded] [active] [ref=f26e71] [cursor=pointer]
+              - button "Export CSV" [ref=f26e74] [cursor=pointer]
+          - generic [ref=f26e529]:
+            - generic [ref=f26e530]:
+              - generic [ref=f26e531]: Transaction Type
+              - button "All types" [ref=f26e533] [cursor=pointer]
+            - generic [ref=f26e538]:
+              - generic [ref=f26e539]: Date Range
+              - button "Select date range" [ref=f26e541] [cursor=pointer]
+          - generic [ref=f26e76]:
+            - generic [ref=f26e545]:
+              - generic [ref=f26e546]: Recipient
+              - generic [ref=f26e547]: Transaction ID
+              - generic [ref=f26e548]: Date & Time
+              - generic [ref=f26e549]: Amount
+              - generic [ref=f26e550]: Status
+            - generic [ref=f26e554]:
+              - generic [ref=f26e555]:
+                - generic "Money transfer" [ref=f26e559]
+                - generic [ref=f26e563]:
+                  - generic [ref=f26e564]:
+                    - paragraph [ref=f26e565]: QA Switch Test 001
+                    - tooltip "QA Switch Test 001"
+                  - paragraph [ref=f26e566]: 1,000.01 GBP sent
+              - generic [ref=f26e568]:
+                - paragraph [ref=f26e569]: AMB2026091600001
+                - tooltip "AMB2026091600001"
+              - generic [ref=f26e570]:
+                - paragraph [ref=f26e571]: Sep 16, 2026
+                - paragraph [ref=f26e572]: 9:37 am
+              - generic [ref=f26e573]:
+                - paragraph [ref=f26e574]: 451,297.30 LKR
+                - paragraph [ref=f26e575]: 1,000.01 GBP
+              - generic [ref=f26e576]: Initiated
+              - button "Download" [ref=f26e579] [cursor=pointer]
+            - generic [ref=f26e580]:
+              - generic [ref=f26e581]:
+                - generic [ref=f26e582]:
+                  - generic [ref=f26e583]: "Rows per page:"
+                  - combobox [ref=f26e584] [cursor=pointer]:
+                    - option "5" [selected]
+                    - option "10"
+                    - option "20"
+                    - option "50"
+                    - option "100"
+                - generic [ref=f26e585]: 1-1 of 1
+              - generic [ref=f26e586]:
+                - button "First page" [disabled] [ref=f26e587] [cursor=pointer]
+                - button "Previous page" [disabled] [ref=f26e591] [cursor=pointer]
+                - button "1" [ref=f26e595] [cursor=pointer]
+                - button "Next page" [disabled] [ref=f26e596] [cursor=pointer]
+                - button "Last page" [disabled] [ref=f26e599] [cursor=pointer]
+  - alert [ref=f26e2]

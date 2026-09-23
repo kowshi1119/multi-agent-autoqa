@@ -1,5 +1,11 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Latest status — 2026-09-23
+
+Existing normal-run authentication evidence RUN-20260923-075117245Z-df87 was independently checked: success, four actions. Repeating discovery is not required merely because older notes below say login was blocked. The workflow manifest remains empty. The next live task is observing and declaring actual read-only workflows with a fresh locally entered credential, then executing one, the remainder, and a fresh repetition. No credentials or persisted browser sessions are recovered from prior chat/history.
+
+The new standalone API/security checks do not reuse browser authentication; authenticated profiles are explicitly unsupported for that HTTP phase. Cross-account probing is supported only for the fixed local fixture, never Ajeer. Existing read-only target scope and budgets remain unchanged. See the latest PHASE6_ACCEPTANCE.md checkpoint; older sections below are historical.
+
 ## Current setup path — 2026-09-23
 
 Run **npm run ui**, select Ajeer and Demo. Enter credentials only under the local **Discover** form. Choose a stable, non-personal verified heading and save the observed conditions. Then enter credentials again under **Sign in for this run**, select **Authentication only**, and Start. Discovery does not count as acceptance; require a successful normal-run authentication report before declaring workflows. Cancel closes discovery without saving conditions. Same-route login, MFA, CAPTCHA and interactive SSO are unsupported.

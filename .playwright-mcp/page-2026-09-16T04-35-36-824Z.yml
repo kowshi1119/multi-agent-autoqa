@@ -1,0 +1,31 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - main [ref=f5e5]:
+      - generic [ref=f5e6]:
+        - generic [ref=f5e7]:
+          - generic [ref=f5e8]:
+            - generic [ref=f5e9]:
+              - heading "History" [level=1] [ref=f5e10]
+              - paragraph [ref=f5e11]: Your transaction history
+            - button "Export" [disabled] [ref=f5e12] [cursor=pointer]
+          - textbox "Search transactions" [ref=f5e17]
+          - generic [ref=f5e18]:
+            - generic [ref=f5e19]:
+              - button "All" [disabled] [ref=f5e20] [cursor=pointer]
+              - button "Ongoing" [disabled] [ref=f5e21] [cursor=pointer]
+              - button "Completed" [disabled] [ref=f5e22] [cursor=pointer]
+            - button "Filters" [ref=f5e23] [cursor=pointer]
+        - paragraph [ref=f5e31]: Loading transactions...
+    - navigation [ref=f5e32]:
+      - generic [ref=f5e33]:
+        - link "Home" [ref=f5e34] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f5e39] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f5e46] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f5e51] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f5e56] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f5e61]

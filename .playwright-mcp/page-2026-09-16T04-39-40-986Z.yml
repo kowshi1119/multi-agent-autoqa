@@ -1,0 +1,46 @@
+- generic [active] [ref=f9e1]:
+  - generic [ref=f9e2]:
+    - main [ref=f9e5]:
+      - generic [ref=f9e6]:
+        - generic [ref=f9e7]:
+          - generic [ref=f9e8]:
+            - generic [ref=f9e10]:
+              - paragraph [ref=f9e11]: Good morning
+              - heading "Kowshi Mathi" [level=1] [ref=f9e12]
+            - button [ref=f9e14] [cursor=pointer]
+          - button [ref=f9e23] [cursor=pointer]
+        - generic [ref=f9e28]:
+          - generic [ref=f9e30]:
+            - paragraph [ref=f9e35]: Good morning, Kowshi
+            - heading "Welcome back to Ajeer Money" [level=2] [ref=f9e36]
+            - button "Send money" [ref=f9e38] [cursor=pointer]
+          - generic [ref=f9e42]:
+            - generic [ref=f9e43]:
+              - generic [ref=f9e46]:
+                - heading "Bank Account Holders" [level=2] [ref=f9e47]
+                - link "View all" [ref=f9e48] [cursor=pointer]:
+                  - /url: /recipients
+              - generic [ref=f9e61]:
+                - heading "Cash Pickups" [level=2] [ref=f9e62]
+                - link "View all" [ref=f9e63] [cursor=pointer]:
+                  - /url: /recipients?tab=cash
+              - generic [ref=f9e76]:
+                - heading "Wallets" [level=2] [ref=f9e77]
+                - link "View all" [ref=f9e78] [cursor=pointer]:
+                  - /url: /recipients?tab=wallet
+            - generic [ref=f9e93]:
+              - heading "Latest Exchange Rates" [level=2] [ref=f9e94]
+              - paragraph [ref=f9e95]: Based on 1 GBP
+    - navigation [ref=f9e125]:
+      - generic [ref=f9e126]:
+        - link "Home" [ref=f9e127] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f9e132] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f9e139] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f9e144] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f9e149] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f9e154]

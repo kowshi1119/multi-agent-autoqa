@@ -1,0 +1,69 @@
+- generic [active] [ref=f6e1]:
+  - generic [ref=f6e2]:
+    - main [ref=f6e5]:
+      - generic [ref=f6e6]:
+        - generic [ref=f6e7]:
+          - heading "Account" [level=1] [ref=f6e8]
+          - paragraph [ref=f6e9]: Manage your account settings
+        - generic [ref=f6e10]:
+          - generic [ref=f6e13]:
+            - generic [ref=f6e14]:
+              - heading "Kowshi Mathi" [level=2] [ref=f6e19]
+              - paragraph [ref=f6e20]: kowshikan@spoton.money
+              - generic [ref=f6e21]: Approved
+            - generic [ref=f6e23]:
+              - generic [ref=f6e24]: kowshikan@spoton.money
+              - generic [ref=f6e29]: "+447367524129"
+          - generic [ref=f6e34]:
+            - generic [ref=f6e35]:
+              - heading "Account Settings" [level=3] [ref=f6e41]
+              - generic [ref=f6e42]:
+                - button [ref=f6e43] [cursor=pointer]:
+                  - generic [ref=f6e49]:
+                    - paragraph [ref=f6e50]: Personal Information
+                    - paragraph [ref=f6e51]: Name, date of birth, address
+                - link "KYC Verification Your identity has been verified Approved" [ref=f6e54] [cursor=pointer]:
+                  - /url: /verification/identity
+                  - generic [ref=f6e59]:
+                    - paragraph [ref=f6e60]: KYC Verification
+                    - paragraph [ref=f6e61]: Your identity has been verified
+                  - generic [ref=f6e62]: Approved
+                - link [ref=f6e64] [cursor=pointer]:
+                  - /url: /account/security
+                  - generic [ref=f6e71]:
+                    - paragraph [ref=f6e72]: Change Password
+                    - paragraph [ref=f6e73]: Update your account password
+                - link [ref=f6e76] [cursor=pointer]:
+                  - /url: /account/devices
+                  - generic [ref=f6e81]:
+                    - paragraph [ref=f6e82]: Devices
+                    - paragraph [ref=f6e83]: Manage your logged-in devices
+            - generic [ref=f6e86]:
+              - heading "Support & Legal" [level=3] [ref=f6e96]
+              - generic [ref=f6e97]:
+                - link "Help Centre" [ref=f6e98] [cursor=pointer]:
+                  - /url: https://ajeer-web.uat.acorefin.com/contact
+                - link "Terms & Conditions" [ref=f6e106] [cursor=pointer]:
+                  - /url: /terms-and-conditions
+                - link "Privacy Policy" [ref=f6e114] [cursor=pointer]:
+                  - /url: /privacy-policy
+            - button "Log out" [ref=f6e122] [cursor=pointer]
+            - link [ref=f6e128] [cursor=pointer]:
+              - /url: /account/delete
+              - generic [ref=f6e134]:
+                - paragraph [ref=f6e135]: Delete Account
+                - paragraph [ref=f6e136]: Permanently close your account
+            - paragraph [ref=f6e139]: Ajeer Money Web v1.0.0
+    - navigation [ref=f6e140]:
+      - generic [ref=f6e141]:
+        - link "Home" [ref=f6e142] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f6e147] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f6e154] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f6e159] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f6e164] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f6e169]

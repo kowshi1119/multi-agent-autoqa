@@ -1,0 +1,69 @@
+- generic [active] [ref=f6e1]:
+  - main [ref=f6e6]:
+    - generic [ref=f6e71]:
+      - generic [ref=f6e73]:
+        - button [ref=f6e74] [cursor=pointer]
+        - generic [ref=f6e77]:
+          - heading "Add Personal Recipient Details" [level=1] [ref=f6e78]
+          - paragraph [ref=f6e79]: Enter details
+      - generic [ref=f6e81]:
+        - generic [ref=f6e82]:
+          - heading "Add Personal Recipient Details" [level=2] [ref=f6e83]
+          - paragraph [ref=f6e84]: Enter the personal recipient's details to ensure your money is sent correctly.
+        - generic [ref=f6e85]:
+          - radiogroup "Recipient type" [ref=f6e86]:
+            - radio "Personal Send to a person" [checked] [ref=f6e87] [cursor=pointer]:
+              - generic [ref=f6e91]:
+                - generic [ref=f6e92]: Personal
+                - generic [ref=f6e93]: Send to a person
+            - radio "Business Send to a company" [ref=f6e94] [cursor=pointer]:
+              - generic [ref=f6e99]:
+                - generic [ref=f6e100]: Business
+                - generic [ref=f6e101]: Send to a company
+          - generic [ref=f6e103]:
+            - textbox "Nickname*" [ref=f6e104]:
+              - /placeholder: " "
+            - generic: Nickname*
+          - generic [ref=f6e105]:
+            - generic [ref=f6e107]:
+              - textbox [ref=f6e108]:
+                - /placeholder: " "
+              - generic: First Name*
+            - generic [ref=f6e110]:
+              - textbox [ref=f6e111]:
+                - /placeholder: " "
+              - generic: Last Name*
+          - generic [ref=f6e113]:
+            - combobox [disabled] [aria-hidden]
+            - button "Select country* Nepal" [disabled] [ref=f6e114] [cursor=pointer]:
+              - generic: Select country*
+              - generic [ref=f6e115]: Nepal
+          - generic [ref=f6e121]:
+            - button "+977" [disabled] [ref=f6e122] [cursor=pointer]
+            - generic [ref=f6e124]:
+              - textbox [ref=f6e125]:
+                - /placeholder: " "
+              - generic: Contact number*
+          - generic [ref=f6e127]:
+            - textbox "Email Address (optional)" [ref=f6e128]:
+              - /placeholder: " "
+            - generic: Email Address (optional)
+          - generic [ref=f6e130]:
+            - textbox "Address line 1*" [ref=f6e131]:
+              - /placeholder: " "
+            - generic: Address line 1*
+          - generic [ref=f6e133]:
+            - textbox "Address line 2 (optional)" [ref=f6e134]:
+              - /placeholder: " "
+            - generic: Address line 2 (optional)
+          - generic [ref=f6e135]:
+            - generic [ref=f6e137]:
+              - textbox "City (optional)" [ref=f6e138]:
+                - /placeholder: " "
+              - generic: City (optional)
+            - generic [ref=f6e140]:
+              - textbox "Postal/ZIP Code*" [ref=f6e141]:
+                - /placeholder: " "
+              - generic: Postal/ZIP Code*
+          - button "Save & Continue" [ref=f6e143] [cursor=pointer]
+  - alert [ref=f6e2]

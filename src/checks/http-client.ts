@@ -4,6 +4,7 @@ export type CheckHttpResponse = {
   status: number;
   contentType: string | undefined;
   headers: Record<string, string>;
+  setCookies: string[];
   /** Parsed JSON when the content-type says so and parsing succeeded, else the raw capped-length text. */
   body: unknown;
   bodyTruncated: boolean;
@@ -38,16 +39,31 @@ export async function fireCheckRequest(
       headers: { "content-type": "application/json", ...extraHeaders },
       ...(requestBody !== undefined ? { body: JSON.stringify(requestBody) } : {}),
     });
-  } catch (error) {
-    return { failed: true, reason: error instanceof Error ? error.message : String(error) };
+  } catch {
+    return { failed: true, reason: signal.aborted ? "Request cancelled or timed out." : "Request transport failed." };
   }
 
   const headers: Record<string, string> = {};
   response.headers.forEach((value, key) => (headers[key] = value));
 
-  const raw = await response.text();
-  const truncated = raw.length > responseSizeCapBytes;
-  const capped = truncated ? raw.slice(0, responseSizeCapBytes) : raw;
+  const reader = response.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    if (reader) for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      bytes += next.value.byteLength;
+      if (bytes > responseSizeCapBytes) return { failed: true, reason: "Response exceeded the byte limit; assertions were not evaluated." };
+      chunks.push(next.value);
+    }
+  } catch {
+    return { failed: true, reason: signal.aborted ? "Response cancelled or timed out." : "Response stream failed." };
+  } finally {
+    await reader?.cancel().catch(() => {});
+  }
+  const capped = Buffer.concat(chunks).toString("utf8");
+  const truncated = false;
   const contentType = response.headers.get("content-type") ?? undefined;
 
   let body: unknown = capped;
@@ -60,5 +76,5 @@ export async function fireCheckRequest(
     }
   }
 
-  return { status: response.status, contentType, headers, body, bodyTruncated: truncated };
+  return { status: response.status, contentType, headers, setCookies: response.headers.getSetCookie(), body, bodyTruncated: truncated };
 }

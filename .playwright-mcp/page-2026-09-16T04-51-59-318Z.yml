@@ -1,0 +1,50 @@
+- generic [active] [ref=f23e1]:
+  - main [ref=f23e6]:
+    - generic [ref=f23e195]:
+      - generic [ref=f23e197]:
+        - button [ref=f23e198] [cursor=pointer]
+        - generic [ref=f23e201]:
+          - heading "Billing Details" [level=1] [ref=f23e202]
+          - paragraph [ref=f23e203]: Provide bill information
+      - generic [ref=f23e206]:
+        - generic [ref=f23e209]:
+          - combobox [disabled] [aria-hidden]
+          - button "Pakistan" [disabled] [ref=f23e210] [cursor=pointer]
+          - generic: Country
+        - generic [ref=f23e217]:
+          - combobox [aria-hidden]
+          - button [ref=f23e218] [cursor=pointer]
+          - generic: Category*
+        - generic [ref=f23e223]:
+          - combobox [disabled] [aria-hidden]
+          - button [disabled] [ref=f23e224] [cursor=pointer]
+          - generic: Service Provider*
+        - generic [ref=f23e227]:
+          - paragraph [ref=f23e228]: Billing details
+          - generic [ref=f23e229]:
+            - generic [ref=f23e231]:
+              - textbox "Billing account number*" [ref=f23e232]:
+                - /placeholder: " "
+              - generic: Billing account number*
+            - generic [ref=f23e234]:
+              - textbox "Billing account name*" [ref=f23e235]:
+                - /placeholder: " "
+              - generic: Billing account name*
+            - generic [ref=f23e237]:
+              - textbox "Nickname*" [ref=f23e238]:
+                - /placeholder: " "
+              - generic: Nickname*
+            - generic [ref=f23e241]:
+              - button "+92" [disabled] [ref=f23e242] [cursor=pointer]
+              - generic [ref=f23e244]:
+                - textbox [ref=f23e245]:
+                  - /placeholder: " "
+                - generic: Phone number*
+            - generic [ref=f23e247]:
+              - textbox "Email address" [ref=f23e248]:
+                - /placeholder: " "
+              - generic: Email address
+        - generic [ref=f23e249]:
+          - button "Save & Continue" [ref=f23e251] [cursor=pointer]
+          - button "Save & Exit" [ref=f23e253] [cursor=pointer]
+  - alert [ref=f23e2]

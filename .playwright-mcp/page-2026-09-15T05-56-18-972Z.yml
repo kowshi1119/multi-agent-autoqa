@@ -1,0 +1,45 @@
+- generic [ref=f8e1]:
+  - main [ref=f8e6]:
+    - generic [ref=f8e75]:
+      - generic [ref=f8e77]:
+        - button [ref=f8e78] [cursor=pointer]
+        - generic [ref=f8e81]:
+          - heading "Add Wallet" [level=1] [ref=f8e82]
+          - paragraph [ref=f8e83]: Select currency
+      - generic [ref=f8e84]:
+        - generic [ref=f8e85]:
+          - heading "Select their currency" [level=2] [ref=f8e86]
+          - paragraph [ref=f8e87]: Choose the receiving currency for this wallet.
+        - textbox "Search currency" [ref=f8e92]
+        - generic [ref=f8e93]:
+          - heading "Available currencies" [level=3] [ref=f8e95]
+          - generic [ref=f8e96]:
+            - generic [ref=f8e97]:
+              - generic [ref=f8e99]:
+                - img "Sri Lanka" [ref=f8e101]
+                - generic [ref=f8e102]:
+                  - paragraph [ref=f8e103]: LKR
+                  - paragraph [ref=f8e104]: Sri Lankan Rupee
+              - tooltip "No wallet providers available for this country"
+            - button [active] [ref=f8e108] [cursor=pointer]:
+              - generic [ref=f8e109]:
+                - img "Pakistan" [ref=f8e111]
+                - generic [ref=f8e112]:
+                  - paragraph [ref=f8e113]: PKR
+                  - paragraph [ref=f8e114]: Pakistani Rupee
+            - generic [ref=f8e117]:
+              - generic [ref=f8e119]:
+                - img "Bangladesh" [ref=f8e121]
+                - generic [ref=f8e122]:
+                  - paragraph [ref=f8e123]: BDT
+                  - paragraph [ref=f8e124]: Bangladeshi Taka
+              - tooltip "No wallet providers available for this country"
+            - generic [ref=f8e128]:
+              - generic [ref=f8e130]:
+                - img "Nepal" [ref=f8e132]
+                - generic [ref=f8e133]:
+                  - paragraph [ref=f8e134]: NPR
+                  - paragraph [ref=f8e135]: Nepalese Rupee
+              - tooltip "No wallet providers available for this country"
+        - button "Continue" [ref=f8e140] [cursor=pointer]
+  - alert [ref=f8e2]

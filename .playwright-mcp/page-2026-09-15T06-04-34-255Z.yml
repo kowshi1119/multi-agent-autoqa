@@ -1,0 +1,75 @@
+- generic [ref=f12e1]:
+  - main [ref=f12e6]:
+    - generic [ref=f12e71]:
+      - generic [ref=f12e73]:
+        - button [ref=f12e74] [cursor=pointer]
+        - generic [ref=f12e77]:
+          - heading "Add Business Recipient Details" [level=1] [ref=f12e144]
+          - paragraph [ref=f12e79]: Enter details
+      - generic [ref=f12e81]:
+        - generic [ref=f12e82]:
+          - heading "Add Business Recipient Details" [level=2] [ref=f12e145]
+          - paragraph [ref=f12e84]: Enter the business recipient's details to ensure your money is sent correctly.
+        - generic [ref=f12e85]:
+          - radiogroup "Recipient type" [ref=f12e86]:
+            - radio "Personal Send to a person" [ref=f12e87] [cursor=pointer]:
+              - generic [ref=f12e91]:
+                - generic [ref=f12e92]: Personal
+                - generic [ref=f12e93]: Send to a person
+            - radio "Business Send to a company" [checked] [active] [ref=f12e94] [cursor=pointer]:
+              - generic [ref=f12e99]:
+                - generic [ref=f12e100]: Business
+                - generic [ref=f12e101]: Send to a company
+          - generic [ref=f12e103]:
+            - textbox "Nickname*" [ref=f12e104]:
+              - /placeholder: " "
+            - generic: Nickname*
+          - generic [ref=f12e147]:
+            - textbox [ref=f12e148]:
+              - /placeholder: " "
+            - generic: Business Name*
+          - generic [ref=f12e150]:
+            - combobox [aria-hidden]
+            - button "Business Registration Type" [ref=f12e151] [cursor=pointer]
+          - generic [ref=f12e155]:
+            - textbox [ref=f12e156]:
+              - /placeholder: " "
+            - generic: Business Registration Number
+          - generic [ref=f12e158]:
+            - textbox [ref=f12e159]:
+              - /placeholder: " "
+            - generic: Regional Beneficiary Name
+          - generic [ref=f12e113]:
+            - combobox [disabled] [aria-hidden]
+            - button "Select country* Sri Lanka" [disabled] [ref=f12e114] [cursor=pointer]:
+              - generic: Select country*
+              - generic [ref=f12e115]: Sri Lanka
+          - generic [ref=f12e121]:
+            - button "+94" [disabled] [ref=f12e122] [cursor=pointer]
+            - generic [ref=f12e124]:
+              - textbox [ref=f12e125]:
+                - /placeholder: " "
+              - generic: Contact number*
+          - generic [ref=f12e127]:
+            - textbox "Email Address (optional)" [ref=f12e128]:
+              - /placeholder: " "
+            - generic: Email Address (optional)
+          - generic [ref=f12e130]:
+            - textbox "Address line 1*" [ref=f12e131]:
+              - /placeholder: " "
+            - generic: Address line 1*
+          - generic [ref=f12e133]:
+            - textbox "Address line 2 (optional)" [ref=f12e134]:
+              - /placeholder: " "
+            - generic: Address line 2 (optional)
+          - generic [ref=f12e135]:
+            - generic [ref=f12e137]:
+              - textbox "City (optional)" [ref=f12e138]:
+                - /placeholder: " "
+              - generic: City (optional)
+            - generic [ref=f12e140]:
+              - textbox "Postal/ZIP Code*" [ref=f12e141]:
+                - /placeholder: " "
+              - generic: Postal/ZIP Code*
+          - button "Save & Continue" [ref=f12e143] [cursor=pointer]
+  - alert [ref=f12e2]

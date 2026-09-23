@@ -1,0 +1,10 @@
+from pathlib import Path
+p=Path('assets/hero/source/animation.js')
+s=p.read_text(encoding='utf-8')
+s=s.replace("getContext('2d',{alpha:false})","getContext('2d')")
+s=s.replace("(lobe?27:-27)+39", "(lobe?21:-21)+52").replace('yy=-56*Math.cos(v)','yy=-52*Math.cos(v)')
+s=s.replace('const nodes=[];for(let lobe=', '''c.save();c.translate(1032,y);c.rotate(.025*Math.sin(cycle));c.beginPath();c.moveTo(0,-45);c.bezierCurveTo(-17,-65,-53,-59,-61,-38);c.bezierCurveTo(-86,-30,-88,-4,-75,12);c.bezierCurveTo(-85,38,-50,61,-21,44);c.bezierCurveTo(-9,42,-7,52,0,50);c.bezierCurveTo(10,49,12,40,25,44);c.bezierCurveTo(57,55,86,34,76,10);c.bezierCurveTo(89,-12,74,-38,59,-42);c.bezierCurveTo(42,-66,10,-58,0,-45);c.closePath();c.strokeStyle='rgba(65,245,222,.5)';c.lineWidth=1;c.shadowColor=C.cyan;c.shadowBlur=8;c.stroke();c.restore();const nodes=[];for(let lobe=''')
+s=s.replace("label(T>=6.3?'BUG VERIFIED':T>=5.5?'BUG FOUND':'DEFECT ANALYSIS',13,26,12,T>=5?C.cyan:'#7398a8',600);", "const status=T>=6.3?'BUG VERIFIED':T>=5.5?'BUG FOUND':'DEFECT ANALYSIS';alpha(T>=5.5?1-live:1,()=>label('DEFECT ANALYSIS',13,26,12,'#7398a8',600));if(T>=5.5)alpha(live,()=>label(status,13,26,12,C.cyan,600));")
+s=s.replace("label(T>=8.1?'E2E PASSED':states[step],61,95,8,C.white,500);", "alpha(1-live,()=>label('HOME',61,95,8,C.white,500));alpha(live,()=>label(T>=8.1?'E2E PASSED':states[step],61,95,8,C.white,500));")
+s=s.replace("if(T>=b)check(139,y,live);", "if(T>=a)alpha(1-live,()=>circle(139,y-1,3,'#285463'));if(T>=b)check(139,y,live);")
+p.write_text(s,encoding='utf-8')

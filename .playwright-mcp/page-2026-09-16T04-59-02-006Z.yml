@@ -1,0 +1,84 @@
+- generic [active] [ref=f27e1]:
+  - generic [ref=f27e3]:
+    - banner [ref=f27e4]:
+      - generic [ref=f27e6]:
+        - link [ref=f27e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f27e8]
+        - button [ref=f27e11] [cursor=pointer]:
+          - generic [ref=f27e16]:
+            - paragraph [ref=f27e17]: Kowshi Mathi
+            - paragraph [ref=f27e18]: Personal
+    - generic [ref=f27e22]:
+      - navigation [ref=f27e23]:
+        - list [ref=f27e24]:
+          - listitem [ref=f27e25]:
+            - link "Home" [ref=f27e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f27e31]:
+            - link "Recipients" [ref=f27e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f27e39]:
+            - link "Bill Payments" [ref=f27e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f27e45]:
+            - link "Transactions" [ref=f27e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f27e51]:
+            - link "My Account" [ref=f27e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f27e57]:
+        - generic [ref=f27e59]:
+          - generic [ref=f27e61]:
+            - generic [ref=f27e62]:
+              - heading "Account Settings" [level=1] [ref=f27e63]
+              - paragraph [ref=f27e64]: Manage your profile and preferences
+            - generic [ref=f27e65]:
+              - generic [ref=f27e66]:
+                - heading "Kowshi Mathi" [level=2] [ref=f27e71]
+                - paragraph [ref=f27e72]: kowshikan@spoton.money
+                - generic [ref=f27e73]: Approved
+              - generic [ref=f27e75]:
+                - generic [ref=f27e76]: kowshikan@spoton.money
+                - generic [ref=f27e81]: "+447367524129"
+          - generic [ref=f27e86]:
+            - generic [ref=f27e87]:
+              - heading "Account Settings" [level=3] [ref=f27e93]
+              - generic [ref=f27e94]:
+                - button [ref=f27e95] [cursor=pointer]:
+                  - generic [ref=f27e101]:
+                    - paragraph [ref=f27e102]: Personal Information
+                    - paragraph [ref=f27e103]: Name, date of birth, address
+                - link "KYC Verification Your identity has been verified Approved" [ref=f27e106] [cursor=pointer]:
+                  - /url: /verification/identity
+                  - generic [ref=f27e111]:
+                    - paragraph [ref=f27e112]: KYC Verification
+                    - paragraph [ref=f27e113]: Your identity has been verified
+                  - generic [ref=f27e114]: Approved
+                - link [ref=f27e116] [cursor=pointer]:
+                  - /url: /account/security
+                  - generic [ref=f27e123]:
+                    - paragraph [ref=f27e124]: Change Password
+                    - paragraph [ref=f27e125]: Update your account password
+                - link [ref=f27e128] [cursor=pointer]:
+                  - /url: /account/devices
+                  - generic [ref=f27e133]:
+                    - paragraph [ref=f27e134]: Devices
+                    - paragraph [ref=f27e135]: Manage your logged-in devices
+            - generic [ref=f27e138]:
+              - heading "Support & Legal" [level=3] [ref=f27e148]
+              - generic [ref=f27e149]:
+                - link "Help Centre" [ref=f27e150] [cursor=pointer]:
+                  - /url: https://ajeer-web.uat.acorefin.com/contact
+                - link "Terms & Conditions" [ref=f27e158] [cursor=pointer]:
+                  - /url: /terms-and-conditions
+                - link "Privacy Policy" [ref=f27e166] [cursor=pointer]:
+                  - /url: /privacy-policy
+            - button "Log out" [ref=f27e174] [cursor=pointer]
+            - link [ref=f27e180] [cursor=pointer]:
+              - /url: /account/delete
+              - generic [ref=f27e186]:
+                - paragraph [ref=f27e187]: Delete Account
+                - paragraph [ref=f27e188]: Permanently close your account
+            - paragraph [ref=f27e191]: Ajeer Money Web v1.0.0
+  - alert [ref=f27e2]

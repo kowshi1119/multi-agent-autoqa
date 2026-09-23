@@ -37,10 +37,8 @@ it("redacts sensitive keys arbitrarily deep in nested objects and arrays", () =>
 
   expect(redacted).not.toContain("deep-secret-1");
   expect(redacted).not.toContain("deep-secret-3");
-  // The array-of-objects header shape ({name, value}) doesn't expose the
-  // header name AS a key -- "value" itself isn't sensitive-named, so this
-  // documents the current boundary rather than asserting a false guarantee.
-  expect(redacted).toContain("deep-secret-2");
+  // Header name/value pairs receive the same treatment as header maps.
+  expect(redacted).not.toContain("deep-secret-2");
 });
 
 it("leaves non-sensitive structure and values completely unchanged", () => {

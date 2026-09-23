@@ -1,0 +1,75 @@
+- generic [ref=f4e1]:
+  - main [ref=f4e6]:
+    - generic [ref=f4e71]:
+      - generic [ref=f4e73]:
+        - button [ref=f4e74] [cursor=pointer]
+        - generic [ref=f4e77]:
+          - heading "Add Business Recipient Details" [level=1] [ref=f4e144]
+          - paragraph [ref=f4e79]: Enter details
+      - generic [ref=f4e81]:
+        - generic [ref=f4e82]:
+          - heading "Add Business Recipient Details" [level=2] [ref=f4e145]
+          - paragraph [ref=f4e84]: Enter the business recipient's details to ensure your money is sent correctly.
+        - generic [ref=f4e85]:
+          - radiogroup "Recipient type" [ref=f4e86]:
+            - radio "Personal Send to a person" [ref=f4e87] [cursor=pointer]:
+              - generic [ref=f4e91]:
+                - generic [ref=f4e92]: Personal
+                - generic [ref=f4e93]: Send to a person
+            - radio "Business Send to a company" [checked] [active] [ref=f4e94] [cursor=pointer]:
+              - generic [ref=f4e99]:
+                - generic [ref=f4e100]: Business
+                - generic [ref=f4e101]: Send to a company
+          - generic [ref=f4e103]:
+            - textbox "Nickname*" [ref=f4e104]:
+              - /placeholder: " "
+            - generic: Nickname*
+          - generic [ref=f4e147]:
+            - textbox [ref=f4e148]:
+              - /placeholder: " "
+            - generic: Business Name*
+          - generic [ref=f4e150]:
+            - combobox [aria-hidden]
+            - button "Business Registration Type" [ref=f4e151] [cursor=pointer]
+          - generic [ref=f4e155]:
+            - textbox [ref=f4e156]:
+              - /placeholder: " "
+            - generic: Business Registration Number
+          - generic [ref=f4e158]:
+            - textbox [ref=f4e159]:
+              - /placeholder: " "
+            - generic: Regional Beneficiary Name
+          - generic [ref=f4e113]:
+            - combobox [disabled] [aria-hidden]
+            - button "Select country* Sri Lanka" [disabled] [ref=f4e114] [cursor=pointer]:
+              - generic: Select country*
+              - generic [ref=f4e115]: Sri Lanka
+          - generic [ref=f4e121]:
+            - button "+94" [disabled] [ref=f4e122] [cursor=pointer]
+            - generic [ref=f4e124]:
+              - textbox [ref=f4e125]:
+                - /placeholder: " "
+              - generic: Contact number*
+          - generic [ref=f4e127]:
+            - textbox "Email Address (optional)" [ref=f4e128]:
+              - /placeholder: " "
+            - generic: Email Address (optional)
+          - generic [ref=f4e130]:
+            - textbox "Address line 1*" [ref=f4e131]:
+              - /placeholder: " "
+            - generic: Address line 1*
+          - generic [ref=f4e133]:
+            - textbox "Address line 2 (optional)" [ref=f4e134]:
+              - /placeholder: " "
+            - generic: Address line 2 (optional)
+          - generic [ref=f4e135]:
+            - generic [ref=f4e137]:
+              - textbox "City (optional)" [ref=f4e138]:
+                - /placeholder: " "
+              - generic: City (optional)
+            - generic [ref=f4e140]:
+              - textbox "Postal/ZIP Code*" [ref=f4e141]:
+                - /placeholder: " "
+              - generic: Postal/ZIP Code*
+          - button "Save & Continue" [ref=f4e143] [cursor=pointer]
+  - alert [ref=f4e2]

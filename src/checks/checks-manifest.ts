@@ -18,6 +18,10 @@ const invariantSchema = z.object({
   field2: z.string().min(1).optional(),
   min: z.number().optional(),
   max: z.number().optional(),
+}).superRefine((value, ctx) => {
+  if (value.kind !== "range" && !value.field2) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Comparison requires field2" });
+  if (value.kind === "range" && value.min === undefined && value.max === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Range requires min or max" });
+  if (value.min !== undefined && value.max !== undefined && value.min > value.max) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Range minimum exceeds maximum" });
 });
 
 export const declaredApiCheckSchema = z.object({
@@ -58,8 +62,14 @@ export type DeclaredSecurityCheck = z.infer<typeof declaredSecurityCheckSchema>;
 export const checksManifestSchema = z.object({
   schemaVersion: z.literal(1),
   profileId: z.string().regex(/^[A-Za-z0-9_-]+$/),
-  apiChecks: z.array(declaredApiCheckSchema).default([]),
-  securityChecks: z.array(declaredSecurityCheckSchema).default([]),
+  apiChecks: z.array(declaredApiCheckSchema).max(100).default([]),
+  securityChecks: z.array(declaredSecurityCheckSchema).max(100).default([]),
+}).superRefine((manifest, ctx) => {
+  const ids = new Set<string>();
+  for (const check of [...manifest.apiChecks, ...manifest.securityChecks]) {
+    if (ids.has(check.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check IDs must be unique across API and security checks." });
+    ids.add(check.id);
+  }
 });
 export type ChecksManifest = z.infer<typeof checksManifestSchema>;
 

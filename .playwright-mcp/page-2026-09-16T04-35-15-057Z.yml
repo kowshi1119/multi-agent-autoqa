@@ -1,0 +1,26 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - main [ref=f4e5]:
+      - generic [ref=f4e6]:
+        - generic [ref=f4e7]:
+          - generic [ref=f4e8]:
+            - generic [ref=f4e9]:
+              - heading "Bill Payments" [level=1] [ref=f4e10]
+              - paragraph [ref=f4e11]: Manage bill payments seamlessly.
+            - button "New bill payment" [ref=f4e13] [cursor=pointer]
+          - textbox "Search biller" [ref=f4e16]
+          - button "All" [ref=f4e18] [cursor=pointer]
+        - paragraph [ref=f4e23]: Saved Billers
+    - navigation [ref=f4e28]:
+      - generic [ref=f4e29]:
+        - link "Home" [ref=f4e30] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f4e35] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f4e42] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f4e47] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f4e52] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f4e57]

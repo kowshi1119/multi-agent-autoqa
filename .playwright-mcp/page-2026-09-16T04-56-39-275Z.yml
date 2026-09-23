@@ -1,0 +1,58 @@
+- generic [active] [ref=f26e1]:
+  - generic [ref=f26e3]:
+    - banner [ref=f26e4]:
+      - generic [ref=f26e6]:
+        - link [ref=f26e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f26e8]
+        - button [ref=f26e11] [cursor=pointer]:
+          - generic [ref=f26e16]:
+            - paragraph [ref=f26e17]: Kowshi Mathi
+            - paragraph [ref=f26e18]: Personal
+    - generic [ref=f26e22]:
+      - navigation [ref=f26e23]:
+        - list [ref=f26e24]:
+          - listitem [ref=f26e25]:
+            - link "Home" [ref=f26e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f26e31]:
+            - link "Recipients" [ref=f26e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f26e39]:
+            - link "Bill Payments" [ref=f26e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f26e45]:
+            - link "Transactions" [ref=f26e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f26e51]:
+            - link "My Account" [ref=f26e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f26e57]:
+        - generic [ref=f26e59]:
+          - generic [ref=f26e60]:
+            - heading "Transaction History" [level=1] [ref=f26e61]
+            - paragraph [ref=f26e62]: View and manage all your transactions.
+          - generic [ref=f26e63]:
+            - button "All" [ref=f26e64] [cursor=pointer]
+            - button "Ongoing" [ref=f26e65] [cursor=pointer]
+            - button "Completed" [ref=f26e66] [cursor=pointer]
+          - generic [ref=f26e67]:
+            - textbox "Search Transaction by name, number or date" [ref=f26e69]
+            - generic [ref=f26e70]:
+              - button "Filters 1" [expanded] [ref=f26e616] [cursor=pointer]:
+                - text: Filters
+                - generic [ref=f26e617]: "1"
+              - button "Export CSV" [disabled] [ref=f26e74] [cursor=pointer]
+          - generic [ref=f26e529]:
+            - generic [ref=f26e530]:
+              - generic [ref=f26e531]: Transaction Type
+              - button "Bill Payment" [ref=f26e618] [cursor=pointer]
+            - generic [ref=f26e538]:
+              - generic [ref=f26e539]: Date Range
+              - button "Select date range" [ref=f26e541] [cursor=pointer]
+            - button "Clear filters" [ref=f26e619] [cursor=pointer]
+          - generic [ref=f26e76]:
+            - heading "No transactions yet" [level=3] [ref=f26e627]
+            - paragraph [ref=f26e628]: Start sending money to your loved ones. Your transaction history will appear here.
+            - button [ref=f26e630] [cursor=pointer]
+  - alert [ref=f26e2]

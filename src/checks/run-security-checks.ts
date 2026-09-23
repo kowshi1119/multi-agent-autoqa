@@ -1,10 +1,9 @@
 import { join } from "node:path";
 import type { DeclaredSecurityCheck } from "./checks-manifest.js";
-import { fireCheckRequest } from "./http-client.js";
+import { checkBudget, createCheckRequester, scopedCheckUrl, type CheckBudget } from "./request-scope.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
 import { normalizePathname } from "../mapping/state-signature.js";
-import { redactSecrets } from "../redact.js";
 import type { CheckClassification, CheckLedgerEntry } from "./types.js";
 import type { Finding } from "../types.js";
 import type { ProjectProfile } from "../profiles/schema.js";
@@ -61,40 +60,48 @@ export async function runSecurityChecks(
   startingFindingIndex: number,
   origin: string,
   extraSecrets: readonly string[] = [],
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  budget: CheckBudget = checkBudget(profile)
 ): Promise<SecurityChecksResult> {
   const findings: Finding[] = [];
   let findingIndex = startingFindingIndex;
+  const request = createCheckRequester(profile, origin, budget);
 
   for (const check of checks) {
+    if (findingIndex > profile.limits.maxFindings) {
+      appendCheckLedgerEntry(runDir, blockedEntry(check, "Finding budget exhausted before this check."), extraSecrets); continue;
+    }
     if (abortSignal?.aborted) {
       appendCheckLedgerEntry(runDir, blockedEntry(check, "Run was cancelled before this check ran."), extraSecrets);
       continue;
     }
-    if (!profile.navigation.allowedPathPrefixes.some((p) => check.pathname.startsWith(p))) {
+    if (!scopedCheckUrl(profile, origin, check.pathname)) {
       appendCheckLedgerEntry(runDir, blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
       continue;
     }
 
     if (check.kind === "session-boundary") {
-      await runSessionBoundaryCheck(profile, check, origin, runDir, () => findingIndex++, findings, extraSecrets, abortSignal);
+      await runSessionBoundaryCheck(profile, check, origin, runDir, () => findingIndex++, findings, extraSecrets, abortSignal, budget);
       continue;
     }
 
     const url = new URL(check.pathname, origin).toString();
-    const response = await fireCheckRequest(url, "GET", undefined, 262_144, abortSignal);
+    const beforeRequest = budget.used;
+    const response = await request(check.pathname, "GET", undefined, profile.apiChecks.responseSizeCapBytes, abortSignal);
     if ("failed" in response) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, `Request failed: ${response.reason}`), extraSecrets);
+      appendCheckLedgerEntry(runDir, { ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason }, extraSecrets);
       continue;
     }
 
-    const outcome = check.kind === "cookie-attributes" ? evaluateCookieAttributes(response.headers) : check.kind === "security-headers" ? evaluateSecurityHeaders(response.headers) : evaluateSecretLeakage(response.body);
+    const outcome = response.status < 200 || response.status >= 300
+      ? { classification: "needs_review" as const, observation: "HTTP " + response.status + "; the declared resource was not successfully inspected.", expected: "Successful resource response", confidence: "low" as const, impact: "Error and redirect responses cannot establish a successful resource security check." }
+      : check.kind === "cookie-attributes" ? evaluateCookieAttributes(response.setCookies) : check.kind === "security-headers" ? evaluateSecurityHeaders(response.headers) : evaluateSecretLeakage(response.body);
     const responseSnapshot = { status: response.status, headers: response.headers, bodyExcerpt: typeof response.body === "string" ? response.body.slice(0, 2000) : response.body };
 
-    if (outcome.classification === "passed") {
+    if (outcome.classification === "passed" || outcome.classification === "informational") {
       const evidenceDir = join(runDir, "checks", check.id);
       const evidenceRefs = [writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets)];
-      appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: "passed", assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
+      appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
       continue;
     }
 
@@ -108,7 +115,7 @@ export async function runSecurityChecks(
     const finding: Finding = {
       id: findingId,
       title: `Security check: ${check.description}`,
-      status: "validated",
+      status: outcome.classification === "confirmed" ? "validated" : "needs_human",
       category: "security",
       pageId: "PAGE-SECURITY",
       url,
@@ -133,10 +140,12 @@ export async function runSecurityChecks(
 
 type CheckOutcome = { classification: CheckClassification; observation: string; expected: string; confidence: "low" | "medium"; impact: string };
 
-function evaluateCookieAttributes(headers: Record<string, string>): CheckOutcome {
-  const setCookie = headers["set-cookie"];
-  if (!setCookie) return { classification: "informational", observation: "No Set-Cookie header present on this response.", expected: "Session cookies carry HttpOnly/Secure/SameSite", confidence: "low", impact: "None observed here." };
-  const missing = ["httponly", "secure", "samesite"].filter((attr) => !setCookie.toLowerCase().includes(attr));
+function evaluateCookieAttributes(cookies: string[]): CheckOutcome {
+  if (!cookies.length) return { classification: "informational", observation: "No Set-Cookie header present on this response.", expected: "Session cookies carry HttpOnly/Secure/SameSite", confidence: "low", impact: "None observed here." };
+  const missing = [...new Set(cookies.flatMap(cookie => {
+    const attrs = new Map(cookie.split(";").slice(1).map(part => { const [key, ...value] = part.trim().split("="); return [(key ?? "").toLowerCase(), value.join("=").toLowerCase()]; }));
+    return ["httponly", "secure", "samesite"].filter(attr => !attrs.has(attr) || (attr === "samesite" && !["strict", "lax", "none"].includes(attrs.get(attr) ?? "")));
+  }))];
   if (missing.length === 0) return { classification: "passed", observation: "Set-Cookie carries HttpOnly, Secure, and SameSite.", expected: "", confidence: "medium", impact: "" };
   return {
     classification: "needs_review",
@@ -167,7 +176,7 @@ function evaluateSecretLeakage(body: unknown): CheckOutcome {
   const structural = typeof body === "object" && body !== null ? findSecretByKey(body) : undefined;
   if (structural) {
     return {
-      classification: "confirmed",
+      classification: "needs_review",
       // The value itself is never included, redacted or not -- it's
       // exactly the secret this check exists to catch, so there is no safe
       // partial disclosure of it (redactSecrets() only strips known
@@ -184,8 +193,8 @@ function evaluateSecretLeakage(body: unknown): CheckOutcome {
   const match = KEY_SHAPED_SECRET_RE.exec(text) ?? (typeof body === "string" ? KEY_VALUE_TEXT_SECRET_RE.exec(text) : null);
   if (!match) return { classification: "passed", observation: "No secret-shaped pattern found in the response body.", expected: "", confidence: "medium", impact: "" };
   return {
-    classification: "confirmed",
-    observation: `Response body contains a secret-shaped value: ${redactSecrets(match[0])}.`,
+    classification: "needs_review",
+    observation: "Response body contains a secret-shaped value (omitted). Context is required to establish unintended disclosure.",
     expected: "Response body should not contain credential- or token-shaped values.",
     confidence: "medium",
     impact: "A leaked token/credential in a response body can be used to impersonate the affected session or account if captured by an unintended party.",
@@ -200,7 +209,8 @@ async function runSessionBoundaryCheck(
   nextIndex: () => number,
   findings: Finding[],
   extraSecrets: readonly string[],
-  abortSignal?: AbortSignal
+  abortSignal: AbortSignal | undefined,
+  budget: CheckBudget
 ): Promise<void> {
   const boundary = check.sessionBoundary;
   if (!boundary) {
@@ -208,31 +218,50 @@ async function runSessionBoundaryCheck(
     return;
   }
 
+  const base = new URL(origin);
+  if (profile.target.environmentKind !== "local-fixture" || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) ||
+      boundary.accountAId !== "demo-a" || boundary.accountBId !== "demo-b" ||
+      boundary.loginPathname !== "/api/login-demo" || boundary.resourcePathnameTemplate !== "/api/account/{accountId}/resource") {
+    appendCheckLedgerEntry(runDir, blockedEntry(check, "Cross-account checks support only the two seeded local fixture accounts and fixed demo endpoints."), extraSecrets);
+    return;
+  }
+  const request = createCheckRequester(profile, origin, budget);
+
   // The outer loop only validated check.pathname (a nominal label for this
   // check kind, "/" in the demo manifest) against allowedPathPrefixes --
   // the ACTUAL pathnames this sub-check fires against are the login/
   // resource ones below, which need the same gate applied to them directly.
   const bResourcePathname = boundary.resourcePathnameTemplate.replace("{accountId}", boundary.accountBId);
   for (const pathname of [boundary.loginPathname, bResourcePathname]) {
-    if (!profile.navigation.allowedPathPrefixes.some((p) => pathname.startsWith(p))) {
+    if (!scopedCheckUrl(profile, origin, pathname)) {
       appendCheckLedgerEntry(runDir, blockedEntry(check, `${pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
       return;
     }
   }
 
-  const loginA = await fireCheckRequest(new URL(boundary.loginPathname, origin).toString(), "POST", { accountId: boundary.accountAId }, 65_536, abortSignal);
+  const loginA = await request(boundary.loginPathname, "POST", { accountId: boundary.accountAId }, 65_536, abortSignal);
   if ("failed" in loginA) {
     appendCheckLedgerEntry(runDir, blockedEntry(check, `Could not sign in as ${boundary.accountAId}: ${loginA.reason}`), extraSecrets);
     return;
   }
-  const cookieA = loginA.headers["set-cookie"];
+  const cookieA = loginA.status === 200 ? loginA.setCookies[0] : undefined;
   if (!cookieA) {
     appendCheckLedgerEntry(runDir, blockedEntry(check, `Login as ${boundary.accountAId} did not return a session cookie.`), extraSecrets);
     return;
   }
 
   const url = new URL(bResourcePathname, origin).toString();
-  const response = await fireCheckRequest(url, "GET", undefined, 65_536, abortSignal, { cookie: cookieA.split(";")[0] as string });
+  // Establish B's resource exists under B's own distinct session first.
+  const loginB = await request(boundary.loginPathname, "POST", { accountId: boundary.accountBId }, 65_536, abortSignal);
+  const cookieB = "failed" in loginB || loginB.status !== 200 ? undefined : loginB.setCookies[0];
+  if (!cookieB || cookieB.split(";")[0] === cookieA.split(";")[0]) {
+    appendCheckLedgerEntry(runDir, blockedEntry(check, "Could not establish two distinct seeded sessions."), extraSecrets); return;
+  }
+  const control = await request(bResourcePathname, "GET", undefined, 65_536, abortSignal, { cookie: cookieB.split(";")[0] as string });
+  if ("failed" in control || control.status !== 200 || (control.body as { resourceOwner?: string } | null)?.resourceOwner !== boundary.accountBId) {
+    appendCheckLedgerEntry(runDir, blockedEntry(check, "Account B's resource control did not succeed."), extraSecrets); return;
+  }
+  const response = await request(bResourcePathname, "GET", undefined, 65_536, abortSignal, { cookie: cookieA.split(";")[0] as string });
 
   if ("failed" in response) {
     appendCheckLedgerEntry(runDir, blockedEntry(check, `Cross-account request failed: ${response.reason}`), extraSecrets);
@@ -240,17 +269,21 @@ async function runSessionBoundaryCheck(
   }
 
   const responseSnapshot = { status: response.status, body: response.body };
-  const leaked = response.status === 200;
+  const leaked = response.status === 200 && (response.body as { resourceOwner?: string } | null)?.resourceOwner === boundary.accountBId;
+  const contextEvidence = { accountA: boundary.accountAId, accountB: boundary.accountBId, distinctSessionsEstablished: true, ownerControl: { status: control.status, body: control.body }, crossAccount: responseSnapshot, sessionValuesOmitted: true };
   if (!leaked) {
     const evidenceDir = join(runDir, "checks", check.id);
     const evidenceRefs = [writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets)];
-    appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: "passed", assertion: check.description, observation: `Account A's session was correctly denied access to account B's resource (status ${response.status}).`, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
+    const denied = response.status === 401 || response.status === 403;
+    evidenceRefs.push(writeCheckEvidence(evidenceDir, "session-context.json", contextEvidence, extraSecrets));
+    appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: denied ? "passed" : "needs_review", assertion: check.description, observation: denied ? "Cross-account access explicitly denied after successful owner control." : "Cross-account response is inconclusive; HTTP " + response.status, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
     return;
   }
 
   const findingId = generateFindingId(nextIndex());
   const evidenceDir = join(runDir, "findings", findingId);
   const evidenceFilenames = [writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets)];
+  evidenceFilenames.push(writeCheckEvidence(evidenceDir, "session-context.json", contextEvidence, extraSecrets));
   const finding: Finding = {
     id: findingId,
     title: `Security check: ${check.description}`,

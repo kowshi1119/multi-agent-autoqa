@@ -1,0 +1,49 @@
+- generic [active] [ref=f7e1]:
+  - main [ref=f7e6]:
+    - generic [ref=f7e188]:
+      - generic [ref=f7e190]:
+        - button [ref=f7e191] [cursor=pointer]
+        - generic [ref=f7e194]:
+          - heading "Cash Pickup Added!" [level=1] [ref=f7e275]
+          - paragraph [ref=f7e196]: Success
+      - generic [ref=f7e197]:
+        - generic [ref=f7e276]:
+          - heading "Cash Pickup Added!" [level=2] [ref=f7e281]
+          - paragraph [ref=f7e282]: You can now send money for cash pickup.
+        - generic [ref=f7e198]:
+          - paragraph [ref=f7e283]: Collector details
+          - generic [ref=f7e289]:
+            - paragraph [ref=f7e290]: QA Cash 001
+            - paragraph [ref=f7e291]: Nimal Perera · LKR
+            - paragraph [ref=f7e292]: 12 Temple Place, Sri Lanka
+        - generic [ref=f7e293]:
+          - paragraph [ref=f7e294]: Summary
+          - generic [ref=f7e295]:
+            - generic [ref=f7e296]:
+              - generic [ref=f7e297]: Full name
+              - generic [ref=f7e298]: Nimal Perera
+            - generic [ref=f7e299]:
+              - generic [ref=f7e300]: Phone
+              - generic [ref=f7e301]: "+94712345678"
+            - generic [ref=f7e302]:
+              - generic [ref=f7e303]: ID type
+              - generic [ref=f7e304]: National ID Card (NIC)
+            - generic [ref=f7e305]:
+              - generic [ref=f7e306]: ID number
+              - generic [ref=f7e307]: 912345678V
+            - generic [ref=f7e308]:
+              - generic [ref=f7e309]: Country
+              - generic [ref=f7e310]: Sri Lanka
+            - generic [ref=f7e311]:
+              - generic [ref=f7e312]: Postal/ZIP Code
+              - generic [ref=f7e313]: "10100"
+            - generic [ref=f7e314]:
+              - generic [ref=f7e315]: Payout method
+              - generic [ref=f7e316]: Cash pickup
+        - generic [ref=f7e317]:
+          - button "View Recipients" [ref=f7e318] [cursor=pointer]
+          - button "Send Money Now" [ref=f7e320] [cursor=pointer]
+  - generic [ref=f7e321]:
+    - generic [ref=f7e326]: Cash pickup "Nimal Perera" added successfully!
+    - button "Dismiss" [ref=f7e327] [cursor=pointer]
+  - alert [ref=f7e2]

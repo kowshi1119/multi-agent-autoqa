@@ -1,0 +1,74 @@
+- generic [active] [ref=f35e1]:
+  - generic [ref=f35e3]:
+    - banner [ref=f35e4]:
+      - generic [ref=f35e6]:
+        - link [ref=f35e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f35e8]
+        - button [ref=f35e11] [cursor=pointer]:
+          - generic [ref=f35e16]:
+            - paragraph [ref=f35e17]: Kowshi Mathi
+            - paragraph [ref=f35e18]: Personal
+    - generic [ref=f35e22]:
+      - navigation [ref=f35e23]:
+        - list [ref=f35e24]:
+          - listitem [ref=f35e25]:
+            - link "Home" [ref=f35e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f35e31]:
+            - link "Recipients" [ref=f35e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f35e39]:
+            - link "Bill Payments" [ref=f35e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f35e45]:
+            - link "Transactions" [ref=f35e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f35e51]:
+            - link "My Account" [ref=f35e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f35e57]:
+        - generic [ref=f35e193]:
+          - generic [ref=f35e195]:
+            - button [ref=f35e196] [cursor=pointer]
+            - generic [ref=f35e199]:
+              - heading "Delete Account" [level=1] [ref=f35e200]
+              - paragraph [ref=f35e201]: Permanently close your account
+          - generic [ref=f35e202]:
+            - generic [ref=f35e207]:
+              - paragraph [ref=f35e208]: This starts a permanent deletion
+              - paragraph [ref=f35e209]: You will have 30 days to sign back in and cancel. After that, your personal data is removed and cannot be restored.
+            - generic [ref=f35e210]:
+              - paragraph [ref=f35e212]: What happens to your data
+              - generic [ref=f35e213]:
+                - generic [ref=f35e214]:
+                  - generic [ref=f35e215]:
+                    - paragraph [ref=f35e216]: Removed
+                    - list [ref=f35e217]:
+                      - listitem [ref=f35e218]: • Your profile and contact details
+                      - listitem [ref=f35e219]: • Saved recipients and billers
+                      - listitem [ref=f35e220]: • Uploaded identity documents
+                      - listitem [ref=f35e221]: • Access to this account
+                  - generic [ref=f35e222]:
+                    - paragraph [ref=f35e223]: Kept, as the law requires
+                    - list [ref=f35e224]:
+                      - listitem [ref=f35e225]: • Completed transaction records
+                      - listitem [ref=f35e226]: • Compliance and verification history
+                - paragraph [ref=f35e231]: We will email you a 6-digit code that expires in 10 minutes. A new code can only be requested every 24 hours — so please complete this in one sitting.
+                - generic [ref=f35e233]:
+                  - textbox "Confirm your password" [ref=f35e234]:
+                    - /placeholder: " "
+                  - button [ref=f35e235] [cursor=pointer]
+                  - generic: Confirm your password
+                - generic [ref=f35e239]:
+                  - generic [ref=f35e240]: Reason for leaving (optional)
+                  - textbox "Reason for leaving (optional)" [ref=f35e241]:
+                    - /placeholder: Tell us why you are closing your account
+                  - paragraph [ref=f35e242]: 0/500
+                - generic [ref=f35e243] [cursor=pointer]:
+                  - checkbox "I understand my account will be scheduled for deletion and that this cannot be undone after the grace period ends." [ref=f35e244]
+                  - generic [ref=f35e245]: I understand my account will be scheduled for deletion and that this cannot be undone after the grace period ends.
+                - generic [ref=f35e246]:
+                  - button "Cancel" [ref=f35e247] [cursor=pointer]
+                  - button "Continue" [disabled] [ref=f35e248] [cursor=pointer]
+  - alert [ref=f35e2]

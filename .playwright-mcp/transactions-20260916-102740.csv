@@ -1,0 +1,2 @@
+Transaction Number,Date (AST),Time (AST),Recipient,Send Amount,Send Currency,Receive Amount,Receive Currency,Status
+AMB2026091600001,2026-09-16,09:37:18,QA Switch Test 001,1000.01,GBP,451297.30,LKR,Initiated

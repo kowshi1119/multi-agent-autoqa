@@ -1,0 +1,53 @@
+- generic [active] [ref=f8e1]:
+  - main [ref=f8e6]:
+    - generic [ref=f8e144]:
+      - generic [ref=f8e146]:
+        - button [ref=f8e147] [cursor=pointer]
+        - generic [ref=f8e150]:
+          - heading "Add Wallet" [level=1] [ref=f8e151]
+          - paragraph [ref=f8e152]: Enter wallet details
+      - generic [ref=f8e154]:
+        - generic [ref=f8e155]:
+          - heading "Add wallet details" [level=2] [ref=f8e156]
+          - paragraph [ref=f8e157]: Enter the wallet details to ensure your money is sent correctly.
+        - generic [ref=f8e158]:
+          - generic [ref=f8e160]:
+            - combobox [aria-hidden]
+            - button "Service provider* Easypaisa" [ref=f8e210] [cursor=pointer]:
+              - generic: Service provider*
+              - generic [ref=f8e211]: Easypaisa
+          - generic [ref=f8e166]:
+            - textbox "Wallet ID*" [ref=f8e167]:
+              - /placeholder: " "
+            - generic: Wallet ID*
+          - paragraph [ref=f8e168]: Recipient's Details
+          - generic [ref=f8e170]:
+            - textbox "Nickname*" [ref=f8e171]:
+              - /placeholder: " "
+            - generic: Nickname*
+          - generic [ref=f8e172]:
+            - generic [ref=f8e174]:
+              - textbox "First Name*" [ref=f8e175]:
+                - /placeholder: " "
+              - generic: First Name*
+            - generic [ref=f8e177]:
+              - textbox "Last Name*" [ref=f8e178]:
+                - /placeholder: " "
+              - generic: Last Name*
+          - generic [ref=f8e180]:
+            - combobox [disabled] [aria-hidden]
+            - button "Country* Pakistan" [disabled] [ref=f8e181] [cursor=pointer]:
+              - generic: Country*
+              - generic [ref=f8e182]: Pakistan
+          - generic [ref=f8e188]:
+            - button "+92" [disabled] [ref=f8e189] [cursor=pointer]
+            - generic [ref=f8e191]:
+              - textbox [ref=f8e192]:
+                - /placeholder: " "
+              - generic: Contact number*
+          - generic [ref=f8e194]:
+            - textbox "Email Address (optional)" [ref=f8e195]:
+              - /placeholder: " "
+            - generic: Email Address (optional)
+          - button "Add wallet" [ref=f8e197] [cursor=pointer]
+  - alert [ref=f8e2]

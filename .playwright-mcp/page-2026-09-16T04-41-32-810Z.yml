@@ -1,0 +1,45 @@
+- generic [active] [ref=f12e1]:
+  - main [ref=f12e6]:
+    - generic [ref=f12e165]:
+      - generic [ref=f12e167]:
+        - button [ref=f12e168] [cursor=pointer]
+        - generic [ref=f12e171]:
+          - heading "Add Wallet" [level=1] [ref=f12e172]
+          - paragraph [ref=f12e173]: Select currency
+      - generic [ref=f12e174]:
+        - generic [ref=f12e175]:
+          - heading "Select their currency" [level=2] [ref=f12e176]
+          - paragraph [ref=f12e177]: Choose the receiving currency for this wallet.
+        - textbox "Search currency" [ref=f12e182]
+        - generic [ref=f12e183]:
+          - heading "Available currencies" [level=3] [ref=f12e185]
+          - generic [ref=f12e186]:
+            - generic [ref=f12e187]:
+              - generic [ref=f12e189]:
+                - img "Sri Lanka" [ref=f12e191]
+                - generic [ref=f12e192]:
+                  - paragraph [ref=f12e193]: LKR
+                  - paragraph [ref=f12e194]: Sri Lankan Rupee
+              - tooltip "No wallet providers available for this country"
+            - button [ref=f12e198] [cursor=pointer]:
+              - generic [ref=f12e199]:
+                - img "Pakistan" [ref=f12e201]
+                - generic [ref=f12e202]:
+                  - paragraph [ref=f12e203]: PKR
+                  - paragraph [ref=f12e204]: Pakistani Rupee
+            - generic [ref=f12e207]:
+              - generic [ref=f12e209]:
+                - img "Bangladesh" [ref=f12e211]
+                - generic [ref=f12e212]:
+                  - paragraph [ref=f12e213]: BDT
+                  - paragraph [ref=f12e214]: Bangladeshi Taka
+              - tooltip "No wallet providers available for this country"
+            - generic [ref=f12e218]:
+              - generic [ref=f12e220]:
+                - img "Nepal" [ref=f12e222]
+                - generic [ref=f12e223]:
+                  - paragraph [ref=f12e224]: NPR
+                  - paragraph [ref=f12e225]: Nepalese Rupee
+              - tooltip "No wallet providers available for this country"
+        - button "Continue" [disabled] [ref=f12e230] [cursor=pointer]
+  - alert [ref=f12e2]

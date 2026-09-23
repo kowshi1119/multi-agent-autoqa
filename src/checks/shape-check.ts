@@ -5,6 +5,7 @@ export function getByPath(value: unknown, path: string): unknown {
   let current = value;
   for (const segment of path.split(".")) {
     if (current === null || typeof current !== "object") return undefined;
+    if (!Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
     current = (current as Record<string, unknown>)[segment];
   }
   return current;
@@ -41,7 +42,7 @@ export function evaluateAssertions(
 
   if (assertions.expectedContentType !== undefined) {
     const actual = contentType ?? "(none)";
-    if (!actual.includes(assertions.expectedContentType)) {
+    if (actual.split(";")[0]?.trim().toLowerCase() !== assertions.expectedContentType.split(";")[0]?.trim().toLowerCase()) {
       failures.push({ assertion: `content-type includes "${assertions.expectedContentType}"`, detail: `got "${actual}"` });
     }
   }
@@ -72,7 +73,7 @@ export function evaluateAssertions(
     } else if (invariant.kind === "fieldsEqual") {
       const a = getByPath(body, invariant.field);
       const b = invariant.field2 ? getByPath(body, invariant.field2) : undefined;
-      if (a !== b) failures.push({ assertion: `"${invariant.field}" === "${invariant.field2}"`, detail: `got ${JSON.stringify(a)} vs ${JSON.stringify(b)}` });
+      if (a === undefined || b === undefined || a !== b) failures.push({ assertion: `"${invariant.field}" === "${invariant.field2}"`, detail: "Fields are missing or unequal; values omitted." });
     } else if (invariant.kind === "fieldLessThan") {
       const a = getByPath(body, invariant.field);
       const b = invariant.field2 ? getByPath(body, invariant.field2) : undefined;

@@ -1,0 +1,59 @@
+- generic [ref=f24e1]:
+  - generic [ref=f24e3]:
+    - main [ref=f24e6]:
+      - generic [ref=f24e7]:
+        - generic [ref=f24e8]:
+          - generic [ref=f24e9]:
+            - generic [ref=f24e10]:
+              - heading "Bill Payments" [level=1] [ref=f24e11]
+              - paragraph [ref=f24e12]: Manage bill payments seamlessly.
+            - button "New bill payment" [ref=f24e14] [cursor=pointer]
+          - textbox "Search biller" [ref=f24e17]
+          - generic [ref=f24e18]:
+            - button "All" [ref=f24e19] [cursor=pointer]
+            - button "Broadband And Telecom" [ref=f24e22] [cursor=pointer]
+            - button "Insurance" [ref=f24e25] [cursor=pointer]
+            - button "Mobile Company" [ref=f24e28] [cursor=pointer]
+            - button "Utility Company" [ref=f24e31] [cursor=pointer]
+        - generic [ref=f24e35]:
+          - paragraph [ref=f24e36]: Saved Billers
+          - generic [ref=f24e38]:
+            - generic [ref=f24e39] [cursor=pointer]: P
+            - generic [ref=f24e41] [cursor=pointer]:
+              - paragraph [ref=f24e42]: My PTCL Bill
+              - paragraph [ref=f24e43]: PTCL
+              - paragraph [ref=f24e44]: "****6655"
+            - generic [ref=f24e45]:
+              - button [active] [ref=f24e46] [cursor=pointer]
+              - generic [ref=f24e103]:
+                - button "View" [ref=f24e104] [cursor=pointer]
+                - button "Edit" [ref=f24e108] [cursor=pointer]
+                - button "Delete" [ref=f24e112] [cursor=pointer]
+          - generic [ref=f24e51]:
+            - generic [ref=f24e53]:
+              - generic [ref=f24e54]: "Rows per page:"
+              - combobox [ref=f24e55] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "20"
+                - option "50"
+            - generic [ref=f24e56]:
+              - button "First page" [disabled] [ref=f24e57] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f24e61] [cursor=pointer]
+              - button "1" [ref=f24e65] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f24e66] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f24e69] [cursor=pointer]
+            - generic [ref=f24e73]: 1-1 of 1
+    - navigation [ref=f24e74]:
+      - generic [ref=f24e75]:
+        - link "Home" [ref=f24e76] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f24e81] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f24e88] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f24e93] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f24e98] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f24e2]

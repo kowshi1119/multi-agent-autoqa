@@ -1,0 +1,83 @@
+- generic [active] [ref=f3e1]:
+  - main [ref=f3e6]:
+    - generic [ref=f3e905]:
+      - generic [ref=f3e907]:
+        - button [ref=f3e908] [cursor=pointer]
+        - generic [ref=f3e911]:
+          - heading "Add Business Recipient Details" [level=1] [ref=f3e912]
+          - paragraph [ref=f3e913]: Enter details
+      - generic [ref=f3e915]:
+        - generic [ref=f3e916]:
+          - heading "Add Business Recipient Details" [level=2] [ref=f3e917]
+          - paragraph [ref=f3e918]: Enter the business recipient's details to ensure your money is sent correctly.
+        - generic [ref=f3e919]:
+          - radiogroup "Recipient type" [ref=f3e920]:
+            - radio "Personal Send to a person" [ref=f3e921] [cursor=pointer]:
+              - generic [ref=f3e925]:
+                - generic [ref=f3e926]: Personal
+                - generic [ref=f3e927]: Send to a person
+            - radio "Business Send to a company" [checked] [ref=f3e928] [cursor=pointer]:
+              - generic [ref=f3e933]:
+                - generic [ref=f3e934]: Business
+                - generic [ref=f3e935]: Send to a company
+          - generic [ref=f3e937]:
+            - textbox "Nickname*" [ref=f3e938]:
+              - /placeholder: " "
+              - text: QA Business 001
+            - generic: Nickname*
+          - generic [ref=f3e940]:
+            - textbox [ref=f3e941]:
+              - /placeholder: " "
+              - text: ABC Trading Ltd
+            - generic: Business Name*
+          - generic [ref=f3e943]:
+            - combobox [aria-hidden]
+            - button "Business Registration Type LLC Clear selection" [ref=f3e944] [cursor=pointer]:
+              - generic: Business Registration Type
+              - generic [ref=f3e945]: LLC
+              - button "Clear selection" [ref=f3e947]
+          - generic [ref=f3e954]:
+            - textbox [ref=f3e955]:
+              - /placeholder: " "
+            - generic: Business Registration Number
+          - generic [ref=f3e957]:
+            - textbox [ref=f3e958]:
+              - /placeholder: " "
+            - generic: Regional Beneficiary Name
+          - generic [ref=f3e960]:
+            - combobox [disabled] [aria-hidden]
+            - button "Select country* Pakistan" [disabled] [ref=f3e961] [cursor=pointer]:
+              - generic: Select country*
+              - generic [ref=f3e962]: Pakistan
+          - generic [ref=f3e968]:
+            - button "+92" [disabled] [ref=f3e969] [cursor=pointer]
+            - generic [ref=f3e971]:
+              - textbox [ref=f3e972]:
+                - /placeholder: " "
+                - text: "3001234567"
+              - generic: Contact number*
+          - generic [ref=f3e974]:
+            - textbox "Email Address (optional)" [ref=f3e975]:
+              - /placeholder: " "
+            - generic: Email Address (optional)
+          - generic [ref=f3e977]:
+            - textbox "Address line 1*" [ref=f3e978]:
+              - /placeholder: " "
+              - text: 12 Temple Place
+            - generic: Address line 1*
+          - generic [ref=f3e980]:
+            - textbox "Address line 2 (optional)" [ref=f3e981]:
+              - /placeholder: " "
+            - generic: Address line 2 (optional)
+          - generic [ref=f3e982]:
+            - generic [ref=f3e984]:
+              - textbox "City (optional)" [ref=f3e985]:
+                - /placeholder: " "
+              - generic: City (optional)
+            - generic [ref=f3e987]:
+              - textbox "Postal/ZIP Code*" [ref=f3e988]:
+                - /placeholder: " "
+                - text: "54000"
+              - generic: Postal/ZIP Code*
+          - button "Save & Continue" [ref=f3e990] [cursor=pointer]
+  - alert [ref=f3e2]

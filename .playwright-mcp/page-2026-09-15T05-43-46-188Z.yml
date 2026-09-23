@@ -1,0 +1,49 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e36]:
+    - main [ref=e39]:
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - generic [ref=e44]:
+              - paragraph [ref=e45]: Good morning
+              - heading "Kowshi Mathi" [level=1] [ref=e46]
+            - button [ref=e48] [cursor=pointer]:
+              - generic [ref=e53]:
+                - paragraph [ref=e54]: Kowshi Mathi
+                - paragraph [ref=e55]: Personal
+          - button [ref=e60] [cursor=pointer]
+        - generic [ref=e65]:
+          - generic [ref=e67]:
+            - paragraph [ref=e72]: Good morning, Kowshi
+            - heading "Welcome back to Ajeer Money" [level=2] [ref=e73]
+            - button "Send money" [ref=e75] [cursor=pointer]
+          - generic [ref=e79]:
+            - generic [ref=e80]:
+              - generic [ref=e83]:
+                - heading "Bank Account Holders" [level=2] [ref=e84]
+                - link "View all" [ref=e85] [cursor=pointer]:
+                  - /url: /recipients
+              - generic [ref=e98]:
+                - heading "Cash Pickups" [level=2] [ref=e99]
+                - link "View all" [ref=e100] [cursor=pointer]:
+                  - /url: /recipients?tab=cash
+              - generic [ref=e113]:
+                - heading "Wallets" [level=2] [ref=e114]
+                - link "View all" [ref=e115] [cursor=pointer]:
+                  - /url: /recipients?tab=wallet
+            - generic [ref=e130]:
+              - heading "Latest Exchange Rates" [level=2] [ref=e131]
+              - paragraph [ref=e132]: Based on 1 GBP
+    - navigation [ref=e162]:
+      - generic [ref=e163]:
+        - link "Home" [ref=e164] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=e169] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=e176] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=e181] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=e186] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=e6]

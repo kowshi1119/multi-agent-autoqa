@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { DeclaredApiCheck } from "./checks-manifest.js";
-import { fireCheckRequest } from "./http-client.js";
+import { checkBudget, createCheckRequester, scopedCheckUrl, type CheckBudget } from "./request-scope.js";
 import { evaluateAssertions } from "./shape-check.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
@@ -38,14 +38,17 @@ export async function runApiChecks(
   startingFindingIndex: number,
   origin: string,
   extraSecrets: readonly string[] = [],
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  budget: CheckBudget = checkBudget(profile)
 ): Promise<ApiChecksResult> {
   const findings: Finding[] = [];
   let findingIndex = startingFindingIndex;
-  const maxRequests = profile.limits.maxApiRequests ?? profile.limits.maxActions;
-  let requestsUsed = 0;
+  const request = createCheckRequester(profile, origin, budget);
 
   for (const check of checks) {
+    if (findingIndex > profile.limits.maxFindings) {
+      appendCheckLedgerEntry(runDir, blockedEntry(check, "Finding budget exhausted before this check."), extraSecrets); continue;
+    }
     if (abortSignal?.aborted) {
       appendCheckLedgerEntry(runDir, blockedEntry(check, "Run was cancelled before this check ran."), extraSecrets);
       continue;
@@ -61,21 +64,21 @@ export async function runApiChecks(
       );
       continue;
     }
-    if (!check.pathname.startsWith("/") || !profile.navigation.allowedPathPrefixes.some((p) => check.pathname.startsWith(p))) {
+    if (!scopedCheckUrl(profile, origin, check.pathname)) {
       appendCheckLedgerEntry(runDir, blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
       continue;
     }
-    if (requestsUsed >= maxRequests) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, `API request budget exhausted (maxApiRequests=${maxRequests}).`), extraSecrets);
+    if (budget.used >= budget.max) {
+      appendCheckLedgerEntry(runDir, blockedEntry(check, "API request budget exhausted."), extraSecrets);
       continue;
     }
 
-    requestsUsed++;
+    const beforeRequest = budget.used;
     const url = new URL(check.pathname, origin).toString();
-    const response = await fireCheckRequest(url, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal);
+    const response = await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal);
 
     if ("failed" in response) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, `Request failed: ${response.reason}`), extraSecrets);
+      appendCheckLedgerEntry(runDir, { ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason }, extraSecrets);
       continue;
     }
 
@@ -111,9 +114,14 @@ export async function runApiChecks(
 
     // A second confirming fire, same as the first, IS the reproduction for
     // a deterministic declared HTTP check -- no browser replay needed.
-    const confirm = await fireCheckRequest(url, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal);
-    const confirmFailures = "failed" in confirm ? failures : evaluateAssertions(check.assertions, confirm.status, confirm.contentType, confirm.body);
-    const classification = confirmFailures.length > 0 ? "confirmed" : "needs_review";
+    // A declared mutation is authorized once, never implicitly repeated.
+    const beforeConfirm = budget.used;
+    const confirm = check.method === "GET"
+      ? await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal)
+      : { failed: true as const, reason: "Automatic mutation replay is unsupported." };
+    const confirmFailures = "failed" in confirm ? [] : evaluateAssertions(check.assertions, confirm.status, confirm.contentType, confirm.body);
+    const reproduced = confirmFailures.some(c => failures.some(f => f.assertion === c.assertion && f.detail === c.detail));
+    const classification = reproduced ? "confirmed" : "needs_review";
     const findingId = generateFindingId(findingIndex++);
     const pathname = normalizePathname(url);
 
@@ -130,10 +138,11 @@ export async function runApiChecks(
       writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets),
     ];
 
+    evidenceFilenames.push(writeCheckEvidence(evidenceDir, "confirmation.json", confirm, extraSecrets));
     const finding: Finding = {
       id: findingId,
       title: `Declared API check failed: ${check.description}`,
-      status: "validated",
+      status: reproduced ? "validated" : "needs_human",
       category: "api",
       pageId: "PAGE-API",
       url,
@@ -148,7 +157,7 @@ export async function runApiChecks(
         details: { checkId: check.id, classification, assertionsFailed: failures },
       },
       steps: [],
-      reproduction: { attempts: 2, successes: confirmFailures.length > 0 ? 2 : 1 },
+      reproduction: { attempts: 1 + (budget.used - beforeConfirm), successes: reproduced ? 2 : 1 },
       occurrenceCount: 1,
       evidence: evidenceFilenames,
       evidenceLevel: "L2",

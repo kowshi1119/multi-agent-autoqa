@@ -25,16 +25,24 @@ export function redactStructuredEvidence(value: unknown, extraSecrets: readonly 
   return walk(value, extraSecrets);
 }
 
-function walk(value: unknown, extraSecrets: readonly string[]): unknown {
-  if (typeof value === "string") return redactSecrets(value, extraSecrets);
-  if (Array.isArray(value)) return value.map((v) => walk(v, extraSecrets));
+function walk(value: unknown, extraSecrets: readonly string[], depth = 0): unknown {
+  if (depth > 30) return "<OMITTED_DEPTH_LIMIT>";
+  if (typeof value === "string") {
+    if (/^\s*[\[{]/.test(value)) {
+      try { return JSON.stringify(walk(JSON.parse(value), extraSecrets, depth + 1)); } catch { /* plain text */ }
+    }
+    return redactSecrets(value, extraSecrets);
+  }
+  if (Array.isArray(value)) return value.map((v) => walk(v, extraSecrets, depth + 1));
   if (value !== null && typeof value === "object") {
-    const result: Record<string, unknown> = {};
+    const result: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    const namedHeader = value as { name?: unknown };
+    const sensitiveHeader = typeof namedHeader.name === "string" && SENSITIVE_KEY_RE.test(namedHeader.name);
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEY_RE.test(key)) {
-        result[key] = typeof v === "string" ? REDACTED_VALUE : walk(v, extraSecrets);
+      if (SENSITIVE_KEY_RE.test(key) || (sensitiveHeader && key === "value")) {
+        result[redactSecrets(key, extraSecrets)] = REDACTED_VALUE;
       } else {
-        result[key] = walk(v, extraSecrets);
+        result[redactSecrets(key, extraSecrets)] = walk(v, extraSecrets, depth + 1);
       }
     }
     return result;

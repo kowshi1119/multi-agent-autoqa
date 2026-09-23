@@ -1,0 +1,31 @@
+- generic [active] [ref=f3e1]:
+  - main [ref=f3e6]:
+    - generic [ref=f3e850]:
+      - generic [ref=f3e852]:
+        - button [ref=f3e853] [cursor=pointer]
+        - generic [ref=f3e856]:
+          - heading "Business Recipient's Bank Details" [level=1] [ref=f3e857]
+          - paragraph [ref=f3e858]: Bank details
+      - generic [ref=f3e860]:
+        - generic [ref=f3e861]:
+          - heading "Business Recipient's Bank Details" [level=2] [ref=f3e862]
+          - paragraph [ref=f3e863]: Enter the bank account information for your business recipient.
+        - generic [ref=f3e864]:
+          - generic [ref=f3e866]:
+            - combobox [aria-hidden]
+            - button "Bank name*" [ref=f3e867] [cursor=pointer]
+          - generic [ref=f3e871]:
+            - combobox "Branch name" [disabled] [ref=f3e872]
+            - generic: Branch name
+          - generic [ref=f3e874]:
+            - textbox "Account Number*" [ref=f3e875]:
+              - /placeholder: " "
+              - text: "1234567890123"
+            - generic: Account Number*
+          - generic [ref=f3e877]:
+            - textbox "Bank Code*" [ref=f3e878]:
+              - /placeholder: " "
+              - text: "0001"
+            - generic: Bank Code*
+          - button "Save & Continue" [ref=f3e880] [cursor=pointer]
+  - alert [ref=f3e2]

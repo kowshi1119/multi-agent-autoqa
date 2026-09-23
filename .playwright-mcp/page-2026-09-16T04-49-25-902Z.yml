@@ -1,0 +1,70 @@
+- generic [active] [ref=f22e1]:
+  - generic [ref=f22e3]:
+    - main [ref=f22e6]:
+      - generic [ref=f22e1157]:
+        - button "Back" [ref=f22e1158] [cursor=pointer]
+        - generic [ref=f22e1161]:
+          - generic [ref=f22e1167]:
+            - heading "QA Personal 001 Personal" [level=1] [ref=f22e1168]:
+              - generic [ref=f22e1169]: QA Personal 001
+              - generic [ref=f22e1170]: Personal
+            - paragraph [ref=f22e1171]: John Silva
+          - generic [ref=f22e1172]:
+            - button "Edit details" [ref=f22e1173] [cursor=pointer]
+            - button "Send money" [ref=f22e1174] [cursor=pointer]
+        - generic [ref=f22e1175]:
+          - heading "Personal details" [level=2] [ref=f22e1176]
+          - generic [ref=f22e1178]:
+            - generic [ref=f22e1179]:
+              - paragraph [ref=f22e1180]: Nickname
+              - paragraph [ref=f22e1181]: QA Personal 001
+            - generic [ref=f22e1182]:
+              - paragraph [ref=f22e1183]: Email Address
+              - paragraph [ref=f22e1184]: "-"
+            - generic [ref=f22e1185]:
+              - paragraph [ref=f22e1186]: First Name
+              - paragraph [ref=f22e1187]: John
+            - generic [ref=f22e1188]:
+              - paragraph [ref=f22e1189]: Contact No
+              - paragraph [ref=f22e1190]: "+94712345678"
+            - generic [ref=f22e1191]:
+              - paragraph [ref=f22e1192]: Last Name
+              - paragraph [ref=f22e1193]: Silva
+        - generic [ref=f22e1194]:
+          - heading "Bank account details" [level=2] [ref=f22e1195]
+          - generic [ref=f22e1197]:
+            - generic [ref=f22e1198]:
+              - paragraph [ref=f22e1199]: Branch name
+              - paragraph [ref=f22e1200]: "-"
+            - generic [ref=f22e1201]:
+              - paragraph [ref=f22e1202]: Bank name
+              - paragraph [ref=f22e1203]: Bank of Ceylon
+            - generic [ref=f22e1204]:
+              - paragraph [ref=f22e1205]: Account number
+              - paragraph [ref=f22e1206]: "0012345678"
+        - generic [ref=f22e1207]:
+          - heading "Address details" [level=2] [ref=f22e1208]
+          - generic [ref=f22e1210]:
+            - generic [ref=f22e1211]:
+              - paragraph [ref=f22e1212]: Address line 1
+              - paragraph [ref=f22e1213]: 12 Temple Place
+            - generic [ref=f22e1214]:
+              - paragraph [ref=f22e1215]: Postal/ZIP Code
+              - paragraph [ref=f22e1216]: "10100"
+            - generic [ref=f22e1217]:
+              - paragraph [ref=f22e1218]: Country
+              - paragraph [ref=f22e1219]: Sri Lanka
+        - button "Delete recipients" [ref=f22e1221] [cursor=pointer]
+    - navigation [ref=f22e871]:
+      - generic [ref=f22e872]:
+        - link "Home" [ref=f22e873] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f22e878] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f22e885] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f22e890] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f22e895] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f22e2]

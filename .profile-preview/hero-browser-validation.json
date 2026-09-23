@@ -1,0 +1,22 @@
+[
+  {
+    "width": 1200,
+    "reducedMotion": "no-preference",
+    "selected": "ai-qa-dev-flow.gif"
+  },
+  {
+    "width": 1200,
+    "reducedMotion": "reduce",
+    "selected": "ai-qa-dev-flow.png"
+  },
+  {
+    "width": 390,
+    "reducedMotion": "no-preference",
+    "selected": "ai-qa-dev-flow-mobile.gif"
+  },
+  {
+    "width": 390,
+    "reducedMotion": "reduce",
+    "selected": "ai-qa-dev-flow-mobile.png"
+  }
+]

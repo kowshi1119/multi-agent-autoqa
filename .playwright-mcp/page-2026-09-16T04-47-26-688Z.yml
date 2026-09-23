@@ -1,0 +1,69 @@
+- generic [active] [ref=f22e1]:
+  - main [ref=f22e6]:
+    - generic [ref=f22e770]:
+      - generic [ref=f22e772]:
+        - button [ref=f22e773] [cursor=pointer]
+        - generic [ref=f22e776]:
+          - heading "Edit Personal Recipient" [level=1] [ref=f22e781]
+          - paragraph [ref=f22e782]: Update details
+      - generic [ref=f22e784]:
+        - generic [ref=f22e785]: "Editing: Test Recipient"
+        - generic [ref=f22e787]:
+          - generic [ref=f22e788]:
+            - heading "Recipient Details" [level=3] [ref=f22e794]
+            - generic [ref=f22e795]:
+              - generic [ref=f22e797]:
+                - textbox "Nickname*" [ref=f22e798]:
+                  - /placeholder: " "
+                  - text: Test Recipient
+                - generic: Nickname*
+              - generic [ref=f22e799]:
+                - generic [ref=f22e801]:
+                  - textbox "First Name*" [ref=f22e802]:
+                    - /placeholder: " "
+                    - text: John
+                  - generic: First Name*
+                - generic [ref=f22e804]:
+                  - textbox "Last Name*" [ref=f22e805]:
+                    - /placeholder: " "
+                    - text: Silva
+                  - generic: Last Name*
+              - generic [ref=f22e807]:
+                - combobox [disabled] [aria-hidden]
+                - button "Select country* Sri Lanka" [disabled] [ref=f22e808] [cursor=pointer]:
+                  - generic: Select country*
+                  - generic [ref=f22e809]: Sri Lanka
+              - generic [ref=f22e815]:
+                - button "+94" [disabled] [ref=f22e816] [cursor=pointer]
+                - generic [ref=f22e818]:
+                  - textbox [ref=f22e819]:
+                    - /placeholder: " "
+                    - text: "771234567"
+                  - generic: Enter phone number*
+              - generic [ref=f22e821]:
+                - textbox "Email Address (Optional)" [ref=f22e822]:
+                  - /placeholder: " "
+                - generic: Email Address (Optional)
+              - generic [ref=f22e824]:
+                - textbox "Address*" [ref=f22e825]:
+                  - /placeholder: " "
+                  - text: 123 Test Street
+                - generic: Address*
+              - generic [ref=f22e827]:
+                - textbox "Address Line 2 (Optional)" [ref=f22e828]:
+                  - /placeholder: " "
+                - generic: Address Line 2 (Optional)
+              - generic [ref=f22e829]:
+                - generic [ref=f22e831]:
+                  - textbox "City (optional)" [ref=f22e832]:
+                    - /placeholder: " "
+                  - generic: City (optional)
+                - generic [ref=f22e834]:
+                  - textbox "Postal/ZIP Code*" [ref=f22e835]:
+                    - /placeholder: " "
+                    - text: "10100"
+                  - generic: Postal/ZIP Code*
+          - generic [ref=f22e836]:
+            - button "Continue to Bank Details" [ref=f22e837] [cursor=pointer]
+            - button "Cancel" [ref=f22e838] [cursor=pointer]
+  - alert [ref=f22e2]

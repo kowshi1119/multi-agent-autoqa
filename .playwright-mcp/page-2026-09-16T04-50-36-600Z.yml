@@ -1,0 +1,35 @@
+- generic [ref=f23e1]:
+  - generic [ref=f23e3]:
+    - main [ref=f23e6]:
+      - generic [ref=f23e7]:
+        - generic [ref=f23e8]:
+          - generic [ref=f23e9]:
+            - generic [ref=f23e10]:
+              - heading "Bill Payments" [level=1] [ref=f23e11]
+              - paragraph [ref=f23e12]: Manage bill payments seamlessly.
+            - button "New bill payment" [ref=f23e14] [cursor=pointer]
+          - textbox "Search biller" [ref=f23e17]
+          - generic [ref=f23e18]:
+            - button "All" [ref=f23e19] [cursor=pointer]
+            - button "Broadband And Telecom" [ref=f23e22] [cursor=pointer]
+            - button "Insurance" [ref=f23e25] [cursor=pointer]
+            - button "Mobile Company" [ref=f23e28] [cursor=pointer]
+            - button "Utility Company" [active] [ref=f23e31] [cursor=pointer]
+        - generic [ref=f23e35]:
+          - paragraph [ref=f23e36]: Saved Billers
+          - generic [ref=f23e103]:
+            - heading "No billers match your search" [level=3] [ref=f23e108]
+            - paragraph [ref=f23e109]: Try adjusting your search or category filter.
+    - navigation [ref=f23e74]:
+      - generic [ref=f23e75]:
+        - link "Home" [ref=f23e76] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f23e81] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f23e88] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f23e93] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f23e98] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f23e2]

@@ -1,0 +1,46 @@
+- generic [active] [ref=f30e1]:
+  - generic [ref=f30e3]:
+    - banner [ref=f30e4]:
+      - generic [ref=f30e6]:
+        - link [ref=f30e7] [cursor=pointer]:
+          - /url: /home
+          - img "Ajeer Money" [ref=f30e8]
+        - button [ref=f30e11] [cursor=pointer]:
+          - generic [ref=f30e16]:
+            - paragraph [ref=f30e17]: Kowshi Mathi
+            - paragraph [ref=f30e18]: Personal
+    - generic [ref=f30e22]:
+      - navigation [ref=f30e23]:
+        - list [ref=f30e24]:
+          - listitem [ref=f30e25]:
+            - link "Home" [ref=f30e26] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=f30e31]:
+            - link "Recipients" [ref=f30e32] [cursor=pointer]:
+              - /url: /recipients
+          - listitem [ref=f30e39]:
+            - link "Bill Payments" [ref=f30e40] [cursor=pointer]:
+              - /url: /bill-payments
+          - listitem [ref=f30e45]:
+            - link "Transactions" [ref=f30e46] [cursor=pointer]:
+              - /url: /history
+          - listitem [ref=f30e51]:
+            - link "My Account" [ref=f30e52] [cursor=pointer]:
+              - /url: /account
+      - main [ref=f30e57]:
+        - generic [ref=f30e193]:
+          - generic [ref=f30e194]:
+            - generic [ref=f30e195]:
+              - button [ref=f30e196] [cursor=pointer]
+              - generic [ref=f30e199]:
+                - heading "Devices" [level=1] [ref=f30e200]
+                - paragraph [ref=f30e201]: Your logged-in devices
+            - button "Log out all other devices" [ref=f30e202] [cursor=pointer]
+          - generic [ref=f30e206]:
+            - generic [ref=f30e210]:
+              - paragraph [ref=f30e212]: Chrome (Windows)
+              - paragraph [ref=f30e213]:
+                - text: Logged in 9 minutes ago
+                - generic [ref=f30e214]: · Rajagiriya, Sri Lanka
+            - button "Log out" [ref=f30e215] [cursor=pointer]
+  - alert [ref=f30e2]

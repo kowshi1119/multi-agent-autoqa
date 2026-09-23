@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,5 +130,22 @@ describe("Authentication discovery through the local UI", () => {
     expect((await fetch(base + "/api/runs", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ profileId: "sandbox", mode: "demo" }) })).status).toBe(409);
     controller.abort(); await pending;
     expect(JSON.parse(readFileSync(profilePath, "utf8")).auth.checksVerified).toBe(false);
+  });
+  it("rechecks discovery exclusion after a delayed run request body arrives", async () => {
+    const { base, ui, loginReached } = await setup(true);
+    let received!: () => void;
+    const arrived = new Promise<void>(r => { received = r; });
+    ui.server.once("request", received);
+    let status!: Promise<number>;
+    const held = httpRequest(base + "/api/runs", { method: "POST", headers: { "content-type": "application/json", "x-csrf-token": ui.csrfToken } });
+    status = new Promise<number>((resolve, reject) => { held.on("response", res => { res.resume(); resolve(res.statusCode!); }); held.on("error", reject); });
+    held.write('{"profileId":'); await arrived;
+    const controller = new AbortController();
+    const discovery = fetch(base + "/api/profiles/sandbox/auth-discovery", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ username: "fake", password: "fake" }), signal: controller.signal }).catch(() => undefined);
+    try {
+      await loginReached;
+      held.end('"sandbox","mode":"demo","authenticationOnly":true}');
+      expect(await status).toBe(409);
+    } finally { controller.abort(); held.destroy(); await discovery; }
   });
 });

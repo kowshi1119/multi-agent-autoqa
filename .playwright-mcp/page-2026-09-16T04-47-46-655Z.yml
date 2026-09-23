@@ -1,0 +1,119 @@
+- generic [active] [ref=f22e1]:
+  - generic [ref=f22e3]:
+    - main [ref=f22e6]:
+      - generic [ref=f22e839]:
+        - generic [ref=f22e840]:
+          - generic [ref=f22e841]:
+            - generic [ref=f22e842]:
+              - heading "Recipients" [level=1] [ref=f22e843]
+              - paragraph [ref=f22e844]: Manage your saved recipients
+            - button "Add Bank Recipient" [ref=f22e846] [cursor=pointer]
+          - generic [ref=f22e848]:
+            - button "Bank Accounts" [ref=f22e849] [cursor=pointer]
+            - button "Cash Pickup" [ref=f22e853] [cursor=pointer]
+            - button "Wallets" [ref=f22e858] [cursor=pointer]
+          - textbox "Search bank accounts..." [ref=f22e864]
+        - generic [ref=f22e867]:
+          - generic [ref=f22e900]:
+            - generic [ref=f22e902]:
+              - generic [ref=f22e903]: Sri Lanka
+              - generic [ref=f22e909]:
+                - heading "QA Switch Test 001 Personal" [level=3] [ref=f22e910]:
+                  - generic [ref=f22e911]: QA Switch Test 001
+                  - generic [ref=f22e912]: Personal
+                - paragraph [ref=f22e913]: Kamal Fernando
+              - generic [ref=f22e914]:
+                - button [ref=f22e916] [cursor=pointer]
+                - button [ref=f22e921] [cursor=pointer]
+                - button [ref=f22e926] [cursor=pointer]
+                - generic "Cannot delete – this recipient has one or more transactions in progress." [ref=f22e930]:
+                  - button [disabled] [ref=f22e931] [cursor=pointer]
+            - generic [ref=f22e936]:
+              - generic [ref=f22e937]: Sri Lanka
+              - generic [ref=f22e943]:
+                - heading "QA Personal XSS 001 Personal" [level=3] [ref=f22e944]:
+                  - generic [ref=f22e945]: QA Personal XSS 001
+                  - generic [ref=f22e946]: Personal
+                - paragraph [ref=f22e947]: Jose O'Connor
+              - generic [ref=f22e948]:
+                - button [ref=f22e950] [cursor=pointer]
+                - button [ref=f22e955] [cursor=pointer]
+                - button [ref=f22e960] [cursor=pointer]
+                - button [ref=f22e965] [cursor=pointer]
+            - generic [ref=f22e970]:
+              - generic [ref=f22e971]: Sri Lanka
+              - generic [ref=f22e977]:
+                - heading "QA Personal 001 Personal" [level=3] [ref=f22e978]:
+                  - generic [ref=f22e979]: QA Personal 001
+                  - generic [ref=f22e980]: Personal
+                - paragraph [ref=f22e981]: John Silva
+              - generic [ref=f22e982]:
+                - button [ref=f22e984] [cursor=pointer]
+                - button [ref=f22e989] [cursor=pointer]
+                - button [ref=f22e994] [cursor=pointer]
+                - button [ref=f22e999] [cursor=pointer]
+            - generic [ref=f22e1004]:
+              - generic [ref=f22e1005]: Sri Lanka
+              - generic [ref=f22e1011]:
+                - heading "Test Recipient Personal" [level=3] [ref=f22e1012]:
+                  - generic [ref=f22e1013]: Test Recipient
+                  - generic [ref=f22e1014]: Personal
+                - paragraph [ref=f22e1015]: John Silva
+              - generic [ref=f22e1016]:
+                - button [ref=f22e1018] [cursor=pointer]
+                - button [ref=f22e1023] [cursor=pointer]
+                - button [ref=f22e1028] [cursor=pointer]
+                - button [ref=f22e1033] [cursor=pointer]
+          - generic [ref=f22e1037]:
+            - generic [ref=f22e1039]:
+              - generic [ref=f22e1040]: "Rows per page:"
+              - combobox [ref=f22e1041] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "25"
+                - option "50"
+            - generic [ref=f22e1042]:
+              - button "First page" [disabled] [ref=f22e1043] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f22e1047] [cursor=pointer]
+              - button "1" [ref=f22e1051] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f22e1052] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f22e1055] [cursor=pointer]
+            - generic [ref=f22e1059]: 1-4 of 4
+        - generic [ref=f22e1066]:
+          - button [ref=f22e1067] [cursor=pointer]
+          - generic [ref=f22e1071]:
+            - heading "Confirm Recipient Details" [level=2] [ref=f22e1072]
+            - paragraph [ref=f22e1073]: This is your first transaction with this recipient. Please verify the details are correct before processing.
+            - generic [ref=f22e1074]:
+              - generic [ref=f22e1075]:
+                - generic [ref=f22e1076]: Test Recipient
+                - generic [ref=f22e1084]: Bank Transfer
+              - generic [ref=f22e1085]:
+                - generic [ref=f22e1086]:
+                  - generic [ref=f22e1087]: Bank name
+                  - generic [ref=f22e1088]: Bank of Ceylon
+                - generic [ref=f22e1089]:
+                  - generic [ref=f22e1090]: Account number
+                  - generic [ref=f22e1091]: AB1234567
+                - generic [ref=f22e1092]:
+                  - generic [ref=f22e1093]: Account holder name
+                  - generic [ref=f22e1094]: John Silva
+                - generic [ref=f22e1095]:
+                  - generic [ref=f22e1096]: Country
+                  - generic [ref=f22e1097]: Sri Lanka
+            - generic [ref=f22e1098]:
+              - button "Confirm & continue" [ref=f22e1099] [cursor=pointer]
+              - button "Cancel" [ref=f22e1100] [cursor=pointer]
+    - navigation [ref=f22e871]:
+      - generic [ref=f22e872]:
+        - link "Home" [ref=f22e873] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f22e878] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f22e885] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f22e890] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f22e895] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f22e2]

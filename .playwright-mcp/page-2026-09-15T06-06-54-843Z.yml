@@ -1,0 +1,42 @@
+- generic [ref=f15e1]:
+  - main [ref=f15e6]:
+    - generic [ref=f15e7]:
+      - generic [ref=f15e9]:
+        - button [ref=f15e10] [cursor=pointer]
+        - generic [ref=f15e13]:
+          - heading "Add Bank Account Holder" [level=1] [ref=f15e14]
+          - paragraph [ref=f15e15]: Select currency
+      - generic [ref=f15e17]:
+        - generic [ref=f15e18]:
+          - heading "Select their currency" [level=2] [ref=f15e19]
+          - paragraph [ref=f15e20]: Choose the currency you want to send and enter the transfer amount.
+        - textbox "Search currency" [ref=f15e25]
+        - generic [ref=f15e26]:
+          - heading "Available currencies" [level=3] [ref=f15e28]
+          - generic [ref=f15e29]:
+            - button [active] [ref=f15e30] [cursor=pointer]:
+              - generic [ref=f15e31]:
+                - img "Sri Lanka" [ref=f15e33]
+                - generic [ref=f15e34]:
+                  - paragraph [ref=f15e35]: LKR
+                  - paragraph [ref=f15e36]: Sri Lankan Rupee
+            - button [ref=f15e39] [cursor=pointer]:
+              - generic [ref=f15e40]:
+                - img "Pakistan" [ref=f15e42]
+                - generic [ref=f15e43]:
+                  - paragraph [ref=f15e44]: PKR
+                  - paragraph [ref=f15e45]: Pakistani Rupee
+            - button [ref=f15e48] [cursor=pointer]:
+              - generic [ref=f15e49]:
+                - img "Bangladesh" [ref=f15e51]
+                - generic [ref=f15e52]:
+                  - paragraph [ref=f15e53]: BDT
+                  - paragraph [ref=f15e54]: Bangladeshi Taka
+            - button [ref=f15e57] [cursor=pointer]:
+              - generic [ref=f15e58]:
+                - img "Nepal" [ref=f15e60]
+                - generic [ref=f15e61]:
+                  - paragraph [ref=f15e62]: NPR
+                  - paragraph [ref=f15e63]: Nepalese Rupee
+        - button "Continue" [ref=f15e67] [cursor=pointer]
+  - alert [ref=f15e2]

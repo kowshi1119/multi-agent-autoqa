@@ -1,0 +1,120 @@
+- generic [ref=f16e1]:
+  - generic [ref=f16e3]:
+    - main [ref=f16e6]:
+      - generic [ref=f16e7]:
+        - generic [ref=f16e8]:
+          - generic [ref=f16e9]:
+            - generic [ref=f16e11]:
+              - paragraph [ref=f16e12]: Good morning
+              - heading "Kowshi Mathi" [level=1] [ref=f16e13]
+            - generic [ref=f16e14]:
+              - button [active] [ref=f16e15] [cursor=pointer]
+              - generic [ref=f16e165]:
+                - paragraph [ref=f16e167]: Switch Account
+                - button [ref=f16e168] [cursor=pointer]:
+                  - generic [ref=f16e173]:
+                    - paragraph [ref=f16e174]: Kowshi Mathi
+                    - paragraph [ref=f16e175]: kowshikan@spoton.money
+                - button [ref=f16e179] [cursor=pointer]:
+                  - generic [ref=f16e182]:
+                    - paragraph [ref=f16e183]: Add business account
+                    - paragraph [ref=f16e184]: Create a new business
+                - button "Logout" [ref=f16e186] [cursor=pointer]
+          - button [ref=f16e24] [cursor=pointer]
+        - generic [ref=f16e29]:
+          - generic [ref=f16e31]:
+            - paragraph [ref=f16e36]: Good morning, Kowshi
+            - heading "Welcome back to Ajeer Money" [level=2] [ref=f16e37]
+            - button "Send money" [ref=f16e39] [cursor=pointer]
+          - generic [ref=f16e43]:
+            - generic [ref=f16e44]:
+              - generic [ref=f16e46]:
+                - generic [ref=f16e47]:
+                  - heading "Bank Account Holders" [level=2] [ref=f16e48]
+                  - link "View all" [ref=f16e49] [cursor=pointer]:
+                    - /url: /recipients
+                - generic [ref=f16e50]:
+                  - button "QS QA" [ref=f16e51] [cursor=pointer]:
+                    - generic [ref=f16e52]: QS
+                    - generic [ref=f16e54]: QA
+                  - button "+ Bank" [ref=f16e55] [cursor=pointer]:
+                    - generic [ref=f16e56]: +
+                    - generic [ref=f16e58]: Bank
+              - generic [ref=f16e60]:
+                - generic [ref=f16e61]:
+                  - heading "Cash Pickups" [level=2] [ref=f16e62]
+                  - link "View all" [ref=f16e63] [cursor=pointer]:
+                    - /url: /recipients?tab=cash
+                - button "+ Cash" [ref=f16e65] [cursor=pointer]:
+                  - generic [ref=f16e66]: +
+                  - generic [ref=f16e68]: Cash
+              - generic [ref=f16e70]:
+                - generic [ref=f16e71]:
+                  - heading "Wallets" [level=2] [ref=f16e72]
+                  - link "View all" [ref=f16e73] [cursor=pointer]:
+                    - /url: /recipients?tab=wallet
+                - button "+ Wallet" [ref=f16e75] [cursor=pointer]:
+                  - generic [ref=f16e76]: +
+                  - generic [ref=f16e78]: Wallet
+            - generic [ref=f16e81]:
+              - generic [ref=f16e82]:
+                - generic [ref=f16e83]:
+                  - heading "Latest Exchange Rates" [level=2] [ref=f16e84]
+                  - paragraph [ref=f16e85]: Based on 1 GBP
+                - paragraph [ref=f16e86]: Updated 22min ago
+              - generic [ref=f16e87]:
+                - generic [ref=f16e88]:
+                  - generic [ref=f16e89]:
+                    - img "BDT" [ref=f16e91]
+                    - generic [ref=f16e92]:
+                      - paragraph [ref=f16e93]: BDT
+                      - paragraph [ref=f16e94]: Bangladeshi Taka
+                  - generic [ref=f16e95]: "165.54"
+                - generic [ref=f16e96]:
+                  - generic [ref=f16e97]:
+                    - img "EUR" [ref=f16e99]
+                    - generic [ref=f16e100]:
+                      - paragraph [ref=f16e101]: EUR
+                      - paragraph [ref=f16e102]: Euro
+                  - generic [ref=f16e103]: "1.18"
+                - generic [ref=f16e104]:
+                  - generic [ref=f16e105]:
+                    - img "LKR" [ref=f16e107]
+                    - generic [ref=f16e108]:
+                      - paragraph [ref=f16e109]: LKR
+                      - paragraph [ref=f16e110]: Sri Lankan Rupee
+                  - generic [ref=f16e111]: "451.29"
+                - generic [ref=f16e112]:
+                  - generic [ref=f16e113]:
+                    - img "NPR" [ref=f16e115]
+                    - generic [ref=f16e116]:
+                      - paragraph [ref=f16e117]: NPR
+                      - paragraph [ref=f16e118]: Nepalese Rupee
+                  - generic [ref=f16e119]: "206.77"
+                - generic [ref=f16e120]:
+                  - generic [ref=f16e121]:
+                    - img "PKR" [ref=f16e123]
+                    - generic [ref=f16e124]:
+                      - paragraph [ref=f16e125]: PKR
+                      - paragraph [ref=f16e126]: Pakistani Rupee
+                  - generic [ref=f16e127]: "380.00"
+                - generic [ref=f16e128]:
+                  - generic [ref=f16e129]:
+                    - img "USD" [ref=f16e131]
+                    - generic [ref=f16e132]:
+                      - paragraph [ref=f16e133]: USD
+                      - paragraph [ref=f16e134]: US Dollar
+                  - generic [ref=f16e135]: "2.00"
+    - navigation [ref=f16e136]:
+      - generic [ref=f16e137]:
+        - link "Home" [ref=f16e138] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f16e143] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f16e150] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f16e155] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f16e160] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f16e2]

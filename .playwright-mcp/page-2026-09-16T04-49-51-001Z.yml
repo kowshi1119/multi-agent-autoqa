@@ -1,0 +1,27 @@
+- generic [active] [ref=f22e1]:
+  - generic [ref=f22e3]:
+    - main [ref=f22e6]:
+      - generic [ref=f22e1223]:
+        - generic [ref=f22e1224]:
+          - generic [ref=f22e1225]:
+            - heading "Recipients" [level=1] [ref=f22e1226]
+            - paragraph [ref=f22e1227]: Manage your saved recipients
+          - button "Add Bank Recipient" [ref=f22e1229] [cursor=pointer]
+        - generic [ref=f22e1231]:
+          - button "Bank Accounts" [ref=f22e1232] [cursor=pointer]
+          - button "Cash Pickup" [ref=f22e1236] [cursor=pointer]
+          - button "Wallets" [ref=f22e1241] [cursor=pointer]
+        - textbox "Search bank accounts..." [ref=f22e1247]
+    - navigation [ref=f22e871]:
+      - generic [ref=f22e872]:
+        - link "Home" [ref=f22e873] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f22e878] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f22e885] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f22e890] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f22e895] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f22e2]

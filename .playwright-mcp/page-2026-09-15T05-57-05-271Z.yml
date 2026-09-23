@@ -1,0 +1,60 @@
+- generic [active] [ref=f8e1]:
+  - generic [ref=f8e3]:
+    - main [ref=f8e6]:
+      - generic [ref=f8e264]:
+        - generic [ref=f8e265]:
+          - generic [ref=f8e266]:
+            - generic [ref=f8e267]:
+              - heading "Recipients" [level=1] [ref=f8e268]
+              - paragraph [ref=f8e269]: Manage your saved recipients
+            - button "Add Wallet" [ref=f8e271] [cursor=pointer]
+          - generic [ref=f8e273]:
+            - button "Bank Accounts" [ref=f8e274] [cursor=pointer]
+            - button "Cash Pickup" [ref=f8e278] [cursor=pointer]
+            - button "Wallets" [ref=f8e283] [cursor=pointer]
+          - textbox "Search wallets..." [ref=f8e289]
+        - generic [ref=f8e292]:
+          - generic [ref=f8e295]:
+            - generic [ref=f8e296]:
+              - generic [ref=f8e297]: Easypaisa
+              - generic [ref=f8e298]: Pakistan
+            - generic [ref=f8e304]:
+              - heading "QA Wallet 001 Personal" [level=3] [ref=f8e305]:
+                - generic [ref=f8e306]: QA Wallet 001
+                - generic [ref=f8e307]: Personal
+              - paragraph [ref=f8e308]: Ahmed Khan
+            - generic [ref=f8e309]:
+              - generic "This recipient is currently unavailable for transfers. Please contact support if you need help." [ref=f8e310]:
+                - button [disabled] [ref=f8e311] [cursor=pointer]
+              - button [ref=f8e316] [cursor=pointer]
+              - generic "This recipient can't be edited at the moment. Please contact support if you need help." [ref=f8e320]:
+                - button [disabled] [ref=f8e321] [cursor=pointer]
+              - button [ref=f8e326] [cursor=pointer]
+          - generic [ref=f8e330]:
+            - generic [ref=f8e332]:
+              - generic [ref=f8e333]: "Rows per page:"
+              - combobox [ref=f8e334] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "25"
+                - option "50"
+            - generic [ref=f8e335]:
+              - button "First page" [disabled] [ref=f8e336] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f8e340] [cursor=pointer]
+              - button "1" [ref=f8e344] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f8e345] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f8e348] [cursor=pointer]
+            - generic [ref=f8e352]: 1-1 of 1
+    - navigation [ref=f8e353]:
+      - generic [ref=f8e354]:
+        - link "Home" [ref=f8e355] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f8e360] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f8e367] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f8e372] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f8e377] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f8e2]

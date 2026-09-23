@@ -1,0 +1,60 @@
+- generic [ref=f22e1]:
+  - generic [ref=f22e3]:
+    - main [ref=f22e6]:
+      - generic [ref=f22e7]:
+        - generic [ref=f22e8]:
+          - generic [ref=f22e9]:
+            - generic [ref=f22e10]:
+              - heading "Recipients" [level=1] [ref=f22e11]
+              - paragraph [ref=f22e12]: Manage your saved recipients
+            - button "Add Cash Pickup" [ref=f22e430] [cursor=pointer]
+          - generic [ref=f22e16]:
+            - button "Bank Accounts" [ref=f22e17] [cursor=pointer]
+            - button "Cash Pickup" [active] [ref=f22e21] [cursor=pointer]
+            - button "Wallets" [ref=f22e26] [cursor=pointer]
+          - generic [ref=f22e31]:
+            - textbox "Search cash pickups..." [ref=f22e431]: QA
+            - button "Clear search" [ref=f22e432] [cursor=pointer]
+        - generic [ref=f22e437]:
+          - generic [ref=f22e440]:
+            - generic [ref=f22e441]:
+              - generic [ref=f22e442]: National ID Card (NIC)
+              - generic [ref=f22e443]: Sri Lanka
+            - generic [ref=f22e449]:
+              - heading "QA Cash 001 Personal" [level=3] [ref=f22e450]:
+                - generic [ref=f22e451]: QA Cash 001
+                - generic [ref=f22e452]: Personal
+              - paragraph [ref=f22e453]: Nimal Perera
+            - generic [ref=f22e454]:
+              - button [ref=f22e456] [cursor=pointer]
+              - button [ref=f22e461] [cursor=pointer]
+              - button [ref=f22e466] [cursor=pointer]
+              - button [ref=f22e471] [cursor=pointer]
+          - generic [ref=f22e475]:
+            - generic [ref=f22e477]:
+              - generic [ref=f22e478]: "Rows per page:"
+              - combobox [ref=f22e479] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "25"
+                - option "50"
+            - generic [ref=f22e480]:
+              - button "First page" [disabled] [ref=f22e481] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f22e485] [cursor=pointer]
+              - button "1" [ref=f22e489] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f22e490] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f22e493] [cursor=pointer]
+            - generic [ref=f22e497]: 1-1 of 1
+    - navigation [ref=f22e196]:
+      - generic [ref=f22e197]:
+        - link "Home" [ref=f22e198] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f22e203] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f22e210] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f22e215] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f22e220] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f22e2]

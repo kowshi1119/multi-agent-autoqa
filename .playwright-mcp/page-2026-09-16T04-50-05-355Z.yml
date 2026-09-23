@@ -1,0 +1,103 @@
+- generic [ref=f22e1]:
+  - generic [ref=f22e3]:
+    - main [ref=f22e6]:
+      - generic [ref=f22e1222]:
+        - generic [ref=f22e1223]:
+          - generic [ref=f22e1224]:
+            - generic [ref=f22e1225]:
+              - heading "Recipients" [level=1] [ref=f22e1226]
+              - paragraph [ref=f22e1227]: Manage your saved recipients
+            - button "Add Wallet" [ref=f22e1577] [cursor=pointer]
+          - generic [ref=f22e1231]:
+            - button "Bank Accounts" [ref=f22e1232] [cursor=pointer]
+            - button "Cash Pickup" [ref=f22e1236] [cursor=pointer]
+            - button "Wallets" [active] [ref=f22e1241] [cursor=pointer]
+          - textbox "Search wallets..." [ref=f22e1578]
+        - generic [ref=f22e1580]:
+          - generic [ref=f22e1581]:
+            - generic [ref=f22e1583]:
+              - generic [ref=f22e1584]:
+                - generic [ref=f22e1585]: Easypaisa
+                - generic [ref=f22e1586]: Pakistan
+              - generic [ref=f22e1592]:
+                - heading "Electricbill334545 Personal" [level=3] [ref=f22e1593]:
+                  - generic [ref=f22e1594]: Electricbill334545
+                  - generic [ref=f22e1595]: Personal
+                - paragraph [ref=f22e1596]: Kowshikan Mathivarnan
+              - generic [ref=f22e1597]:
+                - button [ref=f22e1599] [cursor=pointer]
+                - button [ref=f22e1604] [cursor=pointer]
+                - button [ref=f22e1609] [cursor=pointer]
+                - button [ref=f22e1614] [cursor=pointer]
+            - generic [ref=f22e1619]:
+              - generic [ref=f22e1620]:
+                - generic [ref=f22e1621]: Easypaisa
+                - generic [ref=f22e1622]: Pakistan
+              - generic [ref=f22e1628]:
+                - heading "Electricbill33444 Personal" [level=3] [ref=f22e1629]:
+                  - generic [ref=f22e1630]: Electricbill33444
+                  - generic [ref=f22e1631]: Personal
+                - paragraph [ref=f22e1632]: Kowshikan Mathivarnan
+              - generic [ref=f22e1633]:
+                - button [ref=f22e1635] [cursor=pointer]
+                - button [ref=f22e1640] [cursor=pointer]
+                - button [ref=f22e1645] [cursor=pointer]
+                - button [ref=f22e1650] [cursor=pointer]
+            - generic [ref=f22e1655]:
+              - generic [ref=f22e1656]:
+                - generic [ref=f22e1657]: Easypaisa
+                - generic [ref=f22e1658]: Pakistan
+              - generic [ref=f22e1664]:
+                - heading "Electricbill33 Personal" [level=3] [ref=f22e1665]:
+                  - generic [ref=f22e1666]: Electricbill33
+                  - generic [ref=f22e1667]: Personal
+                - paragraph [ref=f22e1668]: Kowshikan Mathivarnan
+              - generic [ref=f22e1669]:
+                - button [ref=f22e1671] [cursor=pointer]
+                - button [ref=f22e1676] [cursor=pointer]
+                - button [ref=f22e1681] [cursor=pointer]
+                - button [ref=f22e1686] [cursor=pointer]
+            - generic [ref=f22e1691]:
+              - generic [ref=f22e1692]:
+                - generic [ref=f22e1693]: Easypaisa
+                - generic [ref=f22e1694]: Pakistan
+              - generic [ref=f22e1700]:
+                - heading "QA Wallet 001 Personal" [level=3] [ref=f22e1701]:
+                  - generic [ref=f22e1702]: QA Wallet 001
+                  - generic [ref=f22e1703]: Personal
+                - paragraph [ref=f22e1704]: Ahmed Khan
+              - generic [ref=f22e1705]:
+                - generic "This recipient is currently unavailable for transfers. Please contact support if you need help." [ref=f22e1706]:
+                  - button [disabled] [ref=f22e1707] [cursor=pointer]
+                - button [ref=f22e1712] [cursor=pointer]
+                - generic "This recipient can't be edited at the moment. Please contact support if you need help." [ref=f22e1716]:
+                  - button [disabled] [ref=f22e1717] [cursor=pointer]
+                - button [ref=f22e1722] [cursor=pointer]
+          - generic [ref=f22e1726]:
+            - generic [ref=f22e1728]:
+              - generic [ref=f22e1729]: "Rows per page:"
+              - combobox [ref=f22e1730] [cursor=pointer]:
+                - option "5"
+                - option "10" [selected]
+                - option "25"
+                - option "50"
+            - generic [ref=f22e1731]:
+              - button "First page" [disabled] [ref=f22e1732] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f22e1736] [cursor=pointer]
+              - button "1" [ref=f22e1740] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f22e1741] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f22e1744] [cursor=pointer]
+            - generic [ref=f22e1748]: 1-4 of 4
+    - navigation [ref=f22e871]:
+      - generic [ref=f22e872]:
+        - link "Home" [ref=f22e873] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f22e878] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f22e885] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f22e890] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f22e895] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f22e2]

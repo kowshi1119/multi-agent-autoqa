@@ -1,0 +1,35 @@
+- generic [active] [ref=f39e1]:
+  - generic [ref=f39e2]:
+    - banner [ref=f39e3]:
+      - link [ref=f39e4] [cursor=pointer]:
+        - /url: /login
+        - img "Ajeer Money" [ref=f39e5]
+      - generic [ref=f39e6]: English
+    - generic [ref=f39e11]:
+      - heading "Welcome Back!" [level=2] [ref=f39e12]
+      - paragraph [ref=f39e13]:
+        - text: Don't have an account yet?
+        - link "Sign Up" [ref=f39e14] [cursor=pointer]:
+          - /url: /signup
+      - generic [ref=f39e15]:
+        - generic [ref=f39e16]:
+          - textbox "Enter your email address" [ref=f39e17]:
+            - /placeholder: " "
+          - generic: Enter your email address
+        - generic [ref=f39e19]:
+          - textbox "Enter your password" [ref=f39e20]:
+            - /placeholder: " "
+          - button [ref=f39e21] [cursor=pointer]
+          - generic: Enter your password
+        - link "Forgot Password?" [ref=f39e26] [cursor=pointer]:
+          - /url: /forgot-password
+        - button "Login" [ref=f39e27] [cursor=pointer]
+      - paragraph [ref=f39e28]:
+        - text: By continuing, you acknowledge that you have read and understood, and agree to Ajeer Money's
+        - link "Terms & Conditions" [ref=f39e29] [cursor=pointer]:
+          - /url: /terms-and-conditions
+        - text: and
+        - link "Privacy Policy" [ref=f39e30] [cursor=pointer]:
+          - /url: /privacy-policy
+        - text: .
+  - alert [ref=f39e31]

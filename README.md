@@ -1,5 +1,35 @@
 # AutoQA
 
+## API/security audit continuation — 2026-09-23
+
+The implementation at 3579f6d was already present when this work resumed. A synthetic regression reproduced eight failures: unbounded body reading, uncounted confirmation requests, confirmation failures reported as success, path-prefix/origin confusion, and cross-account checks reaching non-fixture profiles. These are now corrected. Earlier completion claims below are historical, not evidence that these boundaries were already sound.
+
+Run **npm run ui**, choose **API/security checks demo → Demo → Start**. The check ledger distinguishes active declared HTTP probes from browser observations. It shows passed, confirmed assertion mismatch, needs review, informational and unsupported results, with evidence and a separate HTTP request counter. A confirmed API mismatch means the declared expectation reproduced; it does not prove that the expectation is a correct product requirement.
+
+The shared API/security request limit includes confirmations and seeded session requests. Body bytes are bounded while streaming (profile cap, at most 1 MiB), request bodies are capped at 64 KiB, and requests inherit the remaining overall run duration plus a 15-second per-request deadline. Redirects are observed without following them. Literal canonical paths are checked by origin and path-segment boundary; encoded paths/query parameters are unsupported in this slice. Mutations need an exact allowlist entry and are never automatically replayed. The demo explicitly authorizes only POST /api/login-demo for seeded sessions; its API request limit remains ten.
+
+Security checks assess every Set-Cookie independently; attributes cannot be supplied through cookie values. Missing headers and secret-shaped fields need contextual review. A 500, redirect or unrelated 200 cannot pass an authorization test. Cross-account checks run only against the two fixed local fixture accounts, with separate sessions and an owner control. Evidence includes the control response without session values. Real-target authorization probing is unsupported. Standalone checks do not inherit a browser's authenticated session, so authenticated profiles are explicitly unsupported rather than silently tested anonymously. Authentication-only runs do not execute API/security probes.
+
+The prior synthetic session-boundary finding was a false confirmation: the fixture returned account A's own resource despite a URL naming B. The corrected check requires B-owned content and reports that existing demo response as needs_review. Negative controls cover this case, HTTP errors, correct denial, and a truly B-owned response. Raw fixture detection precision remains 0.667, final-disposition precision 0.75, and grouped precision/recall/F1 1.0 on the previously measured six seeded defects. These are different denominators, not a new real-world accuracy claim; no labels or matcher thresholds changed.
+
+Actual checks UI run **RUN-20260923-112211067Z-e5bc**: seven ledger entries, ten HTTP requests, ten browser actions, six mock decisions, zero external model requests. One API check passed, one deliberate assertion mismatch reproduced, one mutation was blocked; cookie/header/session checks needed review and the secret-pattern check passed. Evidence links returned readable JSON. Desktop and 390px mobile screenshots were visually reviewed with no horizontal overflow. Separate synthetic UI regressions exercise Stop during a held response body and verify a cancelled saved summary, one actual request, no later request, and Start usable again.
+
+Reproduce with **npm run verify:local**, then **node scripts/copy-public-assets.mjs** and **node scripts/verify-checks-ui.mjs**. The UI script uses only shipped synthetic profiles, saves real runs under ignored runs/, and screenshots/acceptance metadata under ignored test-results/checks-ui-acceptance/. See PROGRESS.md for final verification.
+
+### Research decisions
+
+Primary sources accessed 2026-09-23. These informed the bounded implementation below; no new framework or dependency was introduced.
+
+| Existing gap | Primary source | Implemented decision and acceptance | Unsupported |
+|---|---|---|---|
+| Whole response buffered before cap | [WHATWG Streams](https://streams.spec.whatwg.org/#default-reader-read) | Incremental byte accounting and reader cancellation; endless UTF-8 stream regression stops early | Oversize responses are unassessed |
+| Repeated mutations and unchecked paths | [HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html#name-safe-methods) | Canonical scoped GET probes; exact mutation authorization, no automatic mutation replay; spy proves one POST | Fuzzing, arbitrary redirects, mutation replay |
+| HTTP 200 mistaken for cross-account disclosure | [OWASP API1](https://api-security.owasp.org/editions/2023/en/0xa1-broken-object-level-authorization/) | Distinct seeded sessions, owner response control and target ownership evidence; A-owned 200 is not confirmed | Real account enumeration/authorization scans |
+| Cookie attribute substring matches | [OWASP session guidance](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) | Parse attributes per cookie; multi-cookie/value-confusion regression | Complete cookie/session security certification |
+| Missing comparison operands passed | [OpenAPI 3.1.1](https://spec.openapis.org/oas/v3.1.1.html) | Keep explicit response assertions; own-property lookup, operand validation and exact media type; missing fields cannot pass equality | OpenAPI import and full JSON Schema validation |
+
+No hosted or actual local inference was invoked. Ajeer normal authentication succeeded in the existing RUN-20260923-075117245Z-df87 record (independently checked: success, four actions). Its workflow manifest is still empty. Next live step is locally authenticated observation/declaration of read-only workflows; chat credentials and saved sessions were not reused.
+
 ## Current local reliability checkpoint — 2026-09-23
 
 Run **npm run ui**, choose **AutoQA Local Fixture → Demo → Start**. Setup runs automatically; no API key or local model is needed. Results identify the run/environment and history names the project. Stop waits for cleanup and report saving before Start becomes usable again. To try the new API/security-check panel with no target of your own, choose **API/security checks demo** instead — same no-key Demo flow, against `fixture/server.ts`'s synthetic API routes.

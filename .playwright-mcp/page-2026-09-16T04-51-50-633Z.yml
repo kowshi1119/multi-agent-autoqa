@@ -1,0 +1,54 @@
+- generic [ref=f23e1]:
+  - generic [ref=f23e3]:
+    - main [ref=f23e6]:
+      - generic [ref=f23e7]:
+        - generic [ref=f23e8]:
+          - generic [ref=f23e9]:
+            - generic [ref=f23e10]:
+              - heading "Bill Payments" [level=1] [ref=f23e11]
+              - paragraph [ref=f23e12]: Manage bill payments seamlessly.
+            - button "New bill payment" [ref=f23e14] [cursor=pointer]
+          - textbox "Search biller" [active] [ref=f23e17]
+          - generic [ref=f23e18]:
+            - button "All" [ref=f23e19] [cursor=pointer]
+            - button "Broadband And Telecom" [ref=f23e22] [cursor=pointer]
+            - button "Insurance" [ref=f23e25] [cursor=pointer]
+            - button "Mobile Company" [ref=f23e28] [cursor=pointer]
+            - button "Utility Company" [ref=f23e31] [cursor=pointer]
+        - generic [ref=f23e35]:
+          - paragraph [ref=f23e36]: Saved Billers
+          - generic [ref=f23e159]:
+            - generic [ref=f23e160] [cursor=pointer]: P
+            - generic [ref=f23e162] [cursor=pointer]:
+              - paragraph [ref=f23e163]: My PTCL Bill
+              - paragraph [ref=f23e164]: PTCL
+              - paragraph [ref=f23e165]: "****6655"
+            - button [ref=f23e167] [cursor=pointer]
+          - generic [ref=f23e172]:
+            - generic [ref=f23e174]:
+              - generic [ref=f23e175]: "Rows per page:"
+              - combobox [ref=f23e176] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "20"
+                - option "50"
+            - generic [ref=f23e177]:
+              - button "First page" [disabled] [ref=f23e178] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f23e182] [cursor=pointer]
+              - button "1" [ref=f23e186] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f23e187] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f23e190] [cursor=pointer]
+            - generic [ref=f23e194]: 1-1 of 1
+    - navigation [ref=f23e74]:
+      - generic [ref=f23e75]:
+        - link "Home" [ref=f23e76] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [ref=f23e81] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f23e88] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f23e93] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f23e98] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f23e2]

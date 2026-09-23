@@ -1,0 +1,7 @@
+- generic [active] [ref=f45e1]:
+  - banner [ref=f45e3]:
+    - link [ref=f45e4] [cursor=pointer]:
+      - /url: /login
+      - img "Ajeer Money" [ref=f45e5]
+    - generic [ref=f45e6]: English
+  - alert [ref=f45e15]

@@ -1,0 +1,94 @@
+- generic [ref=f7e1]:
+  - generic [ref=f7e3]:
+    - main [ref=f7e6]:
+      - generic [ref=f7e165]:
+        - generic [ref=f7e166]:
+          - generic [ref=f7e167]:
+            - generic [ref=f7e168]:
+              - heading "Recipients" [level=1] [ref=f7e169]
+              - paragraph [ref=f7e170]: Manage your saved recipients
+            - button "Add Bank Recipient" [ref=f7e172] [cursor=pointer]
+          - generic [ref=f7e174]:
+            - button "Bank Accounts" [ref=f7e175] [cursor=pointer]
+            - button "Cash Pickup" [ref=f7e179] [cursor=pointer]
+            - button "Wallets" [ref=f7e184] [cursor=pointer]
+          - textbox "Search bank accounts..." [ref=f7e190]
+        - generic [ref=f7e193]:
+          - generic [ref=f7e194]:
+            - generic [ref=f7e196]:
+              - generic [ref=f7e197]: Sri Lanka
+              - generic [ref=f7e203]:
+                - heading "QA Switch Test 001 Personal" [level=3] [ref=f7e204]:
+                  - generic [ref=f7e205]: QA Switch Test 001
+                  - generic [ref=f7e206]: Personal
+                - paragraph [ref=f7e207]: Kamal Fernando
+              - generic [ref=f7e208]:
+                - button [ref=f7e210] [cursor=pointer]
+                - button [ref=f7e215] [cursor=pointer]
+                - button [ref=f7e220] [cursor=pointer]
+                - generic "Cannot delete – this recipient has one or more transactions in progress." [ref=f7e224]:
+                  - button [disabled] [ref=f7e225] [cursor=pointer]
+            - generic [ref=f7e230]:
+              - generic [ref=f7e231]: Sri Lanka
+              - generic [ref=f7e237]:
+                - heading "QA Personal XSS 001 Personal" [level=3] [ref=f7e238]:
+                  - generic [ref=f7e239]: QA Personal XSS 001
+                  - generic [ref=f7e240]: Personal
+                - paragraph [ref=f7e241]: Jose O'Connor
+              - generic [ref=f7e242]:
+                - button [ref=f7e244] [cursor=pointer]
+                - button [ref=f7e249] [cursor=pointer]
+                - button [ref=f7e254] [cursor=pointer]
+                - button [ref=f7e259] [cursor=pointer]
+            - generic [ref=f7e264]:
+              - generic [ref=f7e265]: Sri Lanka
+              - generic [ref=f7e271]:
+                - heading "QA Personal 001 Personal" [level=3] [ref=f7e272]:
+                  - generic [ref=f7e273]: QA Personal 001
+                  - generic [ref=f7e274]: Personal
+                - paragraph [ref=f7e275]: John Silva
+              - generic [ref=f7e276]:
+                - button [ref=f7e278] [cursor=pointer]
+                - button [ref=f7e283] [cursor=pointer]
+                - button [ref=f7e288] [cursor=pointer]
+                - button [ref=f7e293] [cursor=pointer]
+            - generic [ref=f7e298]:
+              - generic [ref=f7e299]: Sri Lanka
+              - generic [ref=f7e305]:
+                - heading "Test Recipient Personal" [level=3] [ref=f7e306]:
+                  - generic [ref=f7e307]: Test Recipient
+                  - generic [ref=f7e308]: Personal
+                - paragraph [ref=f7e309]: John Silva
+              - generic [ref=f7e310]:
+                - button [ref=f7e312] [cursor=pointer]
+                - button [ref=f7e317] [cursor=pointer]
+                - button [ref=f7e322] [cursor=pointer]
+                - button [ref=f7e327] [cursor=pointer]
+          - generic [ref=f7e331]:
+            - generic [ref=f7e333]:
+              - generic [ref=f7e334]: "Rows per page:"
+              - combobox [ref=f7e335] [cursor=pointer]:
+                - option "5" [selected]
+                - option "10"
+                - option "25"
+                - option "50"
+            - generic [ref=f7e336]:
+              - button "First page" [disabled] [ref=f7e337] [cursor=pointer]
+              - button "Previous page" [disabled] [ref=f7e341] [cursor=pointer]
+              - button "1" [ref=f7e345] [cursor=pointer]
+              - button "Next page" [disabled] [ref=f7e346] [cursor=pointer]
+              - button "Last page" [disabled] [ref=f7e349] [cursor=pointer]
+            - generic [ref=f7e353]: 1-4 of 4
+    - navigation [ref=f7e136]:
+      - generic [ref=f7e137]:
+        - link "Home" [ref=f7e138] [cursor=pointer]:
+          - /url: /home
+        - link "Recipients" [active] [ref=f7e143] [cursor=pointer]:
+          - /url: /recipients
+        - link "Bills" [ref=f7e150] [cursor=pointer]:
+          - /url: /bill-payments
+        - link "History" [ref=f7e155] [cursor=pointer]:
+          - /url: /history
+        - link "Account" [ref=f7e160] [cursor=pointer]:
+          - /url: /account
+  - alert [ref=f7e2]

@@ -1,0 +1,31 @@
+- generic [active] [ref=f3e1]:
+  - main [ref=f3e6]:
+    - generic [ref=f3e692]:
+      - generic [ref=f3e694]:
+        - button [ref=f3e695] [cursor=pointer]
+        - generic [ref=f3e698]:
+          - heading "Business Recipient's Bank Details" [level=1] [ref=f3e699]
+          - paragraph [ref=f3e700]: Bank details
+      - generic [ref=f3e702]:
+        - generic [ref=f3e703]:
+          - heading "Business Recipient's Bank Details" [level=2] [ref=f3e704]
+          - paragraph [ref=f3e705]: Enter the bank account information for your business recipient.
+        - generic [ref=f3e706]:
+          - generic [ref=f3e708]:
+            - combobox [aria-hidden]
+            - button "Bank name* Habib Bank Limited" [ref=f3e733] [cursor=pointer]:
+              - generic: Bank name*
+              - generic [ref=f3e734]: Habib Bank Limited
+          - generic [ref=f3e713]:
+            - combobox "Branch name" [ref=f3e714]
+            - generic: Branch name
+          - generic [ref=f3e716]:
+            - textbox "Account Number*" [ref=f3e717]:
+              - /placeholder: " "
+            - generic: Account Number*
+          - generic [ref=f3e719]:
+            - textbox "Bank Code*" [ref=f3e720]:
+              - /placeholder: " "
+            - generic: Bank Code*
+          - button "Save & Continue" [ref=f3e722] [cursor=pointer]
+  - alert [ref=f3e2]

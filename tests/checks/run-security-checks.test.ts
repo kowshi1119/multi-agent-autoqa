@@ -120,14 +120,14 @@ describe("runSecurityChecks", () => {
     expect(findings).toHaveLength(0);
   });
 
-  it("confirms a planted secret-shaped value in the response body, redacted in the observation", async () => {
+  it("flags a secret-shaped value for contextual review without claiming unintended disclosure", async () => {
     const runDir = mkdtempSync(join(tmpdir(), "autoqa-sec-leak-"));
     const check: DeclaredSecurityCheck = { id: "LEAK-001", kind: "secret-leakage", pathname: "/leaky", description: "secret leakage" };
     const { findings } = await runSecurityChecks(baseProfile(), [check], runDir, 1, ORIGIN);
     expect(findings).toHaveLength(1);
-    expect(findings[0]?.reportDisposition).toBe("report");
+    expect(findings[0]?.reportDisposition).toBe("needs_human");
     const entry = loadCheckLedger(runDir).entries[0];
-    expect(entry?.classification).toBe("confirmed");
+    expect(entry?.classification).toBe("needs_review");
     expect(entry?.observation).not.toContain(PLANTED_TOKEN);
   });
 
@@ -138,16 +138,15 @@ describe("runSecurityChecks", () => {
     expect(findings).toHaveLength(0);
   });
 
-  it("detects cross-account access via the two seeded demo accounts on the session-boundary check", async () => {
+  it("refuses the cross-account probe on a non-fixture profile before login", async () => {
     const runDir = mkdtempSync(join(tmpdir(), "autoqa-sec-session-boundary-"));
     const check: DeclaredSecurityCheck = {
       id: "SESSION-001", kind: "session-boundary", pathname: "/", description: "cross-account boundary",
       sessionBoundary: { loginPathname: "/api/login-demo", accountAId: "demo-a", accountBId: "demo-b", resourcePathnameTemplate: "/api/account/{accountId}/resource" },
     };
     const { findings } = await runSecurityChecks(baseProfile(), [check], runDir, 1, ORIGIN);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]?.reportDisposition).toBe("report");
-    expect(findings[0]?.evidenceLevel).toBe("L1");
+    expect(findings).toHaveLength(0);
+    expect(loadCheckLedger(runDir).entries[0]?.classification).toBe("unsupported");
   });
 
   it("blocks a check whose pathname is outside navigation.allowedPathPrefixes, with a ledger entry and no Finding", async () => {

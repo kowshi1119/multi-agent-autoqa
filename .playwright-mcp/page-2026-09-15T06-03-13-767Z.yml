@@ -1,0 +1,18 @@
+- generic [active] [ref=f10e1]:
+  - main [ref=f10e6]:
+    - generic [ref=f10e147]:
+      - generic [ref=f10e149]:
+        - button [ref=f10e150] [cursor=pointer]
+        - generic [ref=f10e153]:
+          - heading "Bank Account Added!" [level=1] [ref=f10e193]
+          - paragraph [ref=f10e155]: Success
+      - generic [ref=f10e194]:
+        - heading "Bank Account Holder Added!" [level=2] [ref=f10e199]
+        - paragraph [ref=f10e200]: The bank account holder has been added successfully. You can now send money to their account.
+        - generic [ref=f10e201]:
+          - button "View Recipients" [ref=f10e202] [cursor=pointer]
+          - button "Send Money Now" [ref=f10e204] [cursor=pointer]
+  - generic [ref=f10e205]:
+    - generic [ref=f10e210]: Recipient "QA Personal XSS 001" added successfully!
+    - button "Dismiss" [ref=f10e211] [cursor=pointer]
+  - alert [ref=f10e2]

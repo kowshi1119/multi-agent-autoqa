@@ -672,7 +672,10 @@
     // Keep Start unavailable until the server releases its active run.
     function awaitSavedReport() {
       api("/api/runs/" + encodeURIComponent(runId) + "/status").then(function (data) {
-        if (data.active) { state.pollTimer = setTimeout(awaitSavedReport, 250); return; }
+        if (data.active) {
+          if (data.lastEvent) setText(el("status-line"), data.lastEvent.detail);
+          state.pollTimer = setTimeout(awaitSavedReport, 250); return;
+        }
         state.pollTimer = null;
         state.finishingRunId = null;
         el("stop-btn").hidden = true;
@@ -841,6 +844,14 @@
       var entries = data.entries || [];
       if (!entries.length) return; // no declared checks for this profile/run -- nothing to show
       var heading = document.createElement("h3"); setText(heading, "API and security checks"); panel.appendChild(heading);
+      var description = document.createElement("p");
+      setText(description, "These are declared HTTP probes. Confirmed API results reproduce an assertion mismatch; security patterns may need contextual review. Unsupported means not assessed.");
+      panel.appendChild(description);
+      if (data.usage) {
+        var usage = document.createElement("p");
+        setText(usage, "Check requests: " + data.usage.requests + " / " + data.usage.maxRequests + " (includes confirmations and session probes; separate from model calls).");
+        panel.appendChild(usage);
+      }
       entries.forEach(function (entry) {
         var card = document.createElement("div"); card.className = "card";
         var title = document.createElement("h4");

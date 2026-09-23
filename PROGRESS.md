@@ -1,5 +1,13 @@
 # AutoQA — Progress
 
+## API/security audit continuation — 2026-09-23
+
+Resumed at 3579f6d and audited the existing implementation. New regression baseline: 8 failed/1 passed in tests/checks/bounds.test.ts before fixes. Fixed streaming response limits, canonical request scope, shared request/duration/finding budgets, failed/mismatched confirmations, automatic mutation replay, contextual security classification, cookie parsing and structured secret redaction. Added delayed-body discovery/run exclusion coverage and real UI tests for completion/evidence and Stop during an in-flight response.
+
+The shipped checks demo completed as RUN-20260923-112211067Z-e5bc: seven ledger entries, ten HTTP requests, ten browser actions, six mock decisions, zero external model requests. Evidence was accessible/parseable and desktop/mobile results visually reviewed. Its old cross-account “confirmed” outcome was withdrawn because the fixture returned A-owned content, not B-owned data. Raw 0.667/final 0.75/grouped 1.0 fixture precision are distinct unchanged measurements.
+
+Existing Ajeer auth smoke RUN-20260923-075117245Z-df87 was independently verified as success/four actions; no new Ajeer login or workflow was attempted. Workflow manifest remains empty. Authenticated standalone API checks and real cross-account probing are unsupported. Research decisions and limits are in README.md. Final verification results follow after the current full suite completes.
+
 ## Current checkpoint — 2026-09-23 (API/security checks + two reliability fixes)
 
 Closed two demonstrated reliability gaps: a TOCTOU race that let a run and an auth-discovery session start concurrently (`src/run-manager.ts`, `src/server/app.ts`; regression: `tests/run-manager/toctou.test.ts`), and a redaction-breadth gap in `src/redact.ts` plus a new JSON-tree-aware `redactStructuredEvidence()` (`src/checks/redact-structured.ts`) needed because a flat regex cannot reach a value behind a JSON-quoted key like `{"Set-Cookie": "..."}`.

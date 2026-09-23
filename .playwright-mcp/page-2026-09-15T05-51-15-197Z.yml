@@ -1,0 +1,36 @@
+- generic [active] [ref=f3e1]:
+  - main [ref=f3e6]:
+    - generic [ref=f3e991]:
+      - generic [ref=f3e993]:
+        - button [ref=f3e994] [cursor=pointer]
+        - generic [ref=f3e997]:
+          - heading "Business Recipient's Bank Details" [level=1] [ref=f3e998]
+          - paragraph [ref=f3e999]: Bank details
+      - generic [ref=f3e1001]:
+        - generic [ref=f3e1002]:
+          - heading "Business Recipient's Bank Details" [level=2] [ref=f3e1003]
+          - paragraph [ref=f3e1004]: Enter the bank account information for your business recipient.
+        - generic [ref=f3e1005]:
+          - generic [ref=f3e1007]:
+            - combobox [aria-hidden]
+            - button "Bank name* Habib Bank Limited" [ref=f3e1032] [cursor=pointer]:
+              - generic: Bank name*
+              - generic [ref=f3e1033]: Habib Bank Limited
+          - generic [ref=f3e1012]:
+            - combobox "Branch name" [ref=f3e1013]
+            - generic: Branch name
+          - generic [ref=f3e1015]:
+            - textbox "Account Number*" [ref=f3e1016]:
+              - /placeholder: " "
+              - text: "9988776655"
+            - generic: Account Number*
+          - generic [ref=f3e1018]:
+            - textbox "Bank Code*" [ref=f3e1019]:
+              - /placeholder: " "
+              - text: "1122"
+            - generic: Bank Code*
+          - button "Save & Continue" [ref=f3e1021] [cursor=pointer]
+  - generic [ref=f3e1035]:
+    - generic [ref=f3e1041]: One or more fields contain invalid values. Please check your request and try again.
+    - button "Dismiss" [ref=f3e1042] [cursor=pointer]
+  - alert [ref=f3e2]

@@ -1,0 +1,40 @@
+- generic [active] [ref=f8e1]:
+  - main [ref=f8e6]:
+    - generic [ref=f8e145]:
+      - generic [ref=f8e146]:
+        - heading "Wallet Added!" [level=2] [ref=f8e217]
+        - paragraph [ref=f8e218]: You can now send money to this wallet.
+      - generic [ref=f8e219]:
+        - paragraph [ref=f8e220]: Wallet details
+        - generic [ref=f8e226]:
+          - paragraph [ref=f8e227]: QA Wallet 001
+          - paragraph [ref=f8e228]: Ahmed Khan · PKR
+      - generic [ref=f8e229]:
+        - paragraph [ref=f8e230]: Summary
+        - generic [ref=f8e231]:
+          - generic [ref=f8e232]:
+            - generic [ref=f8e233]: Service provider
+            - generic [ref=f8e234]: Easypaisa
+          - generic [ref=f8e235]:
+            - generic [ref=f8e236]: Wallet ID
+            - generic [ref=f8e237]: "03001234567"
+          - generic [ref=f8e238]:
+            - generic [ref=f8e239]: Full name
+            - generic [ref=f8e240]: Ahmed Khan
+          - generic [ref=f8e241]:
+            - generic [ref=f8e242]: Phone
+            - generic [ref=f8e243]: "+923001234567"
+          - generic [ref=f8e244]:
+            - generic [ref=f8e245]: Country
+            - generic [ref=f8e246]: Pakistan
+          - generic [ref=f8e247]:
+            - generic [ref=f8e248]: Payout method
+            - generic [ref=f8e249]: Wallet
+      - generic [ref=f8e250]:
+        - button "View Recipients" [ref=f8e251] [cursor=pointer]
+        - generic "This recipient is currently unavailable for transfers. Please contact support if you need help." [ref=f8e252]:
+          - button "Send Money Now" [disabled] [ref=f8e253] [cursor=pointer]
+  - generic [ref=f8e254]:
+    - generic [ref=f8e259]: Wallet "QA Wallet 001" added successfully!
+    - button "Dismiss" [ref=f8e260] [cursor=pointer]
+  - alert [ref=f8e2]
