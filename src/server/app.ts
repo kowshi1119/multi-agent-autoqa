@@ -6,6 +6,7 @@ import { ProfileStore } from "../profiles/store.js";
 import { RunManager } from "../run-manager.js";
 import { sendJson } from "./http-helpers.js";
 import { handleGetProfile, handleListProfiles, handleSaveProfile } from "./routes/profiles.js";
+import { handleAuthDiscovery, isAuthDiscoveryActive, stopAuthDiscovery } from "./routes/auth-discovery.js";
 import { handlePreflight } from "./routes/preflight.js";
 import { handleArtifact } from "./routes/artifacts.js";
 import { handleListRuns, handleRunEvents, handleRunStatus, handleStartRun, handleStopRun } from "./routes/runs.js";
@@ -37,6 +38,7 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
     });
   });
+  server.on("close", () => stopAuthDiscovery(profileStore));
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://internal");
@@ -78,17 +80,27 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
       return;
     }
 
+    const authDiscoveryMatch = /^\/api\/profiles\/([^/]+)\/auth-discovery$/.exec(path);
+    if (authDiscoveryMatch && method === "POST") {
+      await handleAuthDiscovery(req, res, profileStore, decodeURIComponent(authDiscoveryMatch[1] as string), () => runManager.isBusy());
+      return;
+    }
+
     if (path === "/api/preflight" && method === "GET") {
       const profileId = url.searchParams.get("profileId");
       if (!profileId) {
         sendJson(res, 400, { error: "Missing profileId query parameter" });
         return;
       }
-      await handlePreflight(res, profileStore, profileId);
+      await handlePreflight(res, profileStore, profileId, url.searchParams.get("mode") ?? "demo");
       return;
     }
 
     if (path === "/api/runs" && method === "POST") {
+      if (isAuthDiscoveryActive(profileStore)) {
+        sendJson(res, 409, { error: "Finish or cancel authentication discovery before starting a run." });
+        return;
+      }
       await handleStartRun(req, res, runManager);
       return;
     }

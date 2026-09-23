@@ -241,7 +241,12 @@ export class Orchestrator {
 
   private async initialize(ctx: RunContext): Promise<RunContext> {
     const { sessionAuth } = this.deps;
-    const authEvidence = (status: string, reason?: string) => writeFileSync(join(this.deps.runDir, "authentication.json"), redactSecrets(JSON.stringify({ status, reason, checks: sessionAuth ? { urlAndVisibleSignalRequired: true, passed: status === "success" } : undefined, authenticatedUrl: status === "success" ? this.session.page.url() : undefined, recordedAt: new Date().toISOString(), actions: this.deps.budget.snapshot().actionsByPhase?.authentication ?? 0 }, null, 2), this.extraSecrets));
+    const authEvidence = (status: string, reason?: string) => {
+      // Authentication evidence needs the route, never callback parameters,
+      // URL userinfo or fragments that can carry session secrets.
+      const url = status === "success" ? new URL(this.session.page.url()) : undefined;
+      writeFileSync(join(this.deps.runDir, "authentication.json"), redactSecrets(JSON.stringify({ status, reason, checks: sessionAuth ? { urlAndVisibleSignalRequired: true, passed: status === "success" } : undefined, authenticatedUrl: url ? url.origin + url.pathname : undefined, recordedAt: new Date().toISOString(), actions: this.deps.budget.snapshot().actionsByPhase?.authentication ?? 0 }, null, 2), this.extraSecrets));
+    };
     try {
       this.session = await this.deps.browserManager.newPageSession(
         (event) => this.safetyEvents.push(event),

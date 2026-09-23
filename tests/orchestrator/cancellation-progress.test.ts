@@ -170,4 +170,70 @@ describe("Orchestrator#initialize() terminal progress events on cancellation (de
     expect(events[events.length - 1]!.phase).toBe("stopped");
     expect(result.finalCtx.stopReason).toContain("CANCELLED");
   }, 30_000);
+
+  // §2026-09-22 addition: closes the one remaining named cancellation
+  // point not yet covered above -- "before browser creation." Stop
+  // pressed this early means the AbortSignal is already aborted before
+  // runPipeline() even calls browserManager.launch() (chromium.launch()
+  // itself takes no signal and is not abort-aware -- confirmed by reading
+  // browser.ts directly). This proves that gap is bounded, not
+  // indefinite: Chromium still launches and is still cleanly closed
+  // (runPipeline()'s own finally always calls browserManager.close()),
+  // and the run still reaches a genuine terminal "stopped" event once
+  // control reaches the next signal-aware check point -- it does not
+  // hang, and it is never mislabeled "failed."
+  it("still reaches a genuine terminal 'stopped' state, with resources cleaned up, when Stop was requested before runPipeline() even started (earliest possible cancellation point)", async () => {
+    const profile = loginProfile();
+    const config = profileToAppConfig(profile);
+    const logger = createLogger();
+    logger.level = "silent";
+    const controller = new AbortController();
+    controller.abort(); // aborted before browserManager.launch() is ever called
+
+    const events: RunProgressEvent[] = [];
+    const result = await runPipeline({
+      config,
+      runId: "test-run-pre-launch-cancel",
+      runDir: freshRunDir(),
+      logger,
+      headless: true,
+      onProgress: (event) => events.push(event),
+      sessionAuth: { sessionBootstrap: new FormLoginBootstrap(), profile, credentials: { username: VALID_USERNAME, password: VALID_PASSWORD } },
+      abortSignal: controller.signal,
+    });
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[events.length - 1]!.phase).toBe("stopped");
+    expect(result.finalCtx.stopReason).toContain("CANCELLED");
+    expect(result.finalCtx.state).toBe("CANCELLED");
+  }, 30_000);
+
+  it("the same holds for a no-auth profile (ensureAuthenticated() is never called at all, so the first signal-aware check point is initialize()'s own initial-navigation goto())", async () => {
+    const profile = loginProfile();
+    // Override to auth.mode "none" -- exercises the code path where
+    // authOptions is undefined and ensureAuthenticated() never runs, so
+    // the FIRST place an already-aborted signal can be observed is
+    // initialize()'s own page.goto(target.url, { signal }) call.
+    const noAuthProfile: ProjectProfile = { ...profile, auth: { mode: "none" } };
+    const config = profileToAppConfig(noAuthProfile);
+    const logger = createLogger();
+    logger.level = "silent";
+    const controller = new AbortController();
+    controller.abort();
+
+    const events: RunProgressEvent[] = [];
+    const result = await runPipeline({
+      config,
+      runId: "test-run-pre-launch-cancel-noauth",
+      runDir: freshRunDir(),
+      logger,
+      headless: true,
+      onProgress: (event) => events.push(event),
+      abortSignal: controller.signal,
+    });
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[events.length - 1]!.phase).toBe("stopped");
+    expect(result.finalCtx.state).toBe("CANCELLED");
+  }, 30_000);
 });

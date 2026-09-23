@@ -14,6 +14,8 @@
      small" relative to the window. Confirmed live, not a browser-zoom
      artifact (viewport meta tag and font sizes were already correct). */
   body { margin: 0 auto; padding: 24px; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 900px; }
+  * { box-sizing: border-box; }
+  .check-row, .next-step, .status-line, .run-row { overflow-wrap: anywhere; }
   @media (max-width: 640px) {
     body { padding: 16px; }
     .counters { grid-template-columns: repeat(auto-fit, minmax(110px,1fr)); }
@@ -103,6 +105,30 @@
   </div>
 </section>
 
+<section id="auth-discovery-section" hidden>
+  <h2>1c. Authentication setup / discovery</h2>
+  <p class="empty">Sign in locally to find a page heading that AutoQA can verify. Credentials are cleared after submission. Discovery captures no screenshots or traces and contacts no AI provider. Review the suggested conditions before saving, then run Authentication only to verify login through AutoQA.</p>
+  <label for="ad-username">Username</label>
+  <input type="text" id="ad-username" autocomplete="off" />
+  <label for="ad-password">Password</label>
+  <input type="password" id="ad-password" autocomplete="off" />
+  <div style="margin-top:0.6em;">
+    <button id="ad-discover-btn">Discover</button>
+    <button id="ad-cancel-btn" hidden>Cancel discovery</button>
+  </div>
+  <div id="ad-result" hidden style="margin-top:0.6em;">
+    <p><strong>Observed URL:</strong> <span id="ad-observed-url"></span></p>
+    <label for="ad-signal">Verified visible signal (choose a stable heading without personal information)</label>
+    <select id="ad-signal"></select>
+    <label for="ad-url-pattern">Observed URL condition</label>
+    <input type="text" id="ad-url-pattern" readonly style="width:100%; max-width:480px; font-family:monospace;" />
+    <div style="margin-top:0.6em;">
+      <button id="ad-save-btn" class="primary">Save these conditions</button>
+    </div>
+  </div>
+  <div id="ad-error" class="error-text" role="status" style="margin-top:0.6em;"></div>
+</section>
+
 <section id="auth-section" hidden>
   <h2>2. Sign in for this run</h2>
   <p class="empty">Not saved -- used only for this run.</p>
@@ -151,7 +177,7 @@
 (function () {
   "use strict";
   var CSRF_TOKEN = "__CSRF_TOKEN__";
-  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null };
+  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null };
 
   function el(id) { return document.getElementById(id); }
 
@@ -177,7 +203,8 @@
     node.textContent = text; // never innerHTML with captured application/server text
   }
 
-  function loadProfiles() {
+  function loadProfiles(preferredId) {
+    var selectedId = preferredId || el("profile-select").value;
     return api("/api/profiles").then(function (data) {
       state.profiles = data.profiles;
       var select = el("profile-select");
@@ -189,7 +216,9 @@
         select.appendChild(opt);
       });
       updateAuthVisibility();
-      runCheckSetup();
+      if (data.profiles.some(function (p) { return p.id === selectedId; })) select.value = selectedId;
+      updateAuthVisibility();
+      return runCheckSetup();
     });
   }
 
@@ -209,10 +238,113 @@
 
   function updateAuthVisibility() {
     var profile = currentProfile();
-    el("auth-section").hidden = !profile || profile.authMode === "none";
+    var needsAuth = Boolean(profile) && profile.authMode !== "none";
+    el("auth-section").hidden = !needsAuth;
+    el("auth-discovery-section").hidden = !needsAuth;
   }
 
-  el("profile-select").addEventListener("change", updateAuthVisibility);
+  el("profile-select").addEventListener("change", function () {
+    if (state.discoveryController) state.discoveryController.abort();
+    state.discoveryResult = null;
+    el("ad-result").hidden = true;
+    ["ad-username", "ad-password", "auth-username", "auth-password"].forEach(function (id) { el(id).value = ""; });
+    updateAuthVisibility();
+  });
+
+  // --- Authentication setup / discovery ---------------------------------
+  // Resolves the deadlock documented in PHASE6_ACCEPTANCE.md: a real
+  // AutoQA-driven login refuses to run while auth.checksVerified is false
+  // (deliberately -- the success conditions are unverified placeholders),
+  // but there's no way to know the REAL post-login URL/signal without a
+  // real login. This calls the separate, bounded discovery route
+  // (src/auth/discovery.ts) which performs exactly one login attempt
+  // purely to observe the result -- never persisted, never evidence, never
+  // itself a successful AutoQA authentication. See that module's own doc
+  // comment for the full boundary.
+  el("ad-discover-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile) return;
+    setText(el("ad-error"), "");
+    el("ad-result").hidden = true;
+    var username = el("ad-username").value;
+    var password = el("ad-password").value;
+    if (!username || !password) { setText(el("ad-error"), "Enter both username and password."); return; }
+    var controller = new AbortController();
+    state.discoveryController = controller;
+    state.discoveryResult = null;
+    el("ad-username").value = ""; el("ad-password").value = "";
+    el("ad-discover-btn").disabled = true;
+    el("ad-cancel-btn").hidden = false;
+    setText(el("ad-error"), "Observing login. This can take up to one minute.");
+    updateStartAvailability();
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/auth-discovery", {
+      method: "POST",
+      signal: controller.signal,
+      body: JSON.stringify({ username: username, password: password })
+    }).then(function (data) {
+      if (!currentProfile() || currentProfile().id !== profile.id || controller.signal.aborted) return;
+      state.discoveryResult = { profileId: profile.id, data: data };
+      setText(el("ad-error"), "Review these conditions. Discovery is not a successful AutoQA run.");
+      setText(el("ad-observed-url"), data.observedUrl);
+      var select = el("ad-signal");
+      select.innerHTML = "";
+      data.candidateSignals.forEach(function (sig) {
+        var opt = document.createElement("option");
+        opt.value = JSON.stringify({ role: sig.role, name: sig.name });
+        setText(opt, sig.role + ": " + sig.name);
+        select.appendChild(opt);
+      });
+      if (data.candidateSignals.length === 0) {
+        var opt = document.createElement("option");
+        opt.value = "";
+        setText(opt, "(no usable signal found; no conditions can be saved)");
+        select.appendChild(opt);
+      }
+      // Safe default: the observed URL's own escaped pathname -- never a
+      // guessed business URL, only what was actually just observed.
+      el("ad-url-pattern").value = data.successUrlPattern;
+      el("ad-save-btn").disabled = !data.candidateSignals.length;
+      el("ad-result").hidden = false;
+    }).catch(function (error) {
+      if (currentProfile() && currentProfile().id === profile.id) setText(el("ad-error"), controller.signal.aborted ? "Discovery cancelled. No conditions were saved." : error.message);
+    }).finally(function () {
+      if (state.discoveryController !== controller) return;
+      state.discoveryController = null;
+      el("ad-discover-btn").disabled = false;
+      el("ad-cancel-btn").hidden = true;
+      updateStartAvailability();
+    });
+  });
+  el("ad-cancel-btn").addEventListener("click", function () { if (state.discoveryController) state.discoveryController.abort(); });
+
+  el("ad-save-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile || !state.discoveryResult || state.discoveryResult.profileId !== profile.id) return;
+    var signalRaw = el("ad-signal").value;
+    if (!signalRaw) { setText(el("ad-error"), "No usable visible signal selected. No conditions were saved."); return; }
+    var signal = JSON.parse(signalRaw);
+    var pattern = state.discoveryResult.data.successUrlPattern;
+    if (!pattern) { setText(el("ad-error"), "Success URL pattern is required."); return; }
+    api("/api/profiles/" + encodeURIComponent(profile.id)).then(function (data) {
+      var full = data.profile;
+      full.auth.successUrlPattern = pattern;
+      full.auth.authenticatedSignal = { role: signal.role, name: signal.name };
+      full.auth.checksVerified = true;
+      return api("/api/profiles", { method: "POST", body: JSON.stringify(full) });
+    }).then(function () {
+      setText(el("ad-error"), "");
+      el("ad-result").hidden = true;
+      el("ad-username").value = "";
+      el("ad-password").value = "";
+      state.discoveryResult = null;
+      el("auth-only").checked = true;
+      return loadProfiles(profile.id);
+    }).then(function () {
+      runCheckSetup();
+    }).catch(function (error) {
+      setText(el("ad-error"), error.message);
+    });
+  });
 
   // --- Profile create/edit (1b) ---------------------------------------
   // The JSON textarea is the single source of truth for everything the
@@ -308,9 +440,14 @@
   // was the FIRST place any of this ever surfaced, as a raw error string.
   // Now also runs automatically whenever the selected profile changes, and
   // drives a plain-language "next action" line so the guidance is visible
-  // before Start is ever clicked. This is informational only -- the Start
-  // button itself is never disabled by it; the server remains the
-  // authoritative check (see run-manager.ts's own runPreflight() call).
+  // before Start is clicked. Server-side checks remain authoritative.
+  function updateStartAvailability() {
+    var report = state.setup;
+    var noWorkflows = report && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "skipped" && c.detail.indexOf("No workflows") === 0; });
+    el("start-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController || !report || !report.overallReady || (noWorkflows && !el("auth-only").checked));
+    el("ad-discover-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController);
+  }
+  el("auth-only").addEventListener("change", updateStartAvailability);
   function summarizeSetupStatus(report) {
     var byId = {};
     report.checks.forEach(function (c) { byId[c.id] = c; });
@@ -319,9 +456,9 @@
     var workflows = byId["workflows-configured"];
 
     if (reachable && reachable.status === "fail") return "Application is not reachable yet -- " + reachable.detail;
-    if (authConfig && authConfig.status === "fail") return "Login is configured but not yet verified -- " + authConfig.detail + " Use \"Authentication only\" once this is fixed to test it.";
+    if (authConfig && authConfig.status === "fail") return "Login conditions need setup. Use Discover above, review the observed heading and URL, then save them.";
     if (workflows && workflows.status === "skipped" && workflows.detail.indexOf("No workflows") === 0) {
-      return "No workflows declared yet -- run \"Authentication only\" first, then declare workflows before a normal Start.";
+      return "No workflows declared yet. Authentication only is selected so you can verify login. Saved conditions and reachability do not prove successful authentication.";
     }
     if (workflows && workflows.status === "pass") return "Setup looks ready: " + workflows.detail + " Demo mode needs no API key or local model.";
     return report.overallReady ? "Setup looks ready. Demo mode needs no API key or local model." : "Setup is not ready -- see the checks above.";
@@ -330,12 +467,21 @@
   function runCheckSetup() {
     var profile = currentProfile();
     if (!profile) return;
+    var version = ++state.setupVersion;
+    state.setup = null;
+    updateStartAvailability();
     var container = el("preflight-results");
     var statusLine = el("setup-status-line");
     container.innerHTML = "";
     setText(container, "Checking...");
     setText(statusLine, "");
-    return api("/api/preflight?profileId=" + encodeURIComponent(profile.id)).then(function (report) {
+    var mode = document.querySelector('input[name="mode"]:checked').value;
+    return api("/api/preflight?profileId=" + encodeURIComponent(profile.id) + "&mode=" + mode).then(function (report) {
+      if (version !== state.setupVersion || !currentProfile() || currentProfile().id !== profile.id) return;
+      state.setup = report;
+      if (profile.authMode !== "none" && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "skipped" && c.detail.indexOf("No workflows") === 0; })) el("auth-only").checked = true;
+      if (profile.authMode === "none") el("auth-only").checked = false;
+      updateStartAvailability();
       container.innerHTML = "";
       report.checks.forEach(function (check) {
         var row = document.createElement("div");
@@ -365,8 +511,11 @@
       statusLine.className = "status-line" + (report.overallReady ? "" : " error-text");
       setText(statusLine, summarizeSetupStatus(report));
     }).catch(function (err) {
+      if (version !== state.setupVersion) return;
       setText(container, "Setup check failed: " + err.message);
       container.className = "error-text";
+      setText(statusLine, "Setup check failed. Check the local server and try again.");
+      updateStartAvailability();
     });
   }
   el("check-setup-btn").addEventListener("click", runCheckSetup);
@@ -378,14 +527,15 @@
     var notice = el("live-limits-notice");
     if (isLive && profile) {
       notice.hidden = false;
-      setText(notice, "Live run limits -- actions: " + profile.limits.maxActions + ", model calls: " + profile.limits.maxModelCalls +
+      var localOnly = profile.provider.explorer.provider === "ollama" && (!profile.provider.critic.enabled || profile.provider.critic.provider === "mock");
+      setText(notice, (localOnly ? "Local Ollama selected. A separately installed local runtime and model are required; no cloud fallback. " : "Configured providers: " + providerSummary(profile) + ". ") + "Run limits -- actions: " + profile.limits.maxActions + ", model calls: " + profile.limits.maxModelCalls +
         ", pages: " + profile.limits.maxPages + ", duration: " + Math.round(profile.limits.maxDurationMs / 1000) + "s. " +
         "Monetary cost cannot be guaranteed unless verified pricing metadata is configured; these request/time limits are the enforced control.");
     } else {
       notice.hidden = true;
     }
   }
-  document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", updateLiveNotice); });
+  document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", function () { updateLiveNotice(); runCheckSetup(); }); });
   el("profile-select").addEventListener("change", updateLiveNotice);
 
   function resetCounters() {
@@ -422,6 +572,8 @@
   el("start-btn").addEventListener("click", function () {
     var profile = currentProfile();
     if (!profile) return;
+    state.starting = true;
+    updateStartAvailability();
     var mode = document.querySelector('input[name="mode"]:checked').value;
     var body = { profileId: profile.id, mode: mode, authenticationOnly: el("auth-only").checked };
     var ids = el("workflow-ids").value.trim();
@@ -434,13 +586,16 @@
     el("auth-username").value = ""; el("auth-password").value = "";
     el("start-btn").disabled = true;
     api("/api/runs", { method: "POST", body: JSON.stringify(body) }).then(function (data) {
+      state.starting = false;
       state.currentRunId = data.runId;
+      updateStartAvailability();
       el("stop-btn").hidden = false;
       el("results-section").hidden = true;
       resetCounters();
       setText(el("status-line"), "Starting...");
       subscribeToRun(data.runId);
     }).catch(function (err) {
+      state.starting = false;
       var suffix = "";
       // Guides to the actual next valid action, not just a raw error string
       // (2026-09-21 fix) -- checking the box means the identical Start click
@@ -452,7 +607,7 @@
       }
       setText(el("status-line"), "Could not start: " + err.message + suffix);
       el("status-line").className = "status-line error-text";
-      el("start-btn").disabled = false;
+      updateStartAvailability();
     });
   });
 
@@ -509,12 +664,30 @@
   }
 
   function finishRun(runId) {
+    if (state.finishingRunId === runId) return;
+    state.finishingRunId = runId;
     if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
     if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
-    el("stop-btn").hidden = true;
-    el("start-btn").disabled = false;
-    loadReport(runId);
-    loadPriorRuns();
+    // Terminal engine events precede report assembly and browser cleanup.
+    // Keep Start unavailable until the server releases its active run.
+    function awaitSavedReport() {
+      api("/api/runs/" + encodeURIComponent(runId) + "/status").then(function (data) {
+        if (data.active) { state.pollTimer = setTimeout(awaitSavedReport, 250); return; }
+        state.pollTimer = null;
+        state.finishingRunId = null;
+        el("stop-btn").hidden = true;
+        state.currentRunId = null;
+        state.starting = false;
+        setText(el("status-line"), phaseLabel(data.status === "cancelled" ? "stopped" : data.status) + " -- " + (data.stopReason || "Run finished"));
+        updateStartAvailability();
+        loadReport(runId);
+        loadPriorRuns();
+      }).catch(function () {
+        state.finishingRunId = null;
+        setText(el("status-line"), "Could not read the final result. Refresh to reconnect to the run.");
+      });
+    }
+    awaitSavedReport();
   }
 
   function loadReport(runId) {
@@ -660,6 +833,9 @@
     var container = el("results");
     container.innerHTML = "";
 
+    var identity = document.createElement("h3");
+    setText(identity, runId + " — " + (report.target && report.target.environment === "local-fixture" ? "Local fixture" : "Application run"));
+    container.appendChild(identity);
     renderWorkflowResults(container, runId);
     var canonicalIds = new Set((report.groups || []).map(function (g) { return g.canonicalFindingId; }));
     var groupedMemberIds = new Set();
@@ -738,7 +914,7 @@
       var row = document.createElement("div");
       row.className = "run-row";
       var left = document.createElement("span");
-      setText(left, r.runId + " -- " + r.status);
+      setText(left, (r.project || "Project unavailable") + " — " + r.runId + " -- " + r.status);
       var right = document.createElement("span");
       setText(right, (r.validatedFindings || 0) + " validated");
       row.appendChild(left);

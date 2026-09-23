@@ -1,5 +1,21 @@
 # Phase 6 acceptance — authenticated Ajeer sandbox pilot
 
+## Current checkpoint — 2026-09-23
+
+**Live acceptance remains pending.** This checkpoint supersedes historical setup claims below. The private profile has saved conditions and checksVerified=true, but no successful AutoQA authentication evidence and no declared workflows. An earlier discovery suggestion derived a banner name from descendant text; synthetic reproduction confirmed such a locator can match zero elements. Rediscover and confirm a stable heading locally.
+
+Discovery now validates unique visible accessible locators, requires an in-scope changed route and a signal absent on login, strips URL query/fragment, closes on Cancel/disconnect/deadline, and rejects overlapping sessions. It retains exact request exceptions and records no screenshots, traces or browser sessions. A separate normal authentication run remains required. Another reproduced failure occurred after successful login: redaction consumed a closing JSON quote in a token-bearing URL and broke report assembly. Delimiter handling is fixed; authentication evidence now saves only origin/path. The synthetic UI regression covers discovery, confirmation, auth-only success, saved reports, Cancel and CSRF.
+
+Verification: **npm run verify:local** passed typecheck/build, **642 tests / 76 files (371.20s)**, and corpus validation (20 cases: 12 distinct defects/8 non-defects, 7 executable/13 offline). Final UI-label and exact-origin changes passed **11 targeted tests / 3 files (21.45s)**. Earlier failing suites remain historical failures, not retrospectively green.
+
+Actual UI completion: **RUN-20260923-053522611Z-68e9**, 74 actions, 38 mock decisions, 6 pages. Separate Stop: **RUN-20260923-053605943Z-cda9**, cancelled after 3 actions/2 decisions, with Start usable afterward. Evidence links returned HTTP 200. Both roles made zero external provider requests. Desktop 1365px and narrow 390px screenshots were visually checked; narrow layout had no horizontal overflow. Canonical six-defect fixture matcher: 6 true positives, 3 false positives, no false negatives; precision 0.667/recall 1.0/F1 0.8. Nine findings reproduced, with eight report dispositions and one suppressed. These raw canonical metrics are separate from duplicate grouping/final dispositions.
+
+Four frozen mock decision cases passed; the existing always-stop regression separates structural validity from useful progress. Corpus labels, matcher and thresholds were unchanged. No actual hosted/local inference, installation or model download occurred. Ollama inventory availability is checked with bounded time/size and manual redirects; inference quality and runtime cloud settings remain unverified. Ajeer metrics remain N/A.
+
+The updated panel was started at http://127.0.0.1:4181/. User-controlled local entry was requested once; no chat credentials were used and no new Ajeer login was attempted. Next action: Ajeer → Demo → Discover → confirm stable heading/exact URL → Authentication only with fresh local entry. After normal authentication succeeds, observe and declare 3–5 real read-only workflows, run them sequentially, and repeat one in a fresh run. Existing scope/budgets remain unchanged. The pre-existing deletion of AJEER_PILOT_REPORT.md is preserved outside this commit.
+
+## Historical checkpoint — 2026-09-18
+
 Date: 2026-09-18. **Live acceptance pending; not accepted.** Independent verification and acceptance documentation are complete. The Phase 5 runner is reused without production source changes. One preflight regression assertion was corrected as described below.
 
 ## Current evidence

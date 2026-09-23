@@ -1,0 +1,70 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { z } from "zod";
+import { runAuthDiscovery } from "../../auth/discovery.js";
+import { createLogger } from "../../logger.js";
+import { credentialSecrets } from "../../redact.js";
+import { ProfileError } from "../../profiles/schema.js";
+import type { ProfileStore } from "../../profiles/store.js";
+import { readJsonBody, sendJson } from "../http-helpers.js";
+
+const discoveryRequestSchema = z.object({
+  username: z.string().min(1).max(1000),
+  password: z.string().min(1).max(1000),
+});
+
+const active = new WeakMap<ProfileStore, AbortController>();
+export function isAuthDiscoveryActive(store: ProfileStore): boolean { return active.has(store); }
+export function stopAuthDiscovery(store: ProfileStore): void { active.get(store)?.abort(); }
+
+/**
+ * Transient by construction: `parsed.data` (the only place the raw
+ * credential exists) is passed straight into runAuthDiscovery() and never
+ * touches this function again -- nothing here logs, stores, or echoes it
+ * back. See src/auth/discovery.ts's own doc comment for why this path
+ * exists and what it deliberately does not do (never writes
+ * authentication.json, never sets checksVerified itself).
+ */
+export async function handleAuthDiscovery(req: IncomingMessage, res: ServerResponse, profileStore: ProfileStore, profileId: string, runBusy: () => boolean = () => false): Promise<void> {
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : "Invalid request body" });
+    return;
+  }
+
+  const parsed = discoveryRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: "username and password are both required." });
+    return;
+  }
+
+  if (active.has(profileStore) || runBusy()) {
+    sendJson(res, 409, { error: "Finish or stop the current run or discovery before starting another." });
+    return;
+  }
+  const controller = new AbortController();
+  active.set(profileStore, controller);
+  const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+  res.on("close", disconnected);
+  try {
+    const profile = profileStore.load(profileId);
+    const result = await runAuthDiscovery(profile, parsed.data, createLogger(undefined, credentialSecrets(parsed.data)), controller.signal);
+    if (res.destroyed) return;
+    if (result.status === "failed") {
+      sendJson(res, 422, { error: result.reason });
+      return;
+    }
+    sendJson(res, 200, { observedUrl: result.observedUrl, successUrlPattern: result.successUrlPattern, candidateSignals: result.candidateSignals });
+  } catch (error) {
+    if (res.destroyed) return;
+    if (error instanceof ProfileError) {
+      sendJson(res, 404, { error: error.message });
+      return;
+    }
+    sendJson(res, 500, { error: "Authentication discovery failed. No conditions were saved." });
+  } finally {
+    res.off("close", disconnected);
+    active.delete(profileStore);
+  }
+}

@@ -5,6 +5,7 @@ import type { Logger } from "../logger.js";
 import type { WorkflowManifest } from "../pilot/workflow-manifest.js";
 import type { ProjectProfile } from "./../profiles/schema.js";
 import { pathWithinPrefix } from "../safety/action-policy.js";
+import { assertLocalOnlyUrl } from "../models/ollama-provider.js";
 
 /**
  * "managed" (Phase 4 continuation) is distinct from "pass": the check
@@ -216,13 +217,43 @@ function describeResolvedProvider(name: string, role: "Explorer" | "Critic"): st
     : `${role}: ${name} (configured; not verified by an actual request)`;
 }
 
-function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
+async function checkProviders(config: AppConfig, logger: Logger): Promise<PreflightCheck> {
   let explorerState: ProviderState;
   let explorerDetail: string;
   try {
     const provider = selectProvider(config, logger);
     explorerState = provider.name === "mock" ? "not-configured" : "configured-but-unverified";
     explorerDetail = describeResolvedProvider(provider.name, "Explorer");
+    if (provider.name === "ollama") {
+      // Availability only: never generate, pull, install, or contact cloud.
+      const base = assertLocalOnlyUrl(process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434");
+      try {
+        const response = await fetch(new URL("/api/tags", base), { redirect: "manual", signal: AbortSignal.timeout(2000) });
+        if (!response.ok || !response.body) throw new Error("unavailable");
+        const reader = response.body.getReader();
+        let bytes = 0;
+        const chunks: Uint8Array[] = [];
+        try {
+          for (;;) {
+            const next = await reader.read();
+            if (next.done) break;
+            bytes += next.value.length;
+            if (bytes > 262144) throw new Error("response too large");
+            chunks.push(next.value);
+          }
+        } finally { await reader.cancel().catch(() => {}); }
+        const tags = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { models?: Array<{ name?: string }> };
+        if (!Array.isArray(tags.models) || !tags.models.some(m => m.name === config.models.explorer.model)) {
+          explorerState = "unavailable";
+          explorerDetail = "Explorer: optional local model is unavailable. Use Demo to run without Ollama.";
+        } else {
+          explorerDetail = "Explorer: Ollama server and selected model are present; inference and runtime cloud settings remain unverified.";
+        }
+      } catch {
+        explorerState = "unavailable";
+        explorerDetail = "Explorer: optional Ollama runtime is unavailable or did not answer the bounded local check. Use Demo; no installation is required.";
+      }
+    }
   } catch (error) {
     const configError = error as ConfigError;
     explorerState = "unavailable";
@@ -252,7 +283,7 @@ function checkProviders(config: AppConfig, logger: Logger): PreflightCheck {
     name: "Provider configuration",
     status: failed ? "fail" : "pass",
     detail: `${explorerDetail} | ${criticDetail}`,
-    ...(failed ? { nextStep: "Set the required API key environment variable, or switch the profile's provider to \"mock\"." } : {}),
+    ...(failed ? { nextStep: config.models.explorer.provider === "ollama" ? "Select Demo to continue without a local runtime or downloaded model." : "Set the required API key environment variable, or switch the profile's provider to \"mock\"." } : {}),
   };
 }
 
@@ -269,7 +300,7 @@ function checkWorkflowsConfigured(profile: ProjectProfile, workflowManifest: Wor
   if (profile.workflows.executionMode !== "declared") {
     return { id: "workflows-configured", name: "Declared workflows", status: "skipped", detail: `Not applicable: this profile uses heuristic exploration${profile.workflows.executionMode ? ` (executionMode: "${profile.workflows.executionMode}")` : ""}, not declared workflows.` };
   }
-  const count = workflowManifest?.workflows.length ?? 0;
+  const count = workflowManifest?.workflows.filter(w => Boolean(w.execution)).length ?? 0;
   if (count === 0) {
     return {
       id: "workflows-configured",
@@ -300,7 +331,7 @@ export async function runPreflight(profile: ProjectProfile, config: AppConfig, l
     await checkTargetReachable(profile, scopeConsistency.status !== "fail"),
     checkAuthConfiguration(profile),
     checkWorkflowsConfigured(profile, workflowManifest),
-    checkProviders(config, logger),
+    await checkProviders(config, logger),
   ];
 
   return {

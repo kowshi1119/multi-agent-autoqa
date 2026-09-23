@@ -152,6 +152,8 @@ export class RunManager {
     return { runId, profileId, mode, startedAt, lastEvent };
   }
 
+  isBusy(): boolean { return this.starting || Boolean(this.current); }
+
   /** For SSE: returns an unsubscribe function. Events for a run that has already finished are simply never delivered (no historical replay -- reconnect uses the polling status endpoint instead, per spec). */
   subscribe(runId: string, listener: (event: RunProgressEvent) => void): () => void {
     if (this.current?.runId !== runId) return () => {};

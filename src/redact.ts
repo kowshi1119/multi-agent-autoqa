@@ -45,7 +45,10 @@ export function redactSecrets(text: string, extraSecrets: readonly string[] = []
 
   return result
     .replace(/\b(?:xpl_[A-Za-z0-9]+|sk-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]{35})\b/g, SECRET_PLACEHOLDER)
-    .replace(/\b(authorization|token|password|secret)\s*[=:]\s*(?:bearer\s+)?[^\s,;]+/gi, "$1=<REDACTED>");
+    // Keep delimiters intact when redacting an already-serialized JSON
+    // string (e.g. a landing URL with ?token=... immediately before its
+    // closing quote). Consuming that quote made run evidence unparseable.
+    .replace(/\b(authorization|token|password|secret)\s*[=:]\s*(?:bearer\s+)?[^\\\s,;"'<>}\]&]+/gi, "$1=<REDACTED>");
 }
 
 /**

@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "verify:local": "node scripts/verify-local.mjs",
     "test": "vitest run",
     "provider:check": "tsx src/provider-check.ts",
     "local-explorer:benchmark": "tsx src/experiments/local-explorer-benchmark.ts",

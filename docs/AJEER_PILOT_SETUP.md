@@ -1,5 +1,13 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Current setup path — 2026-09-23
+
+Run **npm run ui**, select Ajeer and Demo. Enter credentials only under the local **Discover** form. Choose a stable, non-personal verified heading and save the observed conditions. Then enter credentials again under **Sign in for this run**, select **Authentication only**, and Start. Discovery does not count as acceptance; require a successful normal-run authentication report before declaring workflows. Cancel closes discovery without saving conditions. Same-route login, MFA, CAPTCHA and interactive SSO are unsupported.
+
+The profile now has saved checks but still no successful authenticated acceptance. Rediscovery is necessary because an old text-derived banner suggestion may not be an accessible landmark name. No placeholders should be marked verified. The product discovery path works independently of the external CUA tool. Current offline verification: 642 tests/76 files plus 11 final targeted tests passed. See [current Phase 6 evidence](../PHASE6_ACCEPTANCE.md). The sections below retain earlier setup history, not current configuration claims.
+
+## Historical setup record
+
 Status: **independent implementation verified (598 tests / 70 files); Ajeer live acceptance pending**. OrangeHRM remains deferred. Paid/live-provider evaluation is separate.
 
 ## Phase 6 checkpoint — 2026-09-18

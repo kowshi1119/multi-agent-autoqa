@@ -66,6 +66,50 @@ function fixtureProfile(overrides: (raw: Record<string, unknown>) => void = () =
 }
 
 describe("runPreflight", () => {
+  it.each([
+    { models: [{ name: "test-local" }], expected: "pass" },
+    { models: [{ name: "another-model" }], expected: "fail" },
+  ])("checks local model availability without inference: $expected", async ({ models, expected }) => {
+    const previous = process.env["OLLAMA_BASE_URL"];
+    process.env["OLLAMA_BASE_URL"] = "http://127.0.0.1:11434";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ models }), { status: 200 }),
+    );
+    try {
+      const profile = fixtureProfile(raw => {
+        (raw["provider"] as Record<string, unknown>)["explorer"] = { provider: "ollama", model: "test-local" };
+      });
+      const report = await runPreflight(profile, profileToAppConfig(profile), createLogger());
+      expect(report.checks.find(c => c.id === "providers")?.status).toBe(expected);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe("http://127.0.0.1:11434/api/tags");
+      expect(fetchSpy.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    } finally {
+      fetchSpy.mockRestore();
+      if (previous === undefined) delete process.env["OLLAMA_BASE_URL"];
+      else process.env["OLLAMA_BASE_URL"] = previous;
+    }
+  });
+
+  it("reports unavailable local runtime without attempting inference or installation", async () => {
+    const previous = process.env["OLLAMA_BASE_URL"];
+    process.env["OLLAMA_BASE_URL"] = "http://127.0.0.1:11434";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
+    try {
+      const profile = fixtureProfile(raw => {
+        (raw["provider"] as Record<string, unknown>)["explorer"] = { provider: "ollama", model: "test-local" };
+      });
+      const report = await runPreflight(profile, profileToAppConfig(profile), createLogger());
+      expect(report.overallReady).toBe(false);
+      expect(report.checks.find(c => c.id === "providers")?.detail).toContain("Use Demo");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+      if (previous === undefined) delete process.env["OLLAMA_BASE_URL"];
+      else process.env["OLLAMA_BASE_URL"] = previous;
+    }
+  });
+
   it("reports overallReady=true for a fully valid, reachable, mock-provider fixture profile", async () => {
     const profile = fixtureProfile();
     const config = profileToAppConfig(profile);
