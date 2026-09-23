@@ -1,7 +1,0 @@
-{
-  "dependencies": {
-    "@ffmpeg-installer/win32-x64": "^4.1.0",
-    "github-markdown-css": "^5.9.0",
-    "marked": "^18.0.13"
-  }
-}

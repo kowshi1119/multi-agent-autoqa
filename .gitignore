@@ -18,3 +18,4 @@ local-explorer-benchmark-latest.json
 playwright-report/
 test-results/
 .env
+.profile-preview/
