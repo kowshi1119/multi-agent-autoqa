@@ -130,5 +130,16 @@ it("does not silently send an unauthenticated request for an authenticated profi
   const runDir = dir();
   await runApiChecks(p, [api()], runDir, 1, "http://localhost:4173");
   expect(fetcher).not.toHaveBeenCalled();
-  expect(loadCheckLedger(runDir).entries[0]?.blockedReason).toContain("Authenticated API checks are unsupported");
+  const entry = loadCheckLedger(runDir).entries[0];
+  expect(entry?.blockedReason).toContain("no anonymous request was sent");
+  expect(entry?.session).toBe("unavailable");
+});
+
+it("still sends nothing anonymously when useRunSession is enabled but the run has no authenticated session", async () => {
+  const p = profile(); p.auth = { mode: "form-login", checksVerified: true, allowedRequests: [] }; p.apiChecks.useRunSession = true;
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
+  const runDir = dir();
+  await runApiChecks(p, [api()], runDir, 1, "http://localhost:4173", [], undefined, undefined, { authenticated: false, cookieHeaderFor: async () => "session=should-never-be-read" });
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(loadCheckLedger(runDir).entries[0]?.blockedReason).toContain("No authenticated session exists for this run");
 });

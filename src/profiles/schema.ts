@@ -141,8 +141,16 @@ export const projectProfileSchema = z.object({
         .array(z.object({ method: z.enum(["POST", "PUT", "PATCH", "DELETE"]), pathname: z.string().min(1).startsWith("/") }))
         .default([]),
       responseSizeCapBytes: z.number().int().positive().default(262_144),
+      /**
+       * Opt-in for form-login profiles: send checks with the CURRENT run's
+       * authenticated browser session (cookies read in memory while that
+       * session is still open). Off by default; without it, checks on an
+       * authenticated profile stay explicitly unsupported rather than being
+       * sent anonymously.
+       */
+      useRunSession: z.boolean().default(false),
     })
-    .default({ enabled: false, allowedMutatingEndpoints: [], responseSizeCapBytes: 262_144 }),
+    .default({ enabled: false, allowedMutatingEndpoints: [], responseSizeCapBytes: 262_144, useRunSession: false }),
   /**
    * Passive security checks (src/checks/run-security-checks.ts): cookie
    * attributes, security response headers, response-body secret leakage,

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { DeclaredApiCheck } from "./checks-manifest.js";
-import { checkBudget, createCheckRequester, scopedCheckUrl, type CheckBudget } from "./request-scope.js";
+import { checkBudget, createCheckRequester, scopedCheckUrl, sessionModeFor, type CheckBudget, type RunSession } from "./request-scope.js";
 import { evaluateAssertions } from "./shape-check.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
@@ -13,23 +13,22 @@ export type ApiChecksResult = { findings: Finding[]; nextFindingIndex: number };
 
 /**
  * Fires every declared API check directly (no browser action involved),
- * evaluates its assertions deterministically, and turns a confirmed/
- * needs_review result into a standard Finding -- everything else (ran vs.
- * blocked, classification, evidence) is recorded in the run's
- * check-results.json ledger regardless of whether a Finding was created.
- * Policy gate: GET is always allowed under navigation.allowedPathPrefixes;
- * a mutating method requires an explicit entry in
- * profile.apiChecks.allowedMutatingEndpoints -- a separate allowlist from
- * resources.allowedFormSubmitEndpoints, which scopes browser-originated
- * requests only, not the standalone calls this function fires itself.
+ * evaluates its assertions deterministically, and records every check --
+ * ran or blocked -- in the run's check-results.json ledger. Policy gate:
+ * GET is always allowed within scope; a mutating method requires an
+ * explicit entry in profile.apiChecks.allowedMutatingEndpoints (separate
+ * from resources.allowedFormSubmitEndpoints, which scopes browser-originated
+ * requests only).
  *
- * `origin` is passed in explicitly rather than derived from
- * profile.navigation.allowedOrigins[0] -- for a "local-fixture" profile,
- * runPipeline() always binds the fixture server to an OS-assigned port and
- * substitutes the REAL origin into its own (mutated) AppConfig, leaving
- * the profile's own declared origin as inert placeholder text (see
- * run-pipeline.ts's 2026-09-16 port-isolation fix). The caller must read
- * the actual resolved origin off that same config, not this profile.
+ * `origin` is the run's REAL resolved origin (a local-fixture profile's
+ * declared port is placeholder text; see run-pipeline.ts). `session` is the
+ * run's own live authenticated session, supplied only while that session's
+ * browser context is still open; without it, a form-login profile's checks
+ * are recorded as unsupported and nothing is sent anonymously.
+ *
+ * A reproduced mismatch is an ASSERTION mismatch against a human-authored
+ * expectation, not by itself a product defect -- the expectation may be
+ * wrong -- so it is routed to human review rather than reported directly.
  */
 export async function runApiChecks(
   profile: ProjectProfile,
@@ -39,37 +38,36 @@ export async function runApiChecks(
   origin: string,
   extraSecrets: readonly string[] = [],
   abortSignal?: AbortSignal,
-  budget: CheckBudget = checkBudget(profile)
+  budget: CheckBudget = checkBudget(profile),
+  session?: RunSession
 ): Promise<ApiChecksResult> {
   const findings: Finding[] = [];
   let findingIndex = startingFindingIndex;
-  const request = createCheckRequester(profile, origin, budget);
+  const request = createCheckRequester(profile, origin, budget, session);
+  const record = (entry: CheckLedgerEntry): void => appendCheckLedgerEntry(runDir, { ...entry, session: sessionModeFor(profile, session) }, extraSecrets);
 
   for (const check of checks) {
     if (findingIndex > profile.limits.maxFindings) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, "Finding budget exhausted before this check."), extraSecrets); continue;
+      record(blockedEntry(check, "Finding budget exhausted before this check."));
+      continue;
     }
     if (abortSignal?.aborted) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, "Run was cancelled before this check ran."), extraSecrets);
+      record(blockedEntry(check, "Run was cancelled before this check ran."));
       continue;
     }
 
     const isMutating = check.method !== "GET";
     const allowed = !isMutating || profile.apiChecks.allowedMutatingEndpoints.some((e) => e.method === check.method && e.pathname === check.pathname);
     if (!allowed) {
-      appendCheckLedgerEntry(
-        runDir,
-        blockedEntry(check, `${check.method} ${check.pathname} is a mutating request not present in apiChecks.allowedMutatingEndpoints.`),
-        extraSecrets
-      );
+      record(blockedEntry(check, `${check.method} ${check.pathname} is a mutating request not present in apiChecks.allowedMutatingEndpoints.`));
       continue;
     }
     if (!scopedCheckUrl(profile, origin, check.pathname)) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
+      record(blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`));
       continue;
     }
     if (budget.used >= budget.max) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, "API request budget exhausted."), extraSecrets);
+      record(blockedEntry(check, "API request budget exhausted."));
       continue;
     }
 
@@ -78,43 +76,36 @@ export async function runApiChecks(
     const response = await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal);
 
     if ("failed" in response) {
-      appendCheckLedgerEntry(runDir, { ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason }, extraSecrets);
+      record({ ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason });
       continue;
     }
 
     const failures = evaluateAssertions(check.assertions, response.status, response.contentType, response.body);
-    const requestSnapshot = { method: check.method, url, body: check.requestBody };
+    const requestSnapshot = { method: check.method, url, body: check.requestBody, sessionHeadersOmitted: profile.auth.mode !== "none" };
     const responseSnapshot = { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
 
     if (failures.length === 0) {
-      // No Finding for a passing check -- its evidence lives in the
-      // checks/ namespace, not findings/, and is reached through the
-      // checks panel's own evidenceRefs (full run-relative paths), not the
-      // finding-card evidence renderer.
+      // No Finding for a passing check: its evidence lives under checks/,
+      // reached through the ledger's run-relative evidenceRefs.
       const evidenceDir = join(runDir, "checks", check.id);
       const evidenceRefs = [
         writeCheckEvidence(evidenceDir, "request.json", requestSnapshot, extraSecrets),
         writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets),
       ];
-      appendCheckLedgerEntry(
-        runDir,
-        {
-          checkId: check.id,
-          kind: "api",
-          ran: true,
-          classification: "passed",
-          assertion: check.description,
-          observation: `status ${response.status}, all ${Object.keys(check.assertions).length} assertion group(s) satisfied`,
-          evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`),
-        },
-        extraSecrets
-      );
+      record({
+        checkId: check.id,
+        kind: "api",
+        ran: true,
+        classification: "passed",
+        assertion: check.description,
+        observation: `status ${response.status}, all declared assertions satisfied`,
+        evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`),
+      });
       continue;
     }
 
-    // A second confirming fire, same as the first, IS the reproduction for
-    // a deterministic declared HTTP check -- no browser replay needed.
-    // A declared mutation is authorized once, never implicitly repeated.
+    // A second identical GET is the reproduction for a deterministic
+    // declared check. A declared mutation is authorized once, never repeated.
     const beforeConfirm = budget.used;
     const confirm = check.method === "GET"
       ? await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal)
@@ -125,23 +116,17 @@ export async function runApiChecks(
     const findingId = generateFindingId(findingIndex++);
     const pathname = normalizePathname(url);
 
-    // A Finding's evidence directory/filename convention (findings/<id>/)
-    // is shared with every other finding in the codebase (see
-    // src/evidence.ts::writeFindingEvidence and every orchestrator/
-    // validator call site) -- index.html's buildEvidenceLinks()/artifactUrl()
-    // hardcode exactly this path, so a check-created Finding must follow it
-    // too for its evidence links to resolve, rather than inventing a
-    // second, incompatible evidence-path convention.
+    // findings/<id>/ with bare filenames: the convention every finding
+    // uses and index.html's evidence-link renderer assumes.
     const evidenceDir = join(runDir, "findings", findingId);
     const evidenceFilenames = [
       writeCheckEvidence(evidenceDir, "request.json", requestSnapshot, extraSecrets),
       writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets),
+      writeCheckEvidence(evidenceDir, "confirmation.json", confirm, extraSecrets),
     ];
-
-    evidenceFilenames.push(writeCheckEvidence(evidenceDir, "confirmation.json", confirm, extraSecrets));
     const finding: Finding = {
       id: findingId,
-      title: `Declared API check failed: ${check.description}`,
+      title: `Declared API assertion mismatch${reproduced ? " (reproduced)" : ""}: ${check.description}`,
       status: reproduced ? "validated" : "needs_human",
       category: "api",
       pageId: "PAGE-API",
@@ -154,31 +139,28 @@ export async function runApiChecks(
         suspicious: true,
         expected: failures.map((f) => f.assertion).join("; "),
         actual: failures.map((f) => f.detail).join("; "),
-        details: { checkId: check.id, classification, assertionsFailed: failures },
+        details: { checkId: check.id, classification, assertionsFailed: failures, note: "A reproduced mismatch means the response disagreed with the declared expectation twice; whether that is a product defect depends on whether the expectation is correct." },
       },
       steps: [],
       reproduction: { attempts: 1 + (budget.used - beforeConfirm), successes: reproduced ? 2 : 1 },
       occurrenceCount: 1,
       evidence: evidenceFilenames,
       evidenceLevel: "L2",
-      reportDisposition: classification === "confirmed" ? "report" : "needs_human",
+      reportDisposition: "needs_human",
     };
     findings.push(finding);
 
-    appendCheckLedgerEntry(
-      runDir,
-      {
-        checkId: check.id,
-        kind: "api",
-        ran: true,
-        classification,
-        assertion: check.description,
-        observation: `${failures.length} assertion(s) failed: ${failures.map((f) => `${f.assertion} (${f.detail})`).join("; ")}`,
-        evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`),
-        findingId,
-      },
-      extraSecrets
-    );
+    const confirmNote = "failed" in confirm ? ` Confirmation not evaluated: ${confirm.reason}` : "";
+    record({
+      checkId: check.id,
+      kind: "api",
+      ran: true,
+      classification,
+      assertion: check.description,
+      observation: `${failures.length} assertion(s) failed: ${failures.map((f) => `${f.assertion} (${f.detail})`).join("; ")}.${confirmNote}`,
+      evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`),
+      findingId,
+    });
   }
 
   return { findings, nextFindingIndex: findingIndex };

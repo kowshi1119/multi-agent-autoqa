@@ -20,11 +20,10 @@ import { runPipeline, type PipelineResult } from "./run-pipeline.js";
 import { ActionPolicy } from "./safety/action-policy.js";
 import { isAuthDiscoveryActive } from "./server/routes/auth-discovery.js";
 import { loadChecksManifest } from "./checks/checks-manifest.js";
-import { checkBudget } from "./checks/request-scope.js";
+import { checkBudget, sessionModeFor, type CheckBudget, type RunSession } from "./checks/request-scope.js";
 import { writeCheckEvidence } from "./checks/evidence.js";
 import { runApiChecks } from "./checks/run-api-checks.js";
 import { runSecurityChecks } from "./checks/run-security-checks.js";
-import { startFixtureServer } from "../fixture/server.js";
 
 export class RunAlreadyActiveError extends Error {
   constructor(message = "A run is already active. Stop it before starting another.") {
@@ -284,9 +283,40 @@ export class RunManager {
     // unconditionally claim zero usage.
     let pipelineResult: PipelineResult | undefined;
     let terminalEvent: RunProgressEvent | undefined;
+    // Declared API/security checks (opt-in per profile) run inside
+    // runPipeline()'s onSessionReady window: after exploration/workflows,
+    // while the run's browser context and local fixture are still open, so
+    // an authenticated profile can use THIS run's session (in memory only)
+    // and a local fixture needs no second server. Never for auth-only runs.
+    const checksManifest = !authenticationOnly && (profile.apiChecks.enabled || profile.securityChecks.enabled)
+      ? loadChecksManifest(this.profileStore.getDir(), profile.id)
+      : undefined;
+    let checkUsage: CheckBudget | undefined;
+    const runChecks = async ({ finalCtx, origin, session }: { finalCtx: PipelineResult["finalCtx"]; origin: string; session?: RunSession }): Promise<void> => {
+      if (!checksManifest) return;
+      const usage = checkBudget(profile);
+      usage.deadline = startedAt.getTime() + profile.limits.maxDurationMs;
+      checkUsage = usage;
+      try {
+        if (active.lastEvent) emit({ ...active.lastEvent, phase: "exploring", detail: "Running declared API and security checks; browser exploration has finished." });
+        let nextFindingIndex = finalCtx.findings.length + 1;
+        if (profile.apiChecks.enabled && checksManifest.apiChecks.length > 0) {
+          const apiResult = await runApiChecks(profile, checksManifest.apiChecks, runDir, nextFindingIndex, origin, extraSecrets, controller.signal, usage, session);
+          finalCtx.findings.push(...apiResult.findings);
+          nextFindingIndex = apiResult.nextFindingIndex;
+        }
+        if (profile.securityChecks.enabled && checksManifest.securityChecks.length > 0) {
+          const securityResult = await runSecurityChecks(profile, checksManifest.securityChecks, runDir, nextFindingIndex, origin, extraSecrets, controller.signal, usage, session);
+          finalCtx.findings.push(...securityResult.findings);
+        }
+      } finally {
+        writeCheckEvidence(runDir, "check-usage.json", { requests: usage.used, maxRequests: usage.max, includesConfirmationAndSessionRequests: true, sessionMode: sessionModeFor(profile, session) }, extraSecrets);
+      }
+    };
 
     try {
       pipelineResult = await runPipeline({
+        onSessionReady: runChecks,
         config,
         runId,
         runDir,
@@ -304,52 +334,12 @@ export class RunManager {
         ...(sessionAuth ? { sessionAuth } : {}),
         abortSignal: controller.signal,
       });
-      // Declared API/security checks (opt-in per profile): run only when
-      // the pipeline wasn't already cancelled by the time we get here -- a
-      // user-requested Stop should stop everything, not kick off a fresh
-      // batch of HTTP checks afterward. Each runner appends its own
-      // check-results.json ledger entries directly and returns any Finding
-      // it produced, which is folded into finalCtx.findings BEFORE
-      // assembleReport() runs so grouping/reporting/redaction see it like
-      // any other finding -- no change needed to either of those.
-      if (!authenticationOnly && pipelineResult.finalCtx.state !== "FAILED" && (profile.apiChecks.enabled || profile.securityChecks.enabled)) {
-        const checksManifest = loadChecksManifest(this.profileStore.getDir(), profile.id);
-        if (checksManifest) {
-          // runPipeline() already closed ITS OWN fixture server in its own
-          // finally block by the time we get here (it owns that instance's
-          // lifecycle for the browser-exploration phase only) -- so for a
-          // local-fixture profile, checks need a fresh instance of their
-          // own rather than reusing config.target.url's now-dead origin.
-          // Every other environment kind targets an already-running,
-          // externally-owned server, so config.target.url's origin is used
-          // directly and nothing extra is started or stopped here.
-          const isLocalFixture = profile.target.environmentKind === "local-fixture";
-          const checkUsage = checkBudget(profile);
-          checkUsage.deadline = startedAt.getTime() + profile.limits.maxDurationMs;
-          const checksFixtureServer = isLocalFixture && !controller.signal.aborted && Date.now() < checkUsage.deadline ? await startFixtureServer(0) : undefined;
-          try {
-            if (!controller.signal.aborted && active.lastEvent) emit({ ...active.lastEvent, phase: "exploring", detail: "Running declared API and security checks; browser exploration has finished." });
-            const resolvedOrigin = checksFixtureServer ? `http://localhost:${checksFixtureServer.port}` : new URL(config.target.url).origin;
-            let nextFindingIndex = pipelineResult.finalCtx.findings.length + 1;
-            if (profile.apiChecks.enabled && checksManifest.apiChecks.length > 0) {
-              const apiResult = await runApiChecks(profile, checksManifest.apiChecks, runDir, nextFindingIndex, resolvedOrigin, extraSecrets, controller.signal, checkUsage);
-              pipelineResult.finalCtx.findings.push(...apiResult.findings);
-              nextFindingIndex = apiResult.nextFindingIndex;
-            }
-            if (profile.securityChecks.enabled && checksManifest.securityChecks.length > 0) {
-              const securityResult = await runSecurityChecks(profile, checksManifest.securityChecks, runDir, nextFindingIndex, resolvedOrigin, extraSecrets, controller.signal, checkUsage);
-              pipelineResult.finalCtx.findings.push(...securityResult.findings);
-            }
-          } finally {
-            await checksFixtureServer?.close();
-            writeCheckEvidence(runDir, "check-usage.json", { requests: checkUsage.used, maxRequests: checkUsage.max, includesConfirmationAndSessionRequests: true }, extraSecrets);
-          }
-          if (controller.signal.aborted) {
-            pipelineResult.finalCtx.state = "CANCELLED";
-            pipelineResult.finalCtx.stopReason = "CANCELLED: stop requested during declared checks";
-          } else if (Date.now() >= checkUsage.deadline) {
-            pipelineResult.finalCtx.stopReason = "BUDGET_EXHAUSTED: duration limit during declared checks";
-          }
+      if (checkUsage) {
+        if (controller.signal.aborted && pipelineResult.finalCtx.state !== "CANCELLED") {
+          pipelineResult.finalCtx.state = "CANCELLED";
+          pipelineResult.finalCtx.stopReason = "CANCELLED: stop requested during declared checks";
+        } else if (Date.now() >= checkUsage.deadline) {
+          pipelineResult.finalCtx.stopReason = "BUDGET_EXHAUSTED: duration limit during declared checks";
         }
       }
 

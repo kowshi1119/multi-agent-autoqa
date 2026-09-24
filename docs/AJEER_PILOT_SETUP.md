@@ -1,6 +1,15 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
-## Latest status — 2026-09-23
+## Latest status — 2026-09-24: workflows can now be discovered in the UI
+
+The empty-manifest gap now has a supported path. With the Ajeer profile selected in `npm run ui`, and your credentials entered only in the local forms:
+1. **Sign in for this run** + **Authentication only** → Start (fresh smoke; expect "Authentication succeeded for this run").
+2. **1d. Read-only workflow discovery** → Discover. It opens only in-scope links whose wording is not state-changing (send, transfer, pay, withdraw, deposit, approve, invite, upload, message, delete, log out, … are listed as skipped and never opened) and keeps a draft only when the destination shows a unique visible heading. Review each draft; tick only workflows you confirm are read-only; Save.
+3. Enter credentials again, untick Authentication only, put **one** workflow ID in Workflow IDs → Start. Then run the remaining IDs; then repeat one completed ID in a fresh run.
+
+Report the run IDs; they are what counts as evidence. Discovery drafts are not execution. Mock Explorer/Critic, existing budgets and the read-only boundary are unchanged. Authenticated API assertions stay off for Ajeer (no endpoint and expected result have been observed and authorized; Ajeer appears to use a client token, which cookie-based session reuse cannot carry — it would be reported unsupported, never sent anonymously). Cross-account checks remain local-fixture only. On 2026-09-24 one unintended Authentication only attempt with a synthetic non-Ajeer account reached the sandbox login (`RUN-20260924-054743933Z-635b`, not accepted, cancelled, nothing captured) — see PROGRESS.md.
+
+## Status — 2026-09-23
 
 Existing normal-run authentication evidence RUN-20260923-075117245Z-df87 was independently checked: success, four actions. Repeating discovery is not required merely because older notes below say login was blocked. The workflow manifest remains empty. The next live task is observing and declaring actual read-only workflows with a fresh locally entered credential, then executing one, the remainder, and a fresh repetition. No credentials or persisted browser sessions are recovered from prior chat/history.
 

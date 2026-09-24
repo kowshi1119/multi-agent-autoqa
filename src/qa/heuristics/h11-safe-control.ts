@@ -3,7 +3,7 @@ import type { InteractiveElement, QaAction } from "../../types.js";
 import type { QaHeuristic } from "../heuristics.js";
 import { isUsableWidget, toElementTarget } from "./support.js";
 
-const DESTRUCTIVE_KEYWORDS = [
+export const DESTRUCTIVE_KEYWORDS = [
   "delete",
   "remove",
   "pay",

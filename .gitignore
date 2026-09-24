@@ -8,6 +8,9 @@ profiles/*.json
 !profiles/fixture.json
 !profiles/orangehrm.json
 !profiles/checks-demo.json
+!profiles/auth-demo.json
+!profiles/auth-demo.checks.json
+!profiles/auth-demo.workflows.json
 !profiles/checks-demo.checks.json
 .env
 .env.*

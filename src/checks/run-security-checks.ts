@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { DeclaredSecurityCheck } from "./checks-manifest.js";
-import { checkBudget, createCheckRequester, scopedCheckUrl, type CheckBudget } from "./request-scope.js";
+import { checkBudget, createCheckRequester, scopedCheckUrl, sessionModeFor, type CheckBudget, type RunSession } from "./request-scope.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
 import { normalizePathname } from "../mapping/state-signature.js";
@@ -61,22 +61,24 @@ export async function runSecurityChecks(
   origin: string,
   extraSecrets: readonly string[] = [],
   abortSignal?: AbortSignal,
-  budget: CheckBudget = checkBudget(profile)
+  budget: CheckBudget = checkBudget(profile),
+  session?: RunSession
 ): Promise<SecurityChecksResult> {
   const findings: Finding[] = [];
   let findingIndex = startingFindingIndex;
-  const request = createCheckRequester(profile, origin, budget);
+  const request = createCheckRequester(profile, origin, budget, session);
+  const record = (dir: string, entry: CheckLedgerEntry, secrets: readonly string[]): void => appendCheckLedgerEntry(dir, { ...entry, session: sessionModeFor(profile, session) }, secrets);
 
   for (const check of checks) {
     if (findingIndex > profile.limits.maxFindings) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, "Finding budget exhausted before this check."), extraSecrets); continue;
+      record(runDir, blockedEntry(check, "Finding budget exhausted before this check."), extraSecrets); continue;
     }
     if (abortSignal?.aborted) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, "Run was cancelled before this check ran."), extraSecrets);
+      record(runDir, blockedEntry(check, "Run was cancelled before this check ran."), extraSecrets);
       continue;
     }
     if (!scopedCheckUrl(profile, origin, check.pathname)) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
+      record(runDir, blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
       continue;
     }
 
@@ -89,7 +91,7 @@ export async function runSecurityChecks(
     const beforeRequest = budget.used;
     const response = await request(check.pathname, "GET", undefined, profile.apiChecks.responseSizeCapBytes, abortSignal);
     if ("failed" in response) {
-      appendCheckLedgerEntry(runDir, { ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason }, extraSecrets);
+      record(runDir, { ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason }, extraSecrets);
       continue;
     }
 
@@ -101,7 +103,7 @@ export async function runSecurityChecks(
     if (outcome.classification === "passed" || outcome.classification === "informational") {
       const evidenceDir = join(runDir, "checks", check.id);
       const evidenceRefs = [writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets)];
-      appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
+      record(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
       continue;
     }
 
@@ -132,7 +134,7 @@ export async function runSecurityChecks(
     };
     findings.push(finding);
 
-    appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId }, extraSecrets);
+    record(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId }, extraSecrets);
   }
 
   return { findings, nextFindingIndex: findingIndex };
@@ -212,9 +214,16 @@ async function runSessionBoundaryCheck(
   abortSignal: AbortSignal | undefined,
   budget: CheckBudget
 ): Promise<void> {
+  // Cross-account checks log in their own two seeded synthetic sessions and
+  // never use (or mix with) a run's real authenticated session.
+  const record = (dir: string, entry: CheckLedgerEntry, secrets: readonly string[]): void => appendCheckLedgerEntry(dir, { ...entry, session: "anonymous" }, secrets);
   const boundary = check.sessionBoundary;
+  if (profile.auth.mode !== "none") {
+    record(runDir, blockedEntry(check, "Cross-account checks use their own seeded fixture sessions and are unsupported on authenticated profiles."), extraSecrets);
+    return;
+  }
   if (!boundary) {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, "session-boundary check is missing its sessionBoundary configuration."), extraSecrets);
+    record(runDir, blockedEntry(check, "session-boundary check is missing its sessionBoundary configuration."), extraSecrets);
     return;
   }
 
@@ -222,7 +231,7 @@ async function runSessionBoundaryCheck(
   if (profile.target.environmentKind !== "local-fixture" || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) ||
       boundary.accountAId !== "demo-a" || boundary.accountBId !== "demo-b" ||
       boundary.loginPathname !== "/api/login-demo" || boundary.resourcePathnameTemplate !== "/api/account/{accountId}/resource") {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, "Cross-account checks support only the two seeded local fixture accounts and fixed demo endpoints."), extraSecrets);
+    record(runDir, blockedEntry(check, "Cross-account checks support only the two seeded local fixture accounts and fixed demo endpoints."), extraSecrets);
     return;
   }
   const request = createCheckRequester(profile, origin, budget);
@@ -234,19 +243,19 @@ async function runSessionBoundaryCheck(
   const bResourcePathname = boundary.resourcePathnameTemplate.replace("{accountId}", boundary.accountBId);
   for (const pathname of [boundary.loginPathname, bResourcePathname]) {
     if (!scopedCheckUrl(profile, origin, pathname)) {
-      appendCheckLedgerEntry(runDir, blockedEntry(check, `${pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
+      record(runDir, blockedEntry(check, `${pathname} is outside navigation.allowedPathPrefixes.`), extraSecrets);
       return;
     }
   }
 
   const loginA = await request(boundary.loginPathname, "POST", { accountId: boundary.accountAId }, 65_536, abortSignal);
   if ("failed" in loginA) {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, `Could not sign in as ${boundary.accountAId}: ${loginA.reason}`), extraSecrets);
+    record(runDir, blockedEntry(check, `Could not sign in as ${boundary.accountAId}: ${loginA.reason}`), extraSecrets);
     return;
   }
   const cookieA = loginA.status === 200 ? loginA.setCookies[0] : undefined;
   if (!cookieA) {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, `Login as ${boundary.accountAId} did not return a session cookie.`), extraSecrets);
+    record(runDir, blockedEntry(check, `Login as ${boundary.accountAId} did not return a session cookie.`), extraSecrets);
     return;
   }
 
@@ -255,16 +264,16 @@ async function runSessionBoundaryCheck(
   const loginB = await request(boundary.loginPathname, "POST", { accountId: boundary.accountBId }, 65_536, abortSignal);
   const cookieB = "failed" in loginB || loginB.status !== 200 ? undefined : loginB.setCookies[0];
   if (!cookieB || cookieB.split(";")[0] === cookieA.split(";")[0]) {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, "Could not establish two distinct seeded sessions."), extraSecrets); return;
+    record(runDir, blockedEntry(check, "Could not establish two distinct seeded sessions."), extraSecrets); return;
   }
   const control = await request(bResourcePathname, "GET", undefined, 65_536, abortSignal, { cookie: cookieB.split(";")[0] as string });
   if ("failed" in control || control.status !== 200 || (control.body as { resourceOwner?: string } | null)?.resourceOwner !== boundary.accountBId) {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, "Account B's resource control did not succeed."), extraSecrets); return;
+    record(runDir, blockedEntry(check, "Account B's resource control did not succeed."), extraSecrets); return;
   }
   const response = await request(bResourcePathname, "GET", undefined, 65_536, abortSignal, { cookie: cookieA.split(";")[0] as string });
 
   if ("failed" in response) {
-    appendCheckLedgerEntry(runDir, blockedEntry(check, `Cross-account request failed: ${response.reason}`), extraSecrets);
+    record(runDir, blockedEntry(check, `Cross-account request failed: ${response.reason}`), extraSecrets);
     return;
   }
 
@@ -276,7 +285,7 @@ async function runSessionBoundaryCheck(
     const evidenceRefs = [writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets)];
     const denied = response.status === 401 || response.status === 403;
     evidenceRefs.push(writeCheckEvidence(evidenceDir, "session-context.json", contextEvidence, extraSecrets));
-    appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: denied ? "passed" : "needs_review", assertion: check.description, observation: denied ? "Cross-account access explicitly denied after successful owner control." : "Cross-account response is inconclusive; HTTP " + response.status, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
+    record(runDir, { checkId: check.id, kind: "security", ran: true, classification: denied ? "passed" : "needs_review", assertion: check.description, observation: denied ? "Cross-account access explicitly denied after successful owner control." : "Cross-account response is inconclusive; HTTP " + response.status, evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`) }, extraSecrets);
     return;
   }
 
@@ -303,7 +312,7 @@ async function runSessionBoundaryCheck(
     reportDisposition: "report",
   };
   findings.push(finding);
-  appendCheckLedgerEntry(runDir, { checkId: check.id, kind: "security", ran: true, classification: "confirmed", assertion: check.description, observation: finding.actual, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId }, extraSecrets);
+  record(runDir, { checkId: check.id, kind: "security", ran: true, classification: "confirmed", assertion: check.description, observation: finding.actual, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId }, extraSecrets);
 }
 
 function blockedEntry(check: DeclaredSecurityCheck, reason: string): CheckLedgerEntry {

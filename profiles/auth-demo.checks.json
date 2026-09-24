@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "profileId": "auth-demo",
+  "apiChecks": [
+    {
+      "id": "AUTH-ME",
+      "method": "GET",
+      "pathname": "/api/me",
+      "description": "The signed-in member can read their own profile (id, email, role) with this run's session",
+      "assertions": { "expectedStatus": 200, "expectedContentType": "application/json", "requiredFields": ["id", "email", "role"] }
+    },
+    {
+      "id": "AUTH-STATEMENTS",
+      "method": "GET",
+      "pathname": "/api/statements",
+      "description": "Statements list reports a count matching its items (declared business invariant)",
+      "assertions": { "expectedStatus": 200, "requiredFields": ["owner", "count", "items"], "shape": { "items": "array", "count": "number" }, "invariants": [{ "kind": "range", "field": "count", "min": 0, "max": 1000 }] }
+    },
+    {
+      "id": "AUTH-TRANSFER-BLOCKED",
+      "method": "POST",
+      "pathname": "/api/transfer",
+      "description": "A money-movement endpoint is never called: no allowedMutatingEndpoints entry authorizes it",
+      "assertions": { "expectedStatus": 200 }
+    },
+    {
+      "id": "AUTH-REDIRECT-OFFSITE",
+      "method": "GET",
+      "pathname": "/api/redirect-offsite",
+      "description": "A redirect off the approved origin is recorded (HTTP 302) but never followed, so the session never leaves the origin",
+      "assertions": { "expectedStatus": 302 }
+    }
+  ],
+  "securityChecks": [
+    {
+      "id": "AUTH-HEADERS",
+      "kind": "security-headers",
+      "pathname": "/api/me",
+      "description": "Authenticated API responses carry standard security headers"
+    }
+  ]
+}

@@ -307,7 +307,7 @@ function checkWorkflowsConfigured(profile: ProjectProfile, workflowManifest: Wor
       name: "Declared workflows",
       status: "skipped",
       detail: "No workflows are declared yet. An authentication-only run is still available; a normal exploration Start will be refused until workflows are declared.",
-      nextStep: "Run \"Authentication only\" first, observe the authenticated app, then declare workflows in the profile's workflow manifest before starting a normal exploration run.",
+      nextStep: "Run \"Authentication only\" first, then use \"1d. Read-only workflow discovery\" to observe the signed-in app and confirm read-only workflows before starting a normal run.",
     };
   }
   return { id: "workflows-configured", name: "Declared workflows", status: "pass", detail: `${count} workflow${count === 1 ? "" : "s"} declared and ready to run.` };

@@ -44,7 +44,7 @@ export function pathWithinPrefix(pathname: string, prefix: string): boolean {
   return pathname.startsWith(normalizedPrefix);
 }
 
-const DESTRUCTIVE_PATHNAME_RE = /delete|destroy|purge|\bremove\b/i;
+export const DESTRUCTIVE_PATHNAME_RE = /delete|destroy|purge|\bremove\b/i;
 // "document" deliberately excluded (Phase 4 continuation, 2026-09-11
 // review fix): Playwright reports resourceType "document" for every
 // navigation request, including a native <form method="post"> submission
@@ -118,7 +118,7 @@ export class ActionPolicy {
     return this.profile.target.environmentKind === "local-fixture";
   }
 
-  private pathnameInScope(pathname: string): boolean {
+  pathnameInScope(pathname: string): boolean {
     const prefixes = this.profile.navigation.allowedPathPrefixes;
     if (prefixes.length === 0) return true; // no declared scope -- nothing to restrict against.
     return prefixes.some((prefix) => pathWithinPrefix(pathname, prefix));

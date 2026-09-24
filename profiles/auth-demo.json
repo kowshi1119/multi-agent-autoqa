@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "auth-demo",
+  "name": "Authenticated checks demo (synthetic sign-in, run: npm run fixture:auth)",
+  "target": {
+    "url": "http://localhost:4175/home",
+    "environmentKind": "owned-sandbox"
+  },
+  "navigation": {
+    "allowedOrigins": ["http://localhost:4175"],
+    "allowedPathPrefixes": ["/"]
+  },
+  "resources": {
+    "allowedApiOrigins": ["http://localhost:4175"],
+    "allowedFormSubmitEndpoints": []
+  },
+  "workflows": {
+    "allowedWorkflowKinds": ["navigate"],
+    "executionMode": "declared"
+  },
+  "auth": {
+    "mode": "form-login",
+    "checksVerified": true,
+    "allowedRequests": [{ "origin": "http://localhost:4175", "method": "POST", "pathname": "/session" }],
+    "loginUrl": "http://localhost:4175/login",
+    "usernameField": { "label": "Username" },
+    "passwordField": { "label": "Password" },
+    "submitControl": { "role": "button", "name": "Sign in" },
+    "successUrlPattern": "^http://localhost:4175/home(?:[?#].*)?$",
+    "authenticatedSignal": { "role": "heading", "name": "Demo Home" }
+  },
+  "provider": {
+    "explorer": { "provider": "mock" },
+    "critic": { "enabled": true, "provider": "mock", "requireIndependentProvider": false, "maxCallsPerFinding": 1 },
+    "providerTimeoutMs": 30000
+  },
+  "limits": {
+    "maxActions": 25,
+    "maxModelCalls": 20,
+    "maxPages": 6,
+    "maxFindings": 8,
+    "maxDurationMs": 120000,
+    "maxCriticCalls": 5,
+    "maxApiRequests": 8
+  },
+  "apiChecks": {
+    "enabled": true,
+    "allowedMutatingEndpoints": [],
+    "responseSizeCapBytes": 65536,
+    "useRunSession": true
+  },
+  "securityChecks": {
+    "enabled": true
+  }
+}

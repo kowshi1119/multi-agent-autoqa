@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "profileId": "auth-demo",
+  "pages": [
+    "/home"
+  ],
+  "workflows": [
+    {
+      "id": "NAV-STATEMENTS",
+      "page": "/home",
+      "kind": "navigate",
+      "description": "Open \"Statements\" from /home (read-only navigation).",
+      "preconditions": "Signed in through the profile's verified login; starting on /home.",
+      "authorizedActions": "Click the link named \"Statements\" once. No form input and no other controls.",
+      "expectedOutcome": "The URL path becomes /statements and the heading \"Statements\" is visible. Observed once during workflow discovery on 2026-09-24 from the page's accessibility tree; not yet executed evidence.",
+      "limitations": "Read-only navigation; no reset needed. Asserts the destination URL and one heading only -- it does not verify page data, content correctness or other controls.",
+      "evidenceRequired": [
+        "workflows/NAV-STATEMENTS.json with the URL and visible-heading assertion results"
+      ],
+      "execution": {
+        "steps": [
+          {
+            "pathname": "/home",
+            "resultingPathname": "/statements",
+            "action": {
+              "type": "click",
+              "target": {
+                "role": "link",
+                "name": "Statements"
+              }
+            }
+          }
+        ],
+        "completion": {
+          "urlPattern": "^http://localhost:4175/statements(?:[?#].*)?$",
+          "visible": {
+            "role": "heading",
+            "name": "Statements"
+          }
+        }
+      }
+    },
+    {
+      "id": "NAV-PROFILE",
+      "page": "/home",
+      "kind": "navigate",
+      "description": "Open \"Profile\" from /home (read-only navigation).",
+      "preconditions": "Signed in through the profile's verified login; starting on /home.",
+      "authorizedActions": "Click the link named \"Profile\" once. No form input and no other controls.",
+      "expectedOutcome": "The URL path becomes /profile and the heading \"Your profile\" is visible. Observed once during workflow discovery on 2026-09-24 from the page's accessibility tree; not yet executed evidence.",
+      "limitations": "Read-only navigation; no reset needed. Asserts the destination URL and one heading only -- it does not verify page data, content correctness or other controls.",
+      "evidenceRequired": [
+        "workflows/NAV-PROFILE.json with the URL and visible-heading assertion results"
+      ],
+      "execution": {
+        "steps": [
+          {
+            "pathname": "/home",
+            "resultingPathname": "/profile",
+            "action": {
+              "type": "click",
+              "target": {
+                "role": "link",
+                "name": "Profile"
+              }
+            }
+          }
+        ],
+        "completion": {
+          "urlPattern": "^http://localhost:4175/profile(?:[?#].*)?$",
+          "visible": {
+            "role": "heading",
+            "name": "Your profile"
+          }
+        }
+      }
+    },
+    {
+      "id": "NAV-HELP",
+      "page": "/home",
+      "kind": "navigate",
+      "description": "Open \"Help\" from /home (read-only navigation).",
+      "preconditions": "Signed in through the profile's verified login; starting on /home.",
+      "authorizedActions": "Click the link named \"Help\" once. No form input and no other controls.",
+      "expectedOutcome": "The URL path becomes /help and the heading \"Help centre\" is visible. Observed once during workflow discovery on 2026-09-24 from the page's accessibility tree; not yet executed evidence.",
+      "limitations": "Read-only navigation; no reset needed. Asserts the destination URL and one heading only -- it does not verify page data, content correctness or other controls.",
+      "evidenceRequired": [
+        "workflows/NAV-HELP.json with the URL and visible-heading assertion results"
+      ],
+      "execution": {
+        "steps": [
+          {
+            "pathname": "/home",
+            "resultingPathname": "/help",
+            "action": {
+              "type": "click",
+              "target": {
+                "role": "link",
+                "name": "Help"
+              }
+            }
+          }
+        ],
+        "completion": {
+          "urlPattern": "^http://localhost:4175/help(?:[?#].*)?$",
+          "visible": {
+            "role": "heading",
+            "name": "Help centre"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import { parseProfile, type ProjectProfile } from "./profiles/schema.js";
 import { allHeuristics } from "./qa/heuristics.js";
 import { loadRequirements } from "./requirements.js";
 import type { RunProgressEvent } from "./progress.js";
+import type { RunSession } from "./checks/request-scope.js";
 import { UsageTracker } from "./models/usage-tracker.js";
 import { ActionPolicy } from "./safety/action-policy.js";
 import type { RequirementRule, SafetyEvent } from "./types.js";
@@ -215,6 +216,14 @@ export type PipelineOptions = {
    * and have no CLI argv to check.
    */
   requireLiveAuthorization?: { argv: readonly string[] };
+  /**
+   * Called once exploration/workflows finish, while the run's browser
+   * context (and local fixture server) are still open -- the only window in
+   * which the run's own authenticated session can be used. Skipped for
+   * authentication-only, failed or cancelled runs. `session` is present for
+   * form-login profiles (authenticated:false if login did not succeed).
+   */
+  onSessionReady?: (ready: { finalCtx: RunContext; origin: string; session?: RunSession }) => Promise<void>;
 };
 
 /**
@@ -331,6 +340,20 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     const initialCtx = createRunContext(runId, new Date(), config.target.url);
     const finalCtx = await orchestrator.run(initialCtx);
     const safetyEvents = orchestrator.getSafetyEvents();
+    if (options.onSessionReady && !options.authenticationOnly && !abortSignal?.aborted && finalCtx.state !== "FAILED" && finalCtx.state !== "CANCELLED") {
+      const context = orchestrator.getAuthenticatedContext();
+      const session: RunSession | undefined = sessionAuth
+        ? {
+            authenticated: Boolean(context),
+            ...(sessionAuth.profile.auth.loginUrl ? { loginPathname: new URL(sessionAuth.profile.auth.loginUrl).pathname } : {}),
+            cookieHeaderFor: async (url: string) => {
+              const cookies = context ? await context.cookies([url]) : [];
+              return cookies.length ? cookies.map((c) => `${c.name}=${c.value}`).join("; ") : undefined;
+            },
+          }
+        : undefined;
+      await options.onSessionReady({ finalCtx, origin: new URL(config.target.url).origin, ...(session ? { session } : {}) });
+    }
     await orchestrator.closeSession();
 
     writeFileSync(join(runDir, "application-map.json"), JSON.stringify(mapper.toJSON(), null, 2), "utf-8");

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { elementTargetSchema, qaActionSchema } from "../actions.js";
@@ -69,6 +69,30 @@ export function loadWorkflowManifest(profilesDir: string, profileId: string): Wo
   }
   if (result.data.profileId !== profileId) throw new WorkflowManifestError("Manifest profile ID mismatch");
   return result.data;
+}
+
+/**
+ * Adds or replaces (by id) confirmed workflows in <profileId>.workflows.json.
+ * Callers validate each workflow first (see workflow-discovery.ts's
+ * validateDiscoveredWorkflow); the merged manifest is re-validated here as a
+ * whole and written via a temp file + rename so a failed write never leaves
+ * a half-written manifest behind.
+ */
+export function saveWorkflowManifest(profilesDir: string, profileId: string, workflows: DeclaredWorkflow[]): WorkflowManifest {
+  const existing = loadWorkflowManifest(profilesDir, profileId) ?? { schemaVersion: 1 as const, profileId, pages: [], workflows: [] };
+  const byId = new Map(existing.workflows.map((w) => [w.id, w]));
+  for (const workflow of workflows) byId.set(workflow.id, workflow);
+  const merged = workflowManifestSchema.parse({
+    schemaVersion: 1,
+    profileId,
+    pages: [...new Set([...existing.pages, ...workflows.map((w) => w.page)])],
+    workflows: [...byId.values()],
+  });
+  mkdirSync(profilesDir, { recursive: true });
+  const path = manifestPath(profilesDir, profileId);
+  writeFileSync(`${path}.tmp`, redactSecrets(JSON.stringify(merged, null, 2)), "utf-8");
+  renameSync(`${path}.tmp`, path);
+  return merged;
 }
 
 export type WorkflowRunStatus = "attempted" | "completed" | "blocked" | "unsupported" | "failed";

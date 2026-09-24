@@ -129,6 +129,25 @@
   <div id="ad-error" class="error-text" role="status" style="margin-top:0.6em;"></div>
 </section>
 
+<section id="workflow-discovery-section" hidden>
+  <h2>1d. Read-only workflow discovery</h2>
+  <p class="empty">Needs verified login conditions (1c, then an Authentication only run). Sign in locally; AutoQA lists links on the landing page and opens each in-scope, read-only one once to observe a heading. Links that look state-changing (delete, send, transfer, pay, approve, log out…) or leave the approved scope are listed as skipped and never opened. No screenshots, traces or page text are kept; credentials are cleared after submission. Discovery does not execute or verify workflows: confirm the drafts you want, save them, then run them.</p>
+  <label for="wd-username">Username</label>
+  <input type="text" id="wd-username" autocomplete="off" />
+  <label for="wd-password">Password</label>
+  <input type="password" id="wd-password" autocomplete="off" />
+  <div style="margin-top:0.6em;">
+    <button id="wd-discover-btn">Discover read-only workflows</button>
+    <button id="wd-cancel-btn" hidden>Cancel discovery</button>
+  </div>
+  <div id="wd-result" hidden style="margin-top:0.6em;">
+    <div id="wd-candidates"></div>
+    <div id="wd-skipped" class="next-step"></div>
+    <div style="margin-top:0.6em;"><button id="wd-save-btn" class="primary">Save selected workflows</button></div>
+  </div>
+  <div id="wd-status" class="error-text" role="status" style="margin-top:0.6em;"></div>
+</section>
+
 <section id="auth-section" hidden>
   <h2>2. Sign in for this run</h2>
   <p class="empty">Not saved -- used only for this run.</p>
@@ -241,14 +260,100 @@
     var needsAuth = Boolean(profile) && profile.authMode !== "none";
     el("auth-section").hidden = !needsAuth;
     el("auth-discovery-section").hidden = !needsAuth;
+    el("workflow-discovery-section").hidden = !needsAuth;
   }
 
   el("profile-select").addEventListener("change", function () {
     if (state.discoveryController) state.discoveryController.abort();
     state.discoveryResult = null;
+    state.workflowDrafts = null;
     el("ad-result").hidden = true;
-    ["ad-username", "ad-password", "auth-username", "auth-password"].forEach(function (id) { el(id).value = ""; });
+    el("wd-result").hidden = true;
+    setText(el("wd-status"), "");
+    ["ad-username", "ad-password", "wd-username", "wd-password", "auth-username", "auth-password"].forEach(function (id) { el(id).value = ""; });
     updateAuthVisibility();
+  });
+
+  // --- Read-only workflow discovery (1d) ---------------------------------
+  // Drafts come back from src/pilot/workflow-discovery.ts; the server
+  // re-validates every one on save, so nothing here can widen what a saved
+  // workflow is allowed to do. Checkboxes start unchecked: saving is an
+  // explicit, per-workflow confirmation.
+  function workflowField(label, value) {
+    var p = document.createElement("p");
+    var strong = document.createElement("strong"); setText(strong, label + ": ");
+    p.appendChild(strong);
+    p.appendChild(document.createTextNode(value));
+    return p;
+  }
+  el("wd-discover-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile) return;
+    var username = el("wd-username").value, password = el("wd-password").value;
+    el("wd-result").hidden = true;
+    if (!username || !password) { setText(el("wd-status"), "Enter both username and password."); return; }
+    var controller = new AbortController();
+    state.discoveryController = controller;
+    state.workflowDrafts = null;
+    el("wd-username").value = ""; el("wd-password").value = "";
+    el("wd-discover-btn").disabled = true;
+    el("wd-cancel-btn").hidden = false;
+    setText(el("wd-status"), "Signing in and observing read-only links. This can take up to 90 seconds.");
+    updateStartAvailability();
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/workflow-discovery", { method: "POST", signal: controller.signal, body: JSON.stringify({ username: username, password: password }) })
+      .then(function (data) {
+        if (!currentProfile() || currentProfile().id !== profile.id || controller.signal.aborted) return;
+        state.workflowDrafts = { profileId: profile.id, candidates: data.candidates };
+        var list = el("wd-candidates"); list.innerHTML = "";
+        if (!data.candidates.length) setText(list, "No read-only workflow with an observable heading was found from " + data.startPathname + ". Nothing can be saved.");
+        data.candidates.forEach(function (w, index) {
+          var card = document.createElement("div"); card.className = "card";
+          var label = document.createElement("label"); label.style.display = "block";
+          var box = document.createElement("input"); box.type = "checkbox"; box.id = "wd-pick-" + index; box.setAttribute("data-index", String(index));
+          label.appendChild(box); label.appendChild(document.createTextNode(" Confirm " + w.id + " — " + w.description));
+          card.appendChild(label);
+          var step = w.execution.steps[0];
+          card.appendChild(workflowField("Starting state", w.preconditions));
+          card.appendChild(workflowField("Exact control", w.authorizedActions));
+          card.appendChild(workflowField("Expected result and observation source", w.expectedOutcome));
+          card.appendChild(workflowField("Assertions", "URL matches " + w.execution.completion.urlPattern + " AND " + w.execution.completion.visible.role + " \"" + w.execution.completion.visible.name + "\" is visible (" + step.pathname + " → " + step.resultingPathname + ")"));
+          card.appendChild(workflowField("Scope, reset and limitations", w.limitations));
+          card.appendChild(workflowField("Evidence", (w.evidenceRequired || []).join("; ")));
+          list.appendChild(card);
+        });
+        setText(el("wd-skipped"), data.skipped.length ? "Skipped (not opened or not assertable): " + data.skipped.map(function (s) { return s.name + " — " + s.reason; }).join(" | ") : "");
+        el("wd-save-btn").disabled = !data.candidates.length;
+        el("wd-result").hidden = false;
+        setText(el("wd-status"), "Drafts only. Nothing is saved until you confirm workflows and press Save.");
+      })
+      .catch(function (error) {
+        if (currentProfile() && currentProfile().id === profile.id) setText(el("wd-status"), controller.signal.aborted ? "Workflow discovery cancelled. Nothing was saved." : error.message);
+      })
+      .finally(function () {
+        if (state.discoveryController !== controller) return;
+        state.discoveryController = null;
+        el("wd-discover-btn").disabled = false;
+        el("wd-cancel-btn").hidden = true;
+        updateStartAvailability();
+      });
+  });
+  el("wd-cancel-btn").addEventListener("click", function () { if (state.discoveryController) state.discoveryController.abort(); });
+  el("wd-save-btn").addEventListener("click", function () {
+    var profile = currentProfile();
+    if (!profile || !state.workflowDrafts || state.workflowDrafts.profileId !== profile.id) return;
+    var chosen = Array.prototype.slice.call(document.querySelectorAll("#wd-candidates input[type=checkbox]:checked"))
+      .map(function (box) { return state.workflowDrafts.candidates[Number(box.getAttribute("data-index"))]; });
+    if (!chosen.length) { setText(el("wd-status"), "Confirm at least one workflow first. Nothing was saved."); return; }
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/workflows", { method: "POST", body: JSON.stringify({ workflows: chosen }) })
+      .then(function (data) {
+        el("wd-result").hidden = true;
+        state.workflowDrafts = null;
+        el("auth-only").checked = false;
+        el("workflow-ids").value = data.saved.join(", ");
+        setText(el("wd-status"), "Saved " + data.saved.join(", ") + " (declared, not yet executed). Enter credentials under 2, then Start to execute them.");
+        return runCheckSetup();
+      })
+      .catch(function (error) { setText(el("wd-status"), error.message); });
   });
 
   // --- Authentication setup / discovery ---------------------------------
@@ -446,6 +551,7 @@
     var noWorkflows = report && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "skipped" && c.detail.indexOf("No workflows") === 0; });
     el("start-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController || !report || !report.overallReady || (noWorkflows && !el("auth-only").checked));
     el("ad-discover-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController);
+    el("wd-discover-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController);
   }
   el("auth-only").addEventListener("change", updateStartAvailability);
   function summarizeSetupStatus(report) {
@@ -808,8 +914,20 @@
     var panel = document.createElement("div"); container.appendChild(panel);
     api("/api/runs/" + encodeURIComponent(runId) + "/workflows").then(function (data) {
       var heading = document.createElement("h3"); setText(heading, "Authentication and declared workflows"); panel.appendChild(heading);
-      var auth = document.createElement("p"); setText(auth, "Authentication: " + (data.authentication ? data.authentication.status + (data.authentication.reason ? " — " + data.authentication.reason : "") : "not recorded")); panel.appendChild(auth);
-      var counts = document.createElement("p"); setText(counts, "Action accounting: " + JSON.stringify(data.budget.actionOutcomes || { attempted: data.budget.actionsUsed }) + ". Mock Critic is not human verification."); panel.appendChild(counts);
+      var authText = !data.authentication ? "not recorded for this run (no login required, or the run ended before sign-in)"
+        : data.authentication.status === "success" ? "succeeded for this run (post-login URL and visible signal both verified)"
+        : data.authentication.status + (data.authentication.reason ? " — " + data.authentication.reason : "");
+      var auth = document.createElement("p"); setText(auth, "Authentication: " + authText); panel.appendChild(auth);
+      var counts = document.createElement("p"); setText(counts, "Browser action accounting: " + JSON.stringify(data.budget.actionOutcomes || { attempted: data.budget.actionsUsed }) + ". Mock Critic is not human verification."); panel.appendChild(counts);
+      var declared = data.manifest ? data.manifest.workflows.length : 0;
+      if (declared) {
+        var tally = { completed: 0, failed: 0, blocked: 0, unsupported: 0, attempted: 0 };
+        data.status.entries.forEach(function (e) { if (tally[e.status] !== undefined) tally[e.status]++; });
+        var executed = tally.completed + tally.failed;
+        var summary = document.createElement("p");
+        setText(summary, "Declared workflows: " + declared + " · executed with an assertion result: " + executed + " (completed " + tally.completed + ", failed " + tally.failed + ") · not executed: " + (declared - executed) + " (blocked " + tally.blocked + ", unsupported " + tally.unsupported + ").");
+        panel.appendChild(summary);
+      }
       ["authentication.json", "workflow-manifest.json", "workflow-status.json", "pilot-summary.latest.json"].forEach(function (file) {
         var a = document.createElement("a"); a.href = "/api/artifacts/" + encodeURIComponent(runId) + "/" + file; a.target = "_blank"; setText(a, file + " "); panel.appendChild(a);
       });
@@ -845,18 +963,34 @@
       if (!entries.length) return; // no declared checks for this profile/run -- nothing to show
       var heading = document.createElement("h3"); setText(heading, "API and security checks"); panel.appendChild(heading);
       var description = document.createElement("p");
-      setText(description, "These are declared HTTP probes. Confirmed API results reproduce an assertion mismatch; security patterns may need contextual review. Unsupported means not assessed.");
+      setText(description, "Declared HTTP checks, separate from browser workflows. An API mismatch that reproduced is an assertion mismatch against your declared expectation — review it before treating it as a product defect. Unsupported means not assessed, never passed.");
       panel.appendChild(description);
       if (data.usage) {
         var usage = document.createElement("p");
-        setText(usage, "Check requests: " + data.usage.requests + " / " + data.usage.maxRequests + " (includes confirmations and session probes; separate from model calls).");
+        setText(usage, "HTTP check requests: " + data.usage.requests + " / " + data.usage.maxRequests + " (includes confirmations and session probes; separate from browser actions and model requests).");
         panel.appendChild(usage);
       }
+      var expired = entries.some(function (e) { return e.session === "expired"; });
+      if (expired) {
+        var expiredNote = document.createElement("p"); expiredNote.className = "error-text";
+        setText(expiredNote, "The signed-in session expired or was rejected during checks; later authenticated checks were not sent.");
+        panel.appendChild(expiredNote);
+      }
+      var classificationLabel = function (entry) {
+        if (entry.classification === "passed") return "passed";
+        if (entry.classification === "unsupported") return "not assessed (unsupported)";
+        if (entry.classification === "informational") return "informational";
+        if (entry.kind === "api") return entry.classification === "confirmed" ? "reproduced assertion mismatch — review before calling it a defect" : "unconfirmed mismatch — needs review";
+        return entry.classification === "confirmed" ? "confirmed security finding" : "needs contextual review";
+      };
+      var sessionLabel = { anonymous: "no sign-in needed", "run-session": "used this run's signed-in session (in memory only)", expired: "session expired or rejected", unavailable: "no usable signed-in session — nothing sent" };
       entries.forEach(function (entry) {
         var card = document.createElement("div"); card.className = "card";
         var title = document.createElement("h4");
-        setText(title, "[" + (entry.kind === "api" ? "API" : "Security") + "] " + entry.checkId + " — " + entry.classification);
+        setText(title, "[" + (entry.kind === "api" ? "API" : "Security") + "] " + entry.checkId + " — " + classificationLabel(entry));
         card.appendChild(title);
+        // A check that was never sent used no session, whatever the run had.
+        if (entry.session && (entry.ran || entry.session !== "run-session")) { var sess = document.createElement("p"); sess.className = "next-step"; setText(sess, "Session: " + (sessionLabel[entry.session] || entry.session)); card.appendChild(sess); }
         var assertion = document.createElement("p"); setText(assertion, entry.assertion); card.appendChild(assertion);
         var outcome = document.createElement("p"); outcome.className = "next-step";
         setText(outcome, entry.ran ? entry.observation : "Not run: " + entry.blockedReason);
@@ -881,6 +1015,16 @@
     var identity = document.createElement("h3");
     setText(identity, runId + " — " + (report.target && report.target.environment === "local-fixture" ? "Local fixture" : "Application run"));
     container.appendChild(identity);
+    var accounting = document.createElement("p"); accounting.className = "next-step"; container.appendChild(accounting);
+    Promise.all([
+      fetch("/api/artifacts/" + encodeURIComponent(runId) + "/run-summary.json").then(function (r) { return r.ok ? r.json() : null; }),
+      api("/api/runs/" + encodeURIComponent(runId) + "/checks").catch(function () { return null; })
+    ]).then(function (results) {
+      var summary = results[0], checks = results[1];
+      if (!summary) return;
+      var external = summary.usage ? (summary.usage.explorer.requests + summary.usage.critic.requests) : "unknown";
+      setText(accounting, "Browser actions: " + summary.actionsPerformed + " · HTTP check requests: " + (checks && checks.usage ? checks.usage.requests : 0) + " · Model decisions: " + summary.modelCalls + " (provider: " + summary.provider + ") · External model requests: " + external + ".");
+    });
     renderWorkflowResults(container, runId);
     renderCheckResults(container, runId);
     var canonicalIds = new Set((report.groups || []).map(function (g) { return g.canonicalFindingId; }));

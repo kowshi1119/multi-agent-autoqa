@@ -74,7 +74,7 @@ describe("runApiChecks", () => {
     expect(ledger.entries[0]?.ran).toBe(true);
   });
 
-  it("produces a Finding with reportDisposition 'report' when assertions fail twice in a row (confirmed)", async () => {
+  it("records a reproduced assertion mismatch as confirmed, but routes it to human review rather than reporting it as a product defect", async () => {
     const profile = baseProfile();
     const runDir = mkdtempSync(join(tmpdir(), "autoqa-api-check-fail-"));
     const check: DeclaredApiCheck = {
@@ -84,11 +84,15 @@ describe("runApiChecks", () => {
     const { findings } = await runApiChecks(profile, [check], runDir, 1, ORIGIN);
     expect(findings).toHaveLength(1);
     expect(findings[0]?.category).toBe("api");
-    expect(findings[0]?.reportDisposition).toBe("report");
+    // A declared expectation can itself be wrong, so a reproduced mismatch
+    // is never auto-reported as a defect.
+    expect(findings[0]?.reportDisposition).toBe("needs_human");
+    expect(findings[0]?.title).toContain("assertion mismatch (reproduced)");
     expect(findings[0]?.oracle.oracleId).toBe("declared-api-check");
 
     const ledger = loadCheckLedger(runDir);
     expect(ledger.entries[0]?.classification).toBe("confirmed");
+    expect(ledger.entries[0]?.session).toBe("anonymous");
     expect(ledger.entries[0]?.findingId).toBe(findings[0]?.id);
   });
 

@@ -126,6 +126,11 @@ export class Orchestrator {
     return [...this.safetyEvents];
   }
 
+  /** The run's own browser context, only when this run authenticated successfully and the session has not been closed yet. */
+  getAuthenticatedContext(): PageSession["context"] | undefined {
+    return this.authStorageState && this.session ? this.session.context : undefined;
+  }
+
   private progress(ctx: RunContext, detail: string): void {
     if (!this.deps.onProgress) return;
     const { reportableCount, needsReviewCount } = reportableAndNeedsReviewCounts(ctx.findings);
@@ -196,7 +201,8 @@ export class Orchestrator {
     for (const workflow of this.deps.workflowManifest?.workflows ?? []) {
       if (!this.completedWorkflows.has(workflow.id)) {
         const denied = workflow.execution?.steps.map(s => this.deps.actionPolicy?.classifyPlannedAction(s.action, s.pathname)).find(c => c?.decision === "denied");
-        const reason = denied?.decision === "denied" ? denied.reason : ctx.stopReason ?? "Starting state not reached";
+        const start = workflow.execution?.steps[0]?.pathname;
+        const reason = denied?.decision === "denied" ? denied.reason : `Not executed: starting page ${start ?? "(undeclared)"} was not reached before the run ended${ctx.stopReason ? ` (${ctx.stopReason})` : ""}`;
         this.finishWorkflow(workflow.id, workflow.execution ? "blocked" : "unsupported", workflow.execution ? reason : "No executable capability declared", {});
       }
     }
@@ -332,6 +338,10 @@ export class Orchestrator {
     const auth = this.deps.sessionAuth?.profile.auth;
     if (auth?.mode === "form-login" && new URL(this.session.page.url()).pathname === new URL(auth.loginUrl!).pathname) {
       return this.transition(ctx, "FAILED", { stopReason: "SESSION_EXPIRED: returned to login; no further workflow actions attempted" });
+    }
+    if (this.deps.actionPolicy?.isDeclaredMode()) {
+      const moved = await this.moveToNextWorkflowStart();
+      if (moved.stopReason) return this.transition(ctx, "CONTINUE", moved);
     }
     const observation = await observe(this.session.page, this.session.records, {}, this.extraSecrets);
     const now = new Date().toISOString();
@@ -748,6 +758,32 @@ export class Orchestrator {
     }
 
     return this.transition(ctx, "CONTINUE", ctx.stopReason ? { stopReason: ctx.stopReason } : {});
+  }
+
+  /**
+   * A finished workflow can leave the page anywhere; the planner only offers
+   * a workflow whose declared first-step page is the current page, so
+   * without this every later workflow starting elsewhere was silently never
+   * offered (and recorded "blocked" with an unrelated reason). Navigates to
+   * the next pending workflow's declared start -- same origin, in-scope
+   * path, counted as a setup action -- and nothing else. A session that
+   * bounced to login is caught by the workflow's own start precondition.
+   */
+  private async moveToNextWorkflowStart(): Promise<{ stopReason?: string }> {
+    const current = new URL(this.session.page.url());
+    const next = this.deps.workflowManifest?.workflows.find((w) => w.execution && !this.completedWorkflows.has(w.id));
+    const start = next?.execution?.steps[0]?.pathname;
+    if (!start || start === current.pathname || !this.deps.actionPolicy?.pathnameInScope(start)) return {};
+    if (!this.deps.budget.canAct()) return { stopReason: "BUDGET_EXHAUSTED: maxActions" };
+    try {
+      this.deps.budget.recordAttempt("setup");
+      await this.session.page.goto(new URL(start, current.origin).href, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS, signal: this.deps.abortSignal });
+      this.deps.budget.recordOutcome("success");
+    } catch (error) {
+      this.deps.budget.recordOutcome("failed");
+      if (!isCancellationError(error)) this.deps.logger.warn({ error: error instanceof Error ? error.message : String(error) }, "Could not open the next workflow's declared starting page");
+    }
+    return {};
   }
 
   private continueOrStop(ctx: RunContext): RunContext {

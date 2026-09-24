@@ -23,7 +23,8 @@
     "human-review:export": "tsc && node dist/src/human-review/export-cli.js",
     "human-review:import": "tsc && node dist/src/human-review/import-cli.js",
     "doctor": "tsc && node dist/src/preflight/doctor-cli.js",
-    "ui": "tsc && node scripts/copy-public-assets.mjs && node dist/src/server/app-cli.js"
+    "ui": "tsc && node scripts/copy-public-assets.mjs && node dist/src/server/app-cli.js",
+    "fixture:auth": "tsc && node dist/fixture/auth-server-cli.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

@@ -7,6 +7,7 @@ import { RunManager } from "../run-manager.js";
 import { sendJson } from "./http-helpers.js";
 import { handleGetProfile, handleListProfiles, handleSaveProfile } from "./routes/profiles.js";
 import { handleAuthDiscovery, stopAuthDiscovery } from "./routes/auth-discovery.js";
+import { handleSaveWorkflows, handleWorkflowDiscovery } from "./routes/workflow-discovery.js";
 import { handlePreflight } from "./routes/preflight.js";
 import { handleArtifact } from "./routes/artifacts.js";
 import { handleListRuns, handleRunEvents, handleRunStatus, handleStartRun, handleStopRun } from "./routes/runs.js";
@@ -84,6 +85,18 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const authDiscoveryMatch = /^\/api\/profiles\/([^/]+)\/auth-discovery$/.exec(path);
     if (authDiscoveryMatch && method === "POST") {
       await handleAuthDiscovery(req, res, profileStore, decodeURIComponent(authDiscoveryMatch[1] as string), () => runManager.isBusy());
+      return;
+    }
+
+    const workflowDiscoveryMatch = /^\/api\/profiles\/([^/]+)\/workflow-discovery$/.exec(path);
+    if (workflowDiscoveryMatch && method === "POST") {
+      await handleWorkflowDiscovery(req, res, profileStore, decodeURIComponent(workflowDiscoveryMatch[1] as string), () => runManager.isBusy());
+      return;
+    }
+
+    const saveWorkflowsMatch = /^\/api\/profiles\/([^/]+)\/workflows$/.exec(path);
+    if (saveWorkflowsMatch && method === "POST") {
+      await handleSaveWorkflows(req, res, profileStore, decodeURIComponent(saveWorkflowsMatch[1] as string), () => runManager.isBusy());
       return;
     }
 

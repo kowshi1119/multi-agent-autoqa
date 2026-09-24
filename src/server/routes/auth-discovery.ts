@@ -12,9 +12,26 @@ const discoveryRequestSchema = z.object({
   password: z.string().min(1).max(1000),
 });
 
+/**
+ * One lock for every browser-driving discovery (authentication and
+ * workflow): at most one per ProfileStore, and never alongside a run.
+ * RunManager.startRun() checks isAuthDiscoveryActive() in its own
+ * synchronous lock prelude, and tryAcquireDiscovery() checks runBusy() in
+ * the same synchronous step that takes the lock, so neither side can slip
+ * in between the other's check and set.
+ */
 const active = new WeakMap<ProfileStore, AbortController>();
 export function isAuthDiscoveryActive(store: ProfileStore): boolean { return active.has(store); }
 export function stopAuthDiscovery(store: ProfileStore): void { active.get(store)?.abort(); }
+export function tryAcquireDiscovery(store: ProfileStore, runBusy: () => boolean): AbortController | undefined {
+  if (active.has(store) || runBusy()) return undefined;
+  const controller = new AbortController();
+  active.set(store, controller);
+  return controller;
+}
+export function releaseDiscovery(store: ProfileStore, controller: AbortController): void {
+  if (active.get(store) === controller) active.delete(store);
+}
 
 /**
  * Transient by construction: `parsed.data` (the only place the raw
@@ -39,12 +56,11 @@ export async function handleAuthDiscovery(req: IncomingMessage, res: ServerRespo
     return;
   }
 
-  if (active.has(profileStore) || runBusy()) {
+  const controller = tryAcquireDiscovery(profileStore, runBusy);
+  if (!controller) {
     sendJson(res, 409, { error: "Finish or stop the current run or discovery before starting another." });
     return;
   }
-  const controller = new AbortController();
-  active.set(profileStore, controller);
   const disconnected = () => { if (!res.writableEnded) controller.abort(); };
   res.on("close", disconnected);
   try {
@@ -65,6 +81,6 @@ export async function handleAuthDiscovery(req: IncomingMessage, res: ServerRespo
     sendJson(res, 500, { error: "Authentication discovery failed. No conditions were saved." });
   } finally {
     res.off("close", disconnected);
-    active.delete(profileStore);
+    releaseDiscovery(profileStore, controller);
   }
 }

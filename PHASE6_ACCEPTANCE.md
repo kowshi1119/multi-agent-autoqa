@@ -1,6 +1,10 @@
 # Phase 6 acceptance — authenticated Ajeer sandbox pilot
 
-## Latest audit — 2026-09-23
+## Checkpoint — 2026-09-24
+
+The in-memory session-sharing design now exists (run-scoped, opt-in `apiChecks.useRunSession`, cookie sessions only) and read-only workflow discovery is available in the local UI (section 1d). Both were proven on a synthetic local sign-in fixture; run IDs are in PROGRESS.md. Ajeer acceptance itself is still pending: the private workflow manifest remains empty until workflows are discovered and confirmed with credentials entered locally, and no Ajeer workflow run exists. One unintended Authentication only attempt with a synthetic non-Ajeer account reached the sandbox login on 2026-09-24 (`RUN-20260924-054743933Z-635b`: not accepted, cancelled, nothing captured, nothing changed).
+
+## Audit — 2026-09-23
 
 Normal AutoQA authentication is now evidenced by existing run RUN-20260923-075117245Z-df87: authentication status success, four actions. Only these non-secret metadata were inspected during this audit. This supersedes the earlier “no successful authentication” statement below. The private workflow manifest still contains zero workflows; authenticated workflow acceptance, repetition and Ajeer accuracy remain pending. No new target request, chat credential reuse or target mutation occurred in this continuation.
 

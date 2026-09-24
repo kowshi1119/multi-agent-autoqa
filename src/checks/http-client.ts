@@ -10,7 +10,7 @@ export type CheckHttpResponse = {
   bodyTruncated: boolean;
 };
 
-export type CheckHttpError = { failed: true; reason: string };
+export type CheckHttpError = { failed: true; reason: string; sessionExpired?: boolean };
 
 /**
  * Thin fetch() wrapper shared by run-api-checks.ts and run-security-

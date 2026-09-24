@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "ui"],
       "port": 4180
+    },
+    {
+      "name": "auth-fixture",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "fixture:auth"],
+      "port": 4175
     }
   ]
 }

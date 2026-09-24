@@ -60,7 +60,8 @@ it.each([false, true])("shows real check evidence and preserves Stop during HTTP
   expect(hits).toBe(cancel ? 1 : 2);
   expect(await page.locator("#stop-btn").isHidden()).toBe(true);
   if (!cancel) {
-    await page.getByRole("heading", { name: "[API] status — confirmed", exact: true }).waitFor();
+    // A reproduced API mismatch is labelled as an assertion mismatch, not a confirmed defect.
+    await page.getByRole("heading", { name: "[API] status — reproduced assertion mismatch — review before calling it a defect", exact: true }).waitFor();
     const link = page.locator('a[href$="confirmation.json"]').first();
     const evidence = await fetch(new URL((await link.getAttribute("href"))!, base));
     expect(evidence.status).toBe(200); expect(await evidence.text()).not.toContain("synthetic-private-value");
