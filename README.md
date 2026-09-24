@@ -2,6 +2,8 @@
 
 ## API/security audit continuation — 2026-09-23
 
+Final verification recorded 2026-09-24: **690 tests / 82 files passed**, typecheck/build and 20-case corpus validation passed. Final checks UI run: RUN-20260923-112925129Z-8f5e. Full fixture completion and Stop were repeated successfully; exact evidence and the earlier failed mixed-revision run are recorded in PROGRESS.md. Local HTTP checks use a fresh fixture instance after browser exploration; browser session/state transfer remains unsupported.
+
 The implementation at 3579f6d was already present when this work resumed. A synthetic regression reproduced eight failures: unbounded body reading, uncounted confirmation requests, confirmation failures reported as success, path-prefix/origin confusion, and cross-account checks reaching non-fixture profiles. These are now corrected. Earlier completion claims below are historical, not evidence that these boundaries were already sound.
 
 Run **npm run ui**, choose **API/security checks demo → Demo → Start**. The check ledger distinguishes active declared HTTP probes from browser observations. It shows passed, confirmed assertion mismatch, needs review, informational and unsupported results, with evidence and a separate HTTP request counter. A confirmed API mismatch means the declared expectation reproduced; it does not prove that the expectation is a correct product requirement.

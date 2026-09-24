@@ -1,5 +1,13 @@
 # AutoQA — Progress
 
+## Final audit verification — recorded 2026-09-24
+
+The frozen-source no-key verification finished on 2026-09-23: typecheck/build passed; **690 tests / 82 files passed, zero failures (348.22 seconds)**; all 20 challenge-corpus cases validated. The earlier mixed-revision run had 689 passing/1 failing test (319.15s), because the authenticated-profile guard and its test were edited during that run. That failure is preserved as a failed run, not retrospectively green. Final focused verification passed 47 tests/7 files before the frozen full run.
+
+Final UI checks demo: **RUN-20260923-112925129Z-8f5e**, seven ledger entries, ten HTTP requests, ten browser actions, six mock decisions, zero external model requests. Final full fixture: **RUN-20260923-112936221Z-b3d2**, completed, 74 actions/38 mock decisions; separate Stop: **RUN-20260923-113014864Z-6395**, cancelled after 3 actions/2 decisions, Start usable. Evidence links and mobile layout checks passed. Canonical fixture precision 0.667/recall 1.0/F1 0.8; four frozen mock decision cases passed. Corpus validation and mock behavior are not real-model evaluation.
+
+On resumption, the implementation was already included in eb31014 and HEAD was c52c5ea; fetch confirmed main and origin/main matched with a clean working tree. Those intervening commits were preserved. Next phase: guarded in-memory authenticated HTTP checks and observed read-only workflows. Ajeer authentication is evidenced, but its workflow manifest remains empty; no credential or stored session is reused.
+
 ## API/security audit continuation — 2026-09-23
 
 Resumed at 3579f6d and audited the existing implementation. New regression baseline: 8 failed/1 passed in tests/checks/bounds.test.ts before fixes. Fixed streaming response limits, canonical request scope, shared request/duration/finding budgets, failed/mismatched confirmations, automatic mutation replay, contextual security classification, cookie parsing and structured secret redaction. Added delayed-body discovery/run exclusion coverage and real UI tests for completion/evidence and Stop during an in-flight response.
