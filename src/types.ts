@@ -9,6 +9,7 @@ export type ElementTarget = {
 export type QaAction =
   | { type: "click"; target: ElementTarget }
   | { type: "fill"; target: ElementTarget; value: string }
+  | { type: "select"; target: ElementTarget; option: string }
   | { type: "press"; target?: ElementTarget; key: string }
   | { type: "reload" }
   | { type: "navigate"; url: string }

@@ -23,6 +23,8 @@ export const elementTargetSchema = z
 export const qaActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("click"), target: elementTargetSchema }),
   z.object({ type: z.literal("fill"), target: elementTargetSchema, value: z.string() }),
+  /** Chooses an option of a native <select> by its visible label. Declared workflows only (see ActionPolicy.classifyAction). */
+  z.object({ type: z.literal("select"), target: elementTargetSchema, option: z.string().min(1).max(200) }),
   z.object({
     type: z.literal("press"),
     target: elementTargetSchema.optional(),
@@ -293,6 +295,15 @@ export async function executeAction(
         const denied = await checkPolicy(locator, false);
         if (denied) return denied;
         await locator.fill(resolveFillValue(action.value), { timeout: LOCATOR_TIMEOUT_MS, signal });
+        break;
+      }
+
+      case "select": {
+        const locator = buildLocator(page, action.target);
+        await locator.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS, signal });
+        const denied = await checkPolicy(locator, false);
+        if (denied) return denied;
+        await locator.selectOption({ label: action.option }, { timeout: LOCATOR_TIMEOUT_MS });
         break;
       }
 

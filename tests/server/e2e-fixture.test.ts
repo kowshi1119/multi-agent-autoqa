@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startServer } from "../../src/server/app.js";
+import { preparedTarget } from "../helpers/prepared-target.js";
 
 let handle: Awaited<ReturnType<typeof startServer>>;
 let baseUrl: string;
@@ -68,7 +69,7 @@ describe("Server end-to-end against the fixture profile (Phase 4 Milestone B acc
   });
 
   it("runs the fixture end-to-end via the HTTP API and results match report.json's canonical grouped count", async () => {
-    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "fixture", mode: "demo" }) });
+    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "fixture", mode: "demo", expected: await preparedTarget(baseUrl, "fixture") }) });
     expect(startRes.status).toBe(200);
     const { runId } = (await startRes.json()) as { runId: string };
     expect(runId).toBeTruthy();
@@ -120,12 +121,12 @@ describe("Server end-to-end against the fixture profile (Phase 4 Milestone B acc
   });
 
   it("a run refused by preflight enforcement at start never becomes active, and never appears active later (Phase 4 continuation)", async () => {
-    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "does-not-exist", mode: "demo" }) });
+    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "does-not-exist", mode: "demo", expected: { fingerprint: "0".repeat(64), origin: "http://127.0.0.1:1" } }) });
     expect(startRes.status).toBe(404);
   });
 
   it("GET /api/runs exposes the active run's live progress (lastEvent), enabling client-side active-run recovery after a refresh (Phase 4 continuation)", async () => {
-    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "fixture", mode: "demo" }) });
+    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "fixture", mode: "demo", expected: await preparedTarget(baseUrl, "fixture") }) });
     const { runId } = (await startRes.json()) as { runId: string };
 
     await waitUntil(async () => {
@@ -148,7 +149,7 @@ describe("Server end-to-end against the fixture profile (Phase 4 Milestone B acc
   }, 60_000);
 
   it("a finding's evidence is reachable through the artifact route the UI's evidence links resolve against", async () => {
-    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "fixture", mode: "demo" }) });
+    const startRes = await authedFetch("/api/runs", { method: "POST", body: JSON.stringify({ profileId: "fixture", mode: "demo", expected: await preparedTarget(baseUrl, "fixture") }) });
     const { runId } = (await startRes.json()) as { runId: string };
 
     await waitUntil(async () => {

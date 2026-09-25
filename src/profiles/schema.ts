@@ -149,8 +149,17 @@ export const projectProfileSchema = z.object({
        * sent anonymously.
        */
       useRunSession: z.boolean().default(false),
+      /**
+       * How the run session is attached to checks. "cookie" (default): the
+       * run's cookies for the exact URL. "observed-authorization": the Bearer
+       * Authorization value the application itself sent to that same approved
+       * API origin during this run, held in memory only -- never read from
+       * browser storage, never sent to another origin, never recorded. Enable
+       * only when auth-mechanism.json shows the application uses it.
+       */
+      runSessionAuth: z.enum(["cookie", "observed-authorization"]).default("cookie"),
     })
-    .default({ enabled: false, allowedMutatingEndpoints: [], responseSizeCapBytes: 262_144, useRunSession: false }),
+    .default({ enabled: false, allowedMutatingEndpoints: [], responseSizeCapBytes: 262_144, useRunSession: false, runSessionAuth: "cookie" }),
   /**
    * Passive security checks (src/checks/run-security-checks.ts): cookie
    * attributes, security response headers, response-body secret leakage,

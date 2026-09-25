@@ -340,6 +340,10 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     const initialCtx = createRunContext(runId, new Date(), config.target.url);
     const finalCtx = await orchestrator.run(initialCtx);
     const safetyEvents = orchestrator.getSafetyEvents();
+    const authObserver = orchestrator.getAuthObserver();
+    if (authObserver && !options.authenticationOnly) {
+      writeFileSync(join(runDir, "auth-mechanism.json"), JSON.stringify(authObserver.summary(), null, 2), "utf-8");
+    }
     if (options.onSessionReady && !options.authenticationOnly && !abortSignal?.aborted && finalCtx.state !== "FAILED" && finalCtx.state !== "CANCELLED") {
       const context = orchestrator.getAuthenticatedContext();
       const session: RunSession | undefined = sessionAuth
@@ -350,6 +354,9 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
               const cookies = context ? await context.cookies([url]) : [];
               return cookies.length ? cookies.map((c) => `${c.name}=${c.value}`).join("; ") : undefined;
             },
+            authorizationFor: (url: string) => (context ? authObserver?.authorizationFor(url) : undefined),
+            describeAuth: (url: string) => authObserver?.describe(url) ?? "no application API calls were observed",
+            authSchemesFor: (url: string) => authObserver?.schemesFor(url) ?? [],
           }
         : undefined;
       await options.onSessionReady({ finalCtx, origin: new URL(config.target.url).origin, ...(session ? { session } : {}) });

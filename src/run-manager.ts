@@ -19,6 +19,8 @@ import { assembleReport } from "./reporting/assemble.js";
 import { runPipeline, type PipelineResult } from "./run-pipeline.js";
 import { ActionPolicy } from "./safety/action-policy.js";
 import { isAuthDiscoveryActive } from "./server/routes/auth-discovery.js";
+import { assertExpectedTarget, targetIdentity, type ExpectedTarget } from "./profiles/fingerprint.js";
+import { writeQaSummary, type QaSummaryContext } from "./reporting/qa-summary.js";
 import { loadChecksManifest } from "./checks/checks-manifest.js";
 import { checkBudget, sessionModeFor, type CheckBudget, type RunSession } from "./checks/request-scope.js";
 import { writeCheckEvidence } from "./checks/evidence.js";
@@ -89,6 +91,13 @@ export type StartRunInput = {
    * precondition for a live run.
    */
   confirmedLimits?: ProjectProfile["limits"];
+  /**
+   * The configuration the caller prepared (from the readiness check). The
+   * HTTP route makes it mandatory; when present it is compared with the
+   * stored configuration after the run lock is taken and before anything
+   * (including the preflight reachability probe) contacts a target.
+   */
+  expected?: ExpectedTarget;
 };
 
 /**
@@ -185,6 +194,7 @@ export class RunManager {
     this.starting = true;
 
     try {
+      if (input.expected) assertExpectedTarget(this.profileStore, input.profileId, input.expected);
       const profile = this.profileStore.load(input.profileId);
 
       if (input.mode === "live" && !limitsMatch(profile.limits, input.confirmedLimits)) {
@@ -238,7 +248,15 @@ export class RunManager {
       const active: ActiveRun = { runId, profileId: input.profileId, mode: input.mode, startedAt: startedAt.toISOString(), controller, listeners: new Set(), lastEvent: null };
       this.current = active;
 
-      void this.executeRun(profile, config, runId, runDir, logger, startedAt, controller, actionPolicy, sessionAuth, active, credentialSecrets(input.credentials), workflowManifest, input.authenticationOnly).finally(() => {
+      const identity = targetIdentity(this.profileStore, profile.id);
+      const qaContext: QaSummaryContext = {
+        runId,
+        application: { profileId: identity.profileId, name: identity.name, origin: identity.origin, environmentKind: identity.environmentKind, fingerprint: identity.fingerprint.slice(0, 12) },
+        operation: input.authenticationOnly ? "authentication-only" : profile.workflows.executionMode === "declared" ? "declared-workflows" : "exploration",
+        authRequired: profile.auth.mode !== "none",
+        apiChecksUseRunSession: profile.apiChecks.useRunSession,
+      };
+      void this.executeRun(profile, config, runId, runDir, logger, startedAt, controller, actionPolicy, sessionAuth, active, credentialSecrets(input.credentials), workflowManifest, input.authenticationOnly, qaContext).finally(() => {
         if (this.current?.runId === runId) this.current = undefined;
       });
 
@@ -268,8 +286,14 @@ export class RunManager {
     active: ActiveRun,
     extraSecrets: readonly string[],
     workflowManifest?: WorkflowManifest,
-    authenticationOnly?: boolean
+    authenticationOnly?: boolean,
+    qaContext?: QaSummaryContext
   ): Promise<void> {
+    // Derived QA-lead view; a failure to build it must never change the run's outcome.
+    const saveQaSummary = (): void => {
+      if (!qaContext) return;
+      try { writeQaSummary(runDir, qaContext, extraSecrets); } catch (error) { logger.warn({ error: error instanceof Error ? error.message : String(error) }, "qa-summary.json could not be written"); }
+    };
     const emit = (event: RunProgressEvent): void => {
       active.lastEvent = event;
       for (const listener of active.listeners) listener(event);
@@ -344,6 +368,7 @@ export class RunManager {
       }
 
       assembleReport(pipelineResult, config, runId, runDir, startedAt, profile, extraSecrets, this.profileStore.getDir());
+      saveQaSummary();
       const last = terminalEvent ?? active.lastEvent;
       if (last) emit({ ...last, phase: pipelineResult.finalCtx.state === "CANCELLED" ? "stopped" : pipelineResult.finalCtx.state === "FAILED" ? "failed" : "completed", detail: pipelineResult.finalCtx.stopReason ?? "Run finished." });
     } catch (error) {
@@ -411,6 +436,7 @@ export class RunManager {
         usage,
       };
       writeRunSummary(runDir, fallback);
+      saveQaSummary();
       emit({ phase: "failed", detail: message, pagesVisited: 0, actionsPerformed: 0, remainingActions: 0, remainingDurationMs: 0, reportableCount: 0, needsReviewCount: 0 });
     }
   }

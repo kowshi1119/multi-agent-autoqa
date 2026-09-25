@@ -1,5 +1,22 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Latest status — 2026-09-25: Ajeer acceptance pending one local session
+
+Nothing new has been run against Ajeer in this phase. All new capability (target binding, stateful workflows, auth-mechanism diagnosis, QA summary) is verified on synthetic fixtures only.
+
+**Correction:** earlier notes said Ajeer "appears to use a client token". That was an assumption, not an observation. It is withdrawn. The next workflow run writes `auth-mechanism.json`, which records whether Ajeer's own API calls carry cookies or an Authorization header (scheme name only). No Ajeer API check is declared, and none will be until an endpoint, scope and expected result are observed and authorized.
+
+**What the current Ajeer profile allows** (unchanged): kinds navigate/search/filter/sort/paginate; **no** form endpoints authorized; 25 actions, 5 pages, 180 s. So discovery can propose navigation, record-detail, link-filter and pagination drafts, subject to that budget. Any search or filter *form* will be listed under "Requires your configuration" and not submitted. Sort is never proposed. Only you can decide to authorize a GET endpoint (and whether it is genuinely read-only). If the budget runs out during discovery, it is reported, not silently raised.
+
+**The one local session (you, in `npm run ui`, credentials typed only into the local forms):**
+1. Choose **Ajeer** in the application list (nothing is preselected). Check that the target line beside Start shows `https://portal.sandbox.ajeer.money` and *Authentication only*.
+2. **Sign in for this run** + **Authentication only** → Start. Expect *Authentication: verified*, with the QA summary saying this is not a QA pass.
+3. **1d. Read-only workflow discovery** → Discover. Review each draft's steps, assertions and reset; tick only workflows you confirm are read-only; Save.
+4. Enter credentials again, untick Authentication only, put **one** workflow ID in Workflow IDs → Start. Then run the remaining IDs; then repeat one completed ID in a fresh run; then start one more run and press **Stop**.
+5. Send me the run IDs. I will read `qa-summary.json`, `workflows/*.json` and `auth-mechanism.json`, and nothing that contains credentials.
+
+Until those run IDs exist, Ajeer workflow, stateful-workflow and API-check acceptance is **pending**. Synthetic results are not Ajeer support.
+
 ## Latest status — 2026-09-24: workflows can now be discovered in the UI
 
 The empty-manifest gap now has a supported path. With the Ajeer profile selected in `npm run ui`, and your credentials entered only in the local forms:

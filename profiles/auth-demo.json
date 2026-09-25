@@ -12,10 +12,10 @@
   },
   "resources": {
     "allowedApiOrigins": ["http://localhost:4175"],
-    "allowedFormSubmitEndpoints": []
+    "allowedFormSubmitEndpoints": [{ "method": "get", "pathname": "/statements" }]
   },
   "workflows": {
-    "allowedWorkflowKinds": ["navigate"],
+    "allowedWorkflowKinds": ["navigate", "search", "filter", "paginate"],
     "executionMode": "declared"
   },
   "auth": {
@@ -35,9 +35,9 @@
     "providerTimeoutMs": 30000
   },
   "limits": {
-    "maxActions": 25,
+    "maxActions": 60,
     "maxModelCalls": 20,
-    "maxPages": 6,
+    "maxPages": 10,
     "maxFindings": 8,
     "maxDurationMs": 120000,
     "maxCriticCalls": 5,

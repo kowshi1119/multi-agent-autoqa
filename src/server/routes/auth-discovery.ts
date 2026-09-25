@@ -4,13 +4,15 @@ import { runAuthDiscovery } from "../../auth/discovery.js";
 import { createLogger } from "../../logger.js";
 import { credentialSecrets } from "../../redact.js";
 import { ProfileError } from "../../profiles/schema.js";
+import { assertExpectedTarget, expectedTargetSchema, TargetChangedError } from "../../profiles/fingerprint.js";
 import type { ProfileStore } from "../../profiles/store.js";
 import { readJsonBody, sendJson } from "../http-helpers.js";
 
 const discoveryRequestSchema = z.object({
   username: z.string().min(1).max(1000),
   password: z.string().min(1).max(1000),
-});
+  expected: expectedTargetSchema,
+}).strict();
 
 /**
  * One lock for every browser-driving discovery (authentication and
@@ -52,9 +54,17 @@ export async function handleAuthDiscovery(req: IncomingMessage, res: ServerRespo
 
   const parsed = discoveryRequestSchema.safeParse(body);
   if (!parsed.success) {
-    sendJson(res, 400, { error: "username and password are both required." });
+    sendJson(res, 400, { error: "Username, password and a prepared target (check setup first) are required. Nothing was sent." });
     return;
   }
+  try {
+    assertExpectedTarget(profileStore, profileId, parsed.data.expected);
+  } catch (error) {
+    if (error instanceof TargetChangedError) { sendJson(res, 409, { error: error.message, code: "TARGET_CHANGED" }); return; }
+    if (error instanceof ProfileError) { sendJson(res, 404, { error: error.message }); return; }
+    throw error;
+  }
+  const credentials = { username: parsed.data.username, password: parsed.data.password };
 
   const controller = tryAcquireDiscovery(profileStore, runBusy);
   if (!controller) {
@@ -65,7 +75,7 @@ export async function handleAuthDiscovery(req: IncomingMessage, res: ServerRespo
   res.on("close", disconnected);
   try {
     const profile = profileStore.load(profileId);
-    const result = await runAuthDiscovery(profile, parsed.data, createLogger(undefined, credentialSecrets(parsed.data)), controller.signal);
+    const result = await runAuthDiscovery(profile, credentials, createLogger(undefined, credentialSecrets(credentials)), controller.signal);
     if (res.destroyed) return;
     if (result.status === "failed") {
       sendJson(res, 422, { error: result.reason });

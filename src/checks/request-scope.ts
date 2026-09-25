@@ -35,14 +35,33 @@ export type RunSession = {
   loginPathname?: string;
   expired?: boolean;
   cookieHeaderFor(url: string): Promise<string | undefined>;
+  /** Bearer value the application itself sent to this URL's origin this run (only when the profile opted in). */
+  authorizationFor?(url: string): string | undefined;
+  /** Sanitized description of the auth mechanism observed on the application's own API calls to this origin. */
+  describeAuth?(url: string): string;
+  /** Authorization scheme names (never values) the application used for this URL's origin. */
+  authSchemesFor?(url: string): string[];
+  /**
+   * Set when the target rejected the run's cookie session although the
+   * application itself authenticates to that origin with an Authorization
+   * header: the session is not expired, the mechanism is unsupported in
+   * cookie mode. Later checks stop with this reason.
+   */
+  mechanismMismatch?: string;
 };
 
 export type CheckSessionMode = "anonymous" | "run-session" | "expired" | "unavailable";
 
 export function sessionModeFor(profile: ProjectProfile, session: RunSession | undefined): CheckSessionMode {
   if (profile.auth.mode === "none") return "anonymous";
-  if (!profile.apiChecks.useRunSession || !session?.authenticated) return "unavailable";
+  if (!profile.apiChecks.useRunSession || !session?.authenticated || session.mechanismMismatch) return "unavailable";
   return session.expired ? "expired" : "run-session";
+}
+
+/** Ledger fields describing which session a check used. */
+export function sessionFields(profile: ProjectProfile, session: RunSession | undefined): { session: CheckSessionMode; sessionAuth?: "cookie" | "observed-authorization" } {
+  const mode = sessionModeFor(profile, session);
+  return mode === "run-session" ? { session: mode, sessionAuth: profile.apiChecks.runSessionAuth } : { session: mode };
 }
 
 export function createCheckRequester(profile: ProjectProfile, origin: string, budget: CheckBudget, session?: RunSession) {
@@ -50,6 +69,7 @@ export function createCheckRequester(profile: ProjectProfile, origin: string, bu
   return async (pathname: string, method: string, body: unknown, cap: number, signal?: AbortSignal, headers?: Record<string, string>): Promise<CheckHttpResponse | CheckHttpError> => {
     if (authenticated && !profile.apiChecks.useRunSession) return { failed: true, reason: "Authenticated API checks are opt-in (apiChecks.useRunSession) and not enabled for this profile; no anonymous request was sent." };
     if (authenticated && !session?.authenticated) return { failed: true, reason: "No authenticated session exists for this run (authentication did not succeed or the session is closed); no anonymous request was sent." };
+    if (authenticated && session?.mechanismMismatch) return { failed: true, unsupported: true, reason: session.mechanismMismatch };
     if (authenticated && session?.expired) return { failed: true, sessionExpired: true, reason: "The authenticated session expired earlier in this run; no further authenticated requests were sent." };
     const url = scopedCheckUrl(profile, origin, pathname);
     if (!url) return { failed: true, reason: "Request is outside the approved origin or navigation.allowedPathPrefixes, or its path is non-canonical." };
@@ -64,14 +84,26 @@ export function createCheckRequester(profile: ProjectProfile, origin: string, bu
       // domain/path/secure rules. Browser route interception does NOT cover
       // this Node-side request, which is why the gates above are the only
       // (and complete) policy for it.
-      const cookie = await session!.cookieHeaderFor(url.href);
-      if (!cookie) return { failed: true, reason: "No session cookie applies to this URL (token- or storage-based sessions cannot be transferred); no anonymous request was sent." };
-      requestHeaders = { ...headers, cookie };
+      const observed = session!.describeAuth?.(url.href) ?? "no application API calls were observed";
+      if (profile.apiChecks.runSessionAuth === "observed-authorization") {
+        const authorization = session!.authorizationFor?.(url.href);
+        if (!authorization) return { failed: true, unsupported: true, reason: `No Bearer Authorization header sent by the application to this origin was observed during this run (${observed}); no anonymous request was sent.` };
+        requestHeaders = { ...headers, authorization };
+      } else {
+        const cookie = await session!.cookieHeaderFor(url.href);
+        if (!cookie) return { failed: true, unsupported: true, reason: `No session cookie applies to this URL; ${observed}. Only cookie sessions are used unless apiChecks.runSessionAuth is "observed-authorization"; no anonymous request was sent.` };
+        requestHeaders = { ...headers, cookie };
+      }
     }
     budget.used++;
     const deadline = AbortSignal.timeout(Math.max(1, budget.deadline - Date.now()));
     const response = await fireCheckRequest(url.href, method, body, Math.min(cap, 1048576), signal ? AbortSignal.any([signal, deadline]) : deadline, requestHeaders);
     if (authenticated && !("failed" in response) && sessionRejected(response, url, session!.loginPathname)) {
+      const schemes = session!.authSchemesFor?.(url.href) ?? [];
+      if (profile.apiChecks.runSessionAuth === "cookie" && schemes.length) {
+        session!.mechanismMismatch = `The target rejected the run's cookie session (HTTP ${response.status}) while the application's own API calls to this origin used an Authorization header (${schemes.join(", ")}): cookie-based checks are unsupported for this API. Set apiChecks.runSessionAuth to "observed-authorization" to reuse the application's own Bearer header; no further requests were sent.`;
+        return { failed: true, unsupported: true, reason: session!.mechanismMismatch };
+      }
       session!.expired = true;
       return { failed: true, sessionExpired: true, reason: `The target rejected the authenticated session (HTTP ${response.status}${response.status >= 300 && response.status < 400 ? ", redirect to login" : ""}); the response was not evaluated.` };
     }

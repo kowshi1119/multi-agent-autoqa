@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServer } from "../../src/server/app.js";
+import { preparedTarget } from "../helpers/prepared-target.js";
 
 const servers: Server[] = [];
 let browser: Browser | undefined;
@@ -59,6 +60,10 @@ describe("Authentication discovery through the local UI", () => {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(base);
+    // Nothing is preselected: the user must choose the application explicitly.
+    expect(await page.locator("#profile-select").inputValue()).toBe("");
+    expect(await page.locator("#start-btn").isDisabled()).toBe(true);
+    await page.selectOption("#profile-select", "sandbox");
     await page.getByText("Overall: NOT READY", { exact: true }).waitFor();
     expect(await page.locator("#start-btn").isDisabled()).toBe(true);
     expect(await page.locator("#auth-only").isChecked()).toBe(true);
@@ -82,8 +87,9 @@ describe("Authentication discovery through the local UI", () => {
     expect(JSON.parse(saved).auth.authenticatedSignal).toEqual({ role: "heading", name: "Overview" });
     await page.locator("#auth-only").uncheck();
     expect(await page.locator("#start-btn").isDisabled()).toBe(true);
-    const refused = await fetch(base + "/api/runs", { method: "POST", headers: { "content-type": "application/json", "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ profileId: "sandbox", mode: "demo" }) });
+    const refused = await fetch(base + "/api/runs", { method: "POST", headers: { "content-type": "application/json", "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ profileId: "sandbox", mode: "demo", expected: await preparedTarget(base, "sandbox") }) });
     expect(refused.status).toBe(400);
+    expect((await refused.json()).code).toBe("NO_WORKFLOWS_CONFIGURED");
     await page.locator("#auth-only").check();
     await page.locator("#auth-username").fill("fake-user"); await page.locator("#auth-password").fill("fake-password");
     await page.locator("#start-btn").click();
@@ -95,6 +101,12 @@ describe("Authentication discovery through the local UI", () => {
     const auth = JSON.parse(readFileSync(join(runs, data.runs[0]!.runId, "authentication.json"), "utf8"));
     expect(auth.status).toBe("success"); expect(auth.actions).toBe(4);
     expect(auth.authenticatedUrl).toBe(origin + "/home");
+    // A verified sign-in with nothing else executed is never shown as a pass.
+    const verdict = page.locator("#qa-summary .qa-verdict");
+    await verdict.waitFor({ timeout: 10000 });
+    expect(await verdict.getAttribute("data-verdict")).toBe("no-checks-executed");
+    expect(await verdict.textContent()).toContain("this is not a QA pass");
+    expect(await page.locator("#qa-summary").textContent()).toContain("Authentication: verified");
     await page.waitForFunction(() => !(document.querySelector("#start-btn") as HTMLButtonElement).disabled);
     expect(await page.locator("#auth-password").inputValue()).toBe("");
   }, 40000);
@@ -103,6 +115,8 @@ describe("Authentication discovery through the local UI", () => {
     const { base, profilePath, loginReached } = await setup(true);
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage(); await page.goto(base);
+    await page.selectOption("#profile-select", "sandbox");
+    await page.waitForFunction(() => !(document.querySelector("#ad-discover-btn") as HTMLButtonElement).disabled);
     await page.locator("#ad-username").fill("fake-user"); await page.locator("#ad-password").fill("fake-password");
     await page.locator("#ad-discover-btn").click();
     await loginReached;
@@ -116,7 +130,8 @@ describe("Authentication discovery through the local UI", () => {
   it("requires CSRF and rejects overlapping discovery/run sessions", async () => {
     const { base, ui, loginReached, profilePath } = await setup(true);
     const url = base + "/api/profiles/sandbox/auth-discovery";
-    const body = JSON.stringify({ username: "fake", password: "fake" });
+    const expected = await preparedTarget(base, "sandbox");
+    const body = JSON.stringify({ username: "fake", password: "fake", expected });
     expect((await fetch(url, { method: "POST", body })).status).toBe(403);
     const controller = new AbortController();
     const pending = fetch(url, { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body, signal: controller.signal }).catch(() => undefined);
@@ -127,12 +142,13 @@ describe("Authentication discovery through the local UI", () => {
     // prelude (2026-09-23 TOCTOU fix), which only runs after handleStartRun
     // has already parsed/validated the request body -- an empty body would
     // 400 on validation before ever reaching that check.
-    expect((await fetch(base + "/api/runs", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ profileId: "sandbox", mode: "demo" }) })).status).toBe(409);
+    expect((await fetch(base + "/api/runs", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ profileId: "sandbox", mode: "demo", expected }) })).status).toBe(409);
     controller.abort(); await pending;
     expect(JSON.parse(readFileSync(profilePath, "utf8")).auth.checksVerified).toBe(false);
   });
   it("rechecks discovery exclusion after a delayed run request body arrives", async () => {
     const { base, ui, loginReached } = await setup(true);
+    const expected = await preparedTarget(base, "sandbox");
     let received!: () => void;
     const arrived = new Promise<void>(r => { received = r; });
     ui.server.once("request", received);
@@ -141,10 +157,10 @@ describe("Authentication discovery through the local UI", () => {
     status = new Promise<number>((resolve, reject) => { held.on("response", res => { res.resume(); resolve(res.statusCode!); }); held.on("error", reject); });
     held.write('{"profileId":'); await arrived;
     const controller = new AbortController();
-    const discovery = fetch(base + "/api/profiles/sandbox/auth-discovery", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ username: "fake", password: "fake" }), signal: controller.signal }).catch(() => undefined);
+    const discovery = fetch(base + "/api/profiles/sandbox/auth-discovery", { method: "POST", headers: { "x-csrf-token": ui.csrfToken }, body: JSON.stringify({ username: "fake", password: "fake", expected }), signal: controller.signal }).catch(() => undefined);
     try {
       await loginReached;
-      held.end('"sandbox","mode":"demo","authenticationOnly":true}');
+      held.end('"sandbox","mode":"demo","authenticationOnly":true,"expected":' + JSON.stringify(expected) + "}");
       expect(await status).toBe(409);
     } finally { controller.abort(); held.destroy(); await discovery; }
   });

@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
-import { checkCompletion, recordWorkflow } from "../pilot/workflow-runtime.js";
-import type { WorkflowManifest, WorkflowRunStatus } from "../pilot/workflow-manifest.js";
+import { checkCompletion, recordWorkflow, resetWorkflow, resultSnapshot, type CompletionResult } from "../pilot/workflow-runtime.js";
+import type { DeclaredWorkflow, WorkflowManifest, WorkflowRunStatus } from "../pilot/workflow-manifest.js";
 import { redactSecrets } from "../redact.js";
 import { join } from "node:path";
 import { executeAction, isCancellationError, isOriginAllowed, NAVIGATION_TIMEOUT_MS } from "../actions.js";
@@ -113,6 +113,10 @@ export class Orchestrator {
   /** This run's transient, non-env credential values (Phase 4 continuation secret-hygiene fix) -- scrubbed from evidence/logs on top of the existing env-derived redaction, never written to process.env. */
   private readonly extraSecrets: string[];
   private readonly completedWorkflows = new Set<string>();
+  /** First failed attempt per workflow, kept until the reproduction attempt finishes. */
+  private readonly workflowFirstAttempts = new Map<string, { assertion: CompletionResult; url: string; steps: RecordedStep[]; reset: { attempted: boolean; passed: boolean; detail: string } }>();
+  /** Set when a workflow's declared reset could not be verified; later workflows are then not run. */
+  private resetFailed = false;
   private readonly runSignal: AbortSignal;
 
   constructor(private readonly deps: OrchestratorDeps) {
@@ -129,6 +133,11 @@ export class Orchestrator {
   /** The run's own browser context, only when this run authenticated successfully and the session has not been closed yet. */
   getAuthenticatedContext(): PageSession["context"] | undefined {
     return this.authStorageState && this.session ? this.session.context : undefined;
+  }
+
+  /** Sanitized auth-mechanism observations for the current authenticated session (see AuthMechanismObserver). */
+  getAuthObserver(): PageSession["authObserver"] {
+    return this.session?.authObserver;
   }
 
   private progress(ctx: RunContext, detail: string): void {
@@ -199,15 +208,64 @@ export class Orchestrator {
     }
 
     for (const workflow of this.deps.workflowManifest?.workflows ?? []) {
+      const pending = this.workflowFirstAttempts.get(workflow.id);
+      if (!this.completedWorkflows.has(workflow.id) && pending) {
+        this.finishWorkflow(workflow.id, "failed", `Assertion failed; the reproduction attempt did not run before the run ended${ctx.stopReason ? ` (${ctx.stopReason})` : ""}`, { ...pending, attempts: 1, reproduced: null, failureKind: "application-assertion" });
+        continue;
+      }
       if (!this.completedWorkflows.has(workflow.id)) {
         const denied = workflow.execution?.steps.map(s => this.deps.actionPolicy?.classifyPlannedAction(s.action, s.pathname)).find(c => c?.decision === "denied");
         const start = workflow.execution?.steps[0]?.pathname;
         const reason = denied?.decision === "denied" ? denied.reason : `Not executed: starting page ${start ?? "(undeclared)"} was not reached before the run ended${ctx.stopReason ? ` (${ctx.stopReason})` : ""}`;
-        this.finishWorkflow(workflow.id, workflow.execution ? "blocked" : "unsupported", workflow.execution ? reason : "No executable capability declared", {});
+        const stop = ctx.stopReason ?? "";
+        const failureKind = !workflow.execution ? "unsupported" : denied?.decision === "denied" ? "policy" : /SESSION_EXPIRED/.test(stop) ? "session-expired" : /CANCELLED/.test(stop) ? "cancelled" : /BUDGET_EXHAUSTED/.test(stop) ? "budget" : "not-reached";
+        this.finishWorkflow(workflow.id, workflow.execution ? "blocked" : "unsupported", workflow.execution ? reason : "No executable capability declared", { failureKind });
       }
     }
     ctx.actionsPerformed = this.deps.budget.actionsPerformed;
     return ctx;
+  }
+
+  /**
+   * Records one completed attempt of a workflow. An assertion failure on the
+   * first attempt is not reported yet: the workflow is reset and left
+   * unfinished so the planner re-offers it from its declared start, and the
+   * second attempt decides whether the mismatch reproduced. Returns true
+   * while a retry is pending.
+   */
+  private async finishWorkflowAttempt(workflow: DeclaredWorkflow, assertion: CompletionResult, networkBlocksBefore: number): Promise<boolean> {
+    const blocked = this.safetyEvents.length > networkBlocksBefore;
+    // The reset is a real browser navigation, so it is budgeted like any setup action.
+    const canReset = Boolean(workflow.reset) && this.deps.budget.canAct();
+    if (canReset && this.deps.actionPolicy?.isDeclaredMode()) this.deps.budget.recordAttempt("setup");
+    const reset = workflow.reset && !canReset
+      ? { attempted: true, passed: false, detail: "Reset not attempted: action or duration budget exhausted" }
+      : await resetWorkflow(this.session.page, workflow, this.runSignal);
+    if (canReset && this.deps.actionPolicy?.isDeclaredMode()) this.deps.budget.recordOutcome(reset.passed ? "success" : "failed");
+    if (reset.attempted && !reset.passed) this.resetFailed = true;
+    const attempt = { assertion, url: redactSecrets(this.session.page.url(), this.extraSecrets), steps: this.cycle.stepsThisCycle, reset };
+    if (blocked || this.runSignal.aborted) {
+      this.finishWorkflow(workflow.id, "blocked", blocked ? "Network policy blocked a request during workflow" : "Cancelled: Stop was requested during this workflow", { ...attempt, failureKind: blocked ? "policy" : "cancelled" });
+      return false;
+    }
+    const first = this.workflowFirstAttempts.get(workflow.id);
+    // Retry once, only from a verified known state (a failed reset leaves the state unknown).
+    if (!assertion.passed && !first && reset.passed && this.deps.budget.canAct()) {
+      this.workflowFirstAttempts.set(workflow.id, attempt);
+      return true;
+    }
+    const attempts = first ? [first, attempt] : [attempt];
+    const reproduced = first ? !first.assertion.passed && !assertion.passed : undefined;
+    const status: WorkflowRunStatus = assertion.passed && !first ? "completed" : "failed";
+    const reason = assertion.passed && !first
+      ? "Declared completion assertions passed"
+      : first && assertion.passed
+        ? "Assertion failed on the first attempt and passed on the retry: intermittent, needs review"
+        : first
+          ? "Assertion mismatch reproduced on a second attempt; application versus configuration cause requires review"
+          : "Assertion failed; not retried (budget or reset unavailable)";
+    this.finishWorkflow(workflow.id, status, reason, { ...attempt, attempts: attempts.length, firstAttempt: first?.assertion, reproduced: reproduced ?? null, failureKind: status === "completed" ? null : "application-assertion", resetFailed: reset.attempted && !reset.passed });
+    return false;
   }
 
   private finishWorkflow(id: string, status: WorkflowRunStatus, reason: string, evidence: unknown): void {
@@ -336,12 +394,14 @@ export class Orchestrator {
 
   private async map(ctx: RunContext): Promise<RunContext> {
     const auth = this.deps.sessionAuth?.profile.auth;
-    if (auth?.mode === "form-login" && new URL(this.session.page.url()).pathname === new URL(auth.loginUrl!).pathname) {
-      return this.transition(ctx, "FAILED", { stopReason: "SESSION_EXPIRED: returned to login; no further workflow actions attempted" });
-    }
     if (this.deps.actionPolicy?.isDeclaredMode()) {
       const moved = await this.moveToNextWorkflowStart();
       if (moved.stopReason) return this.transition(ctx, "CONTINUE", moved);
+    }
+    // Checked after any move to a workflow's start, which can itself land on
+    // the login page when the session has expired.
+    if (auth?.mode === "form-login" && new URL(this.session.page.url()).pathname === new URL(auth.loginUrl!).pathname) {
+      return this.transition(ctx, "FAILED", { stopReason: "SESSION_EXPIRED: returned to login; no further workflow actions attempted" });
     }
     const observation = await observe(this.session.page, this.session.records, {}, this.extraSecrets);
     const now = new Date().toISOString();
@@ -452,13 +512,21 @@ export class Orchestrator {
     const workflow = this.deps.workflowManifest?.workflows.find(w => w.id === candidate.workflowId);
     const strictAccounting = this.deps.actionPolicy?.isDeclaredMode();
     const networkBlocksBefore = this.safetyEvents.length;
+    const loginPath = this.deps.sessionAuth?.profile.auth.loginUrl ? new URL(this.deps.sessionAuth.profile.auth.loginUrl).pathname : undefined;
+    if (workflow && this.resetFailed) {
+      this.finishWorkflow(workflow.id, "blocked", "Starting state unknown: an earlier workflow's reset to its known state failed, so this workflow was not run", { failureKind: "reset" });
+      return this.transition(ctx, "CONTINUE");
+    }
+    const changedFrom = workflow?.execution?.completion.changedFrom;
+    const snapshot = changedFrom ? await resultSnapshot(this.session.page, changedFrom.within, changedFrom.role) : undefined;
     for (const [index, action] of candidate.actions.entries()) {
       if (this.runSignal.aborted || !this.deps.budget.canAct()) {
-        if (workflow) this.finishWorkflow(workflow.id, "blocked", "Execution stopped by cancellation or budget", { steps: this.cycle.stepsThisCycle });
-        return this.transition(ctx, "CONTINUE", { stopReason: this.deps.abortSignal?.aborted ? "CANCELLED: stop requested" : "BUDGET_EXHAUSTED: action or duration limit" });
+        const cancelled = Boolean(this.deps.abortSignal?.aborted);
+        if (workflow) this.finishWorkflow(workflow.id, "blocked", cancelled ? "Cancelled: Stop was requested during this workflow" : "Execution stopped by the action or duration budget", { failureKind: cancelled ? "cancelled" : "budget", steps: this.cycle.stepsThisCycle });
+        return this.transition(ctx, "CONTINUE", { stopReason: cancelled ? "CANCELLED: stop requested" : "BUDGET_EXHAUSTED: action or duration limit" });
       }
       if (workflow && workflow.execution?.steps[index]?.pathname !== new URL(this.session.page.url()).pathname) {
-        this.finishWorkflow(workflow.id, "blocked", "Starting route precondition did not match", { steps: this.cycle.stepsThisCycle });
+        this.finishWorkflow(workflow.id, "blocked", "Starting route precondition did not match", { failureKind: "precondition", steps: this.cycle.stepsThisCycle });
         return this.transition(ctx, "CONTINUE");
       }
       const destination = action.type === "navigate" ? new URL(action.url).pathname : workflow?.execution?.steps[index]?.resultingPathname;
@@ -497,15 +565,31 @@ export class Orchestrator {
 
       if (result.outcome !== "success") {
         this.planner.markUnsuccessful(this.cycle.before!.stateSignature, candidate);
-        if (workflow) this.finishWorkflow(workflow.id, result.outcome === "blocked" ? "blocked" : "failed", `Runner action ${result.outcome}`, { steps: this.cycle.stepsThisCycle });
+        if (workflow) {
+          // A control that cannot be found is an AutoQA/configuration issue
+          // (stale selector or changed page), never an application finding.
+          const cancelled = result.reason.startsWith("CANCELLED");
+          const reason = result.outcome === "agent_action_failed"
+            ? "Declared control not found or not actionable (stale selector or changed page). AutoQA/configuration issue, not an application finding."
+            : cancelled ? "Cancelled: Stop was requested during this workflow" : `Blocked by policy: ${result.reason}`;
+          this.finishWorkflow(workflow.id, "blocked", reason, { failureKind: result.outcome === "agent_action_failed" ? "autoqa-control" : cancelled ? "cancelled" : "policy", steps: this.cycle.stepsThisCycle });
+        }
         this.deps.logger.warn({ step, outcome: result }, "Action did not complete successfully");
         return this.transition(ctx, "CONTINUE");
       }
-      const expectedPath = workflow?.execution?.steps[index]?.resultingPathname;
-      if (expectedPath) {
-        const arrived = await this.session.page.waitForURL(u => u.pathname === expectedPath, { timeout: 3000, signal: this.runSignal }).then(() => true).catch(() => false);
+      if (workflow && loginPath && new URL(this.session.page.url()).pathname === loginPath) {
+        this.finishWorkflow(workflow.id, "blocked", "SESSION_EXPIRED: the application returned to its login page during this workflow", { failureKind: "session-expired", steps: this.cycle.stepsThisCycle });
+        return this.transition(ctx, "CONTINUE", { stopReason: "SESSION_EXPIRED: returned to login" });
+      }
+      const declaredStep = workflow?.execution?.steps[index];
+      const expectedPath = declaredStep?.resultingPathname;
+      const expectedQuery = declaredStep?.resultingQuery;
+      if (expectedPath || expectedQuery) {
+        const arrived = await this.session.page.waitForURL(u => (!expectedPath || u.pathname === expectedPath) && Object.entries(expectedQuery ?? {}).every(([k, v]) => u.searchParams.get(k) === v), { timeout: 3000, signal: this.runSignal }).then(() => true).catch(() => false);
         if (!arrived) {
-          this.finishWorkflow(workflow!.id, this.runSignal.aborted ? "blocked" : "failed", "Declared resulting route was not reached; cause requires review", { steps: this.cycle.stepsThisCycle });
+          const reached = new URL(this.session.page.url());
+          const outcome = { assertion: "Declared resulting page reached", expected: `${expectedPath ?? reached.pathname}${expectedQuery ? " with " + JSON.stringify(expectedQuery) : ""}`, observed: `${reached.pathname}${reached.search ? " (query differs)" : ""}`, passed: false };
+          await this.finishWorkflowAttempt(workflow!, { passed: false, urlMatched: false, signalVisible: false, assertions: [outcome] }, networkBlocksBefore);
           return this.transition(ctx, "CONTINUE");
         }
       }
@@ -521,14 +605,14 @@ export class Orchestrator {
       }
     }
 
-    if (workflow && this.deps.sessionAuth?.profile.auth.loginUrl && new URL(this.session.page.url()).pathname === new URL(this.deps.sessionAuth.profile.auth.loginUrl).pathname) {
-      this.finishWorkflow(workflow.id, "blocked", "SESSION_EXPIRED: returned to login", { steps: this.cycle.stepsThisCycle });
+    if (workflow && loginPath && new URL(this.session.page.url()).pathname === loginPath) {
+      this.finishWorkflow(workflow.id, "blocked", "SESSION_EXPIRED: returned to login", { failureKind: "session-expired", steps: this.cycle.stepsThisCycle });
       return this.transition(ctx, "CONTINUE", { stopReason: "SESSION_EXPIRED: returned to login" });
     }
     if (workflow) {
-      const assertion = await checkCompletion(this.session.page, workflow, this.runSignal);
-      const blocked = this.safetyEvents.length > networkBlocksBefore;
-      this.finishWorkflow(workflow.id, blocked || this.runSignal.aborted ? "blocked" : assertion.passed ? "completed" : "failed", blocked ? "Network policy blocked a request during workflow" : assertion.passed ? "Declared completion assertion passed" : "Completion assertion failed; application versus runner cause requires review", { assertion, url: redactSecrets(this.session.page.url(), this.extraSecrets), steps: this.cycle.stepsThisCycle });
+      const assertion = await checkCompletion(this.session.page, workflow, this.runSignal, snapshot);
+      const retrying = await this.finishWorkflowAttempt(workflow, assertion, networkBlocksBefore);
+      if (retrying) return this.transition(ctx, "CONTINUE");
     }
     if (candidate.kind === "heuristic" && candidate.trackingKey) {
       markExecuted(ctx, candidate.trackingKey);

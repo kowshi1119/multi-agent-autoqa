@@ -48,6 +48,13 @@
   .card h3 { margin: 0 0 4px; font-size: 0.95rem; }
   .bucket-title { font-size: 0.95rem; font-weight: 600; margin-top: 1em; }
   .empty { color: var(--muted); font-style: italic; }
+  .qa-verdict { font-weight: 600; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); }
+  .qa-verdict[data-verdict="no-checks-executed"], .qa-verdict[data-verdict="needs-review"] { border-left: 4px solid #b45309; }
+  .qa-verdict[data-verdict="partial"] { border-left: 4px solid #6b7280; }
+  .qa-verdict[data-verdict="passed-within-scope"] { border-left: 4px solid #15803d; }
+  .qa-assertions { border-collapse: collapse; margin: 6px 0 10px; width: 100%; display: block; overflow-x: auto; }
+  .qa-assertions caption { text-align: left; font-weight: 600; padding: 4px 0; }
+  .qa-assertions th, .qa-assertions td { border: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top; }
   .error-text { color: var(--danger); }
   details.advanced summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
   .run-row { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 6px 0; font-size: 0.9rem; }
@@ -131,7 +138,7 @@
 
 <section id="workflow-discovery-section" hidden>
   <h2>1d. Read-only workflow discovery</h2>
-  <p class="empty">Needs verified login conditions (1c, then an Authentication only run). Sign in locally; AutoQA lists links on the landing page and opens each in-scope, read-only one once to observe a heading. Links that look state-changing (delete, send, transfer, pay, approve, log out…) or leave the approved scope are listed as skipped and never opened. No screenshots, traces or page text are kept; credentials are cleared after submission. Discovery does not execute or verify workflows: confirm the drafts you want, save them, then run them.</p>
+  <p class="empty">Needs verified login conditions (1c, then an Authentication only run). Sign in locally; AutoQA lists links on the landing page and opens each in-scope, read-only one once to observe a heading. On up to two list pages reached this way it also looks for record detail links, filter and pagination links, and GET search or filter forms; a form is submitted only when its GET endpoint is in the profile's allowed form endpoints and its kind is allowed — otherwise it is listed as needing your configuration and not submitted. Each draft includes a reset back to its starting page and asserts the outcome (query, result change, identity), not just the click. Links that look state-changing (delete, send, transfer, pay, approve, log out…) or leave the approved scope are listed as skipped and never opened. No screenshots, traces or page text are kept; credentials are cleared after submission. Discovery does not execute or verify workflows: confirm the drafts you want, save them, then run them.</p>
   <label for="wd-username">Username</label>
   <input type="text" id="wd-username" autocomplete="off" />
   <label for="wd-password">Password</label>
@@ -143,6 +150,7 @@
   <div id="wd-result" hidden style="margin-top:0.6em;">
     <div id="wd-candidates"></div>
     <div id="wd-skipped" class="next-step"></div>
+    <div id="wd-needs-config" class="next-step"></div>
     <div style="margin-top:0.6em;"><button id="wd-save-btn" class="primary">Save selected workflows</button></div>
   </div>
   <div id="wd-status" class="error-text" role="status" style="margin-top:0.6em;"></div>
@@ -169,7 +177,8 @@
   <label><input type="checkbox" id="auth-only"> Authentication only (no exploration)</label>
   <label for="workflow-ids">Workflow IDs (optional, comma separated; leave blank for all declared workflows)</label>
   <input id="workflow-ids" type="text" autocomplete="off">
-  <button id="start-btn" class="primary">Start</button>
+  <div id="target-line" class="status-line" role="status" aria-live="polite">No application selected.</div>
+  <button id="start-btn" class="primary" disabled>Start</button>
   <button id="stop-btn" class="danger" hidden>Stop</button>
   <div class="status-line" id="status-line"></div>
   <div class="counters" id="counters" hidden>
@@ -196,7 +205,11 @@
 (function () {
   "use strict";
   var CSRF_TOKEN = "__CSRF_TOKEN__";
-  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null };
+  // `target` is the ONLY thing an operation may be sent against: it is set
+  // solely from a readiness response that still matches the selected
+  // profile and mode, and carries the server's configuration fingerprint,
+  // which the server re-checks before contacting anything.
+  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, target: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null };
 
   function el(id) { return document.getElementById(id); }
 
@@ -222,23 +235,38 @@
     node.textContent = text; // never innerHTML with captured application/server text
   }
 
+  // Never selects an application implicitly: the first option is a
+  // placeholder, so a fresh page load (or a list refresh that loses the
+  // previous choice) leaves nothing selected rather than silently falling
+  // back to whichever profile happens to be listed first.
   function loadProfiles(preferredId) {
-    var selectedId = preferredId || el("profile-select").value;
+    var previous = el("profile-select").value;
+    var selectedId = preferredId || previous;
     return api("/api/profiles").then(function (data) {
       state.profiles = data.profiles;
       var select = el("profile-select");
       select.innerHTML = "";
+      var placeholder = document.createElement("option");
+      placeholder.value = "";
+      setText(placeholder, "— Choose an application —");
+      select.appendChild(placeholder);
       data.profiles.forEach(function (p) {
         var opt = document.createElement("option");
         opt.value = p.id;
         setText(opt, p.name + " (" + p.environmentKind + ") -- " + providerSummary(p));
         select.appendChild(opt);
       });
-      updateAuthVisibility();
-      if (data.profiles.some(function (p) { return p.id === selectedId; })) select.value = selectedId;
+      select.value = data.profiles.some(function (p) { return p.id === selectedId; }) ? selectedId : "";
+      if (select.value !== previous) return onProfileChanged();
       updateAuthVisibility();
       return runCheckSetup();
     });
+  }
+
+  /** One path for every selection change (user, reload recovery, editor save). */
+  function selectProfile(id) {
+    el("profile-select").value = state.profiles.some(function (p) { return p.id === id; }) ? id : "";
+    return onProfileChanged();
   }
 
   function currentProfile() {
@@ -263,16 +291,20 @@
     el("workflow-discovery-section").hidden = !needsAuth;
   }
 
-  el("profile-select").addEventListener("change", function () {
+  function onProfileChanged() {
     if (state.discoveryController) state.discoveryController.abort();
     state.discoveryResult = null;
     state.workflowDrafts = null;
+    state.target = null;
     el("ad-result").hidden = true;
     el("wd-result").hidden = true;
     setText(el("wd-status"), "");
-    ["ad-username", "ad-password", "wd-username", "wd-password", "auth-username", "auth-password"].forEach(function (id) { el(id).value = ""; });
+    ["ad-username", "ad-password", "wd-username", "wd-password", "auth-username", "auth-password", "workflow-ids"].forEach(function (id) { el(id).value = ""; });
     updateAuthVisibility();
-  });
+    updateLiveNotice();
+    return runCheckSetup();
+  }
+  el("profile-select").addEventListener("change", onProfileChanged);
 
   // --- Read-only workflow discovery (1d) ---------------------------------
   // Drafts come back from src/pilot/workflow-discovery.ts; the server
@@ -286,9 +318,34 @@
     p.appendChild(document.createTextNode(value));
     return p;
   }
+  function describeTargetText(t) {
+    if (!t) return "the page";
+    var name = t.name || t.label || t.text || t.testId;
+    return (t.role || "element") + (name ? " \"" + name + "\"" : "");
+  }
+  function describeStep(step) {
+    var a = step.action;
+    var text = a.type === "click" ? "Click " + describeTargetText(a.target)
+      : a.type === "fill" ? "Type \"" + a.value + "\" into " + describeTargetText(a.target)
+      : a.type === "select" ? "Choose \"" + a.option + "\" in " + describeTargetText(a.target)
+      : a.type === "press" ? "Press " + a.key + (a.target ? " in " + describeTargetText(a.target) : "")
+      : a.type;
+    var query = step.resultingQuery ? "?" + Object.keys(step.resultingQuery).map(function (k) { return k + "=" + step.resultingQuery[k]; }).join("&") : "";
+    return text + " (on " + step.pathname + (step.resultingPathname ? " → " + step.resultingPathname + query : "") + ")";
+  }
+  function describeCompletion(c) {
+    var parts = ["URL matches " + c.urlPattern, describeTargetText(c.visible) + " is visible"];
+    Object.keys(c.query || {}).forEach(function (k) { parts.push("query " + k + " = \"" + c.query[k] + "\""); });
+    (c.absent || []).forEach(function (t) { parts.push(describeTargetText(t) + " is absent"); });
+    if (c.inputValue) parts.push(describeTargetText(c.inputValue.target) + " keeps the value \"" + c.inputValue.equals + "\"");
+    if (c.count) parts.push("number of " + c.count.role + " elements within " + (c.count.min || 0) + ".." + (c.count.max === undefined ? "∞" : c.count.max));
+    if (c.changedFrom) parts.push(c.changedFrom.role + " results differ from the starting page");
+    return parts.join(" AND ");
+  }
   el("wd-discover-btn").addEventListener("click", function () {
     var profile = currentProfile();
-    if (!profile) return;
+    var target = preparedTarget();
+    if (!profile || !target || state.discoveryController) return;
     var username = el("wd-username").value, password = el("wd-password").value;
     el("wd-result").hidden = true;
     if (!username || !password) { setText(el("wd-status"), "Enter both username and password."); return; }
@@ -300,10 +357,11 @@
     el("wd-cancel-btn").hidden = false;
     setText(el("wd-status"), "Signing in and observing read-only links. This can take up to 90 seconds.");
     updateStartAvailability();
-    api("/api/profiles/" + encodeURIComponent(profile.id) + "/workflow-discovery", { method: "POST", signal: controller.signal, body: JSON.stringify({ username: username, password: password }) })
+    api("/api/profiles/" + encodeURIComponent(target.profileId) + "/workflow-discovery", { method: "POST", signal: controller.signal, body: JSON.stringify({ username: username, password: password, expected: { fingerprint: target.fingerprint, origin: target.origin } }) })
       .then(function (data) {
         if (!currentProfile() || currentProfile().id !== profile.id || controller.signal.aborted) return;
-        state.workflowDrafts = { profileId: profile.id, candidates: data.candidates };
+        // Drafts stay bound to the configuration they were discovered under.
+        state.workflowDrafts = { profileId: profile.id, candidates: data.candidates, expected: { fingerprint: target.fingerprint, origin: target.origin } };
         var list = el("wd-candidates"); list.innerHTML = "";
         if (!data.candidates.length) setText(list, "No read-only workflow with an observable heading was found from " + data.startPathname + ". Nothing can be saved.");
         data.candidates.forEach(function (w, index) {
@@ -312,15 +370,20 @@
           var box = document.createElement("input"); box.type = "checkbox"; box.id = "wd-pick-" + index; box.setAttribute("data-index", String(index));
           label.appendChild(box); label.appendChild(document.createTextNode(" Confirm " + w.id + " — " + w.description));
           card.appendChild(label);
-          var step = w.execution.steps[0];
+          card.appendChild(workflowField("Kind", w.kind || "navigate"));
           card.appendChild(workflowField("Starting state", w.preconditions));
-          card.appendChild(workflowField("Exact control", w.authorizedActions));
+          card.appendChild(workflowField("Exact controls", w.authorizedActions));
+          card.appendChild(workflowField("Steps", w.execution.steps.map(function (st, i) { return (i + 1) + ". " + describeStep(st); }).join("  ")));
           card.appendChild(workflowField("Expected result and observation source", w.expectedOutcome));
-          card.appendChild(workflowField("Assertions", "URL matches " + w.execution.completion.urlPattern + " AND " + w.execution.completion.visible.role + " \"" + w.execution.completion.visible.name + "\" is visible (" + step.pathname + " → " + step.resultingPathname + ")"));
-          card.appendChild(workflowField("Scope, reset and limitations", w.limitations));
+          card.appendChild(workflowField("Assertions", describeCompletion(w.execution.completion)));
+          card.appendChild(workflowField("Reset", w.reset ? "Return to " + w.reset.pathname + " and verify " + describeTargetText(w.reset.visible) + " is visible" : "None (single navigation; the next workflow starts from its own page)"));
+          if (w.observed) card.appendChild(workflowField("Observed during discovery", w.observed.summary + " (" + w.observed.observedAt + ")"));
+          card.appendChild(workflowField("Scope and limitations", w.limitations));
           card.appendChild(workflowField("Evidence", (w.evidenceRequired || []).join("; ")));
           list.appendChild(card);
         });
+        var needs = data.needsConfiguration || [];
+        setText(el("wd-needs-config"), needs.length ? "Requires your configuration before it can be proposed (not submitted): " + needs.map(function (n) { return n.page + " " + n.kind + " — " + n.reason + " " + n.suggestion; }).join(" | ") : "");
         setText(el("wd-skipped"), data.skipped.length ? "Skipped (not opened or not assertable): " + data.skipped.map(function (s) { return s.name + " — " + s.reason; }).join(" | ") : "");
         el("wd-save-btn").disabled = !data.candidates.length;
         el("wd-result").hidden = false;
@@ -344,7 +407,7 @@
     var chosen = Array.prototype.slice.call(document.querySelectorAll("#wd-candidates input[type=checkbox]:checked"))
       .map(function (box) { return state.workflowDrafts.candidates[Number(box.getAttribute("data-index"))]; });
     if (!chosen.length) { setText(el("wd-status"), "Confirm at least one workflow first. Nothing was saved."); return; }
-    api("/api/profiles/" + encodeURIComponent(profile.id) + "/workflows", { method: "POST", body: JSON.stringify({ workflows: chosen }) })
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/workflows", { method: "POST", body: JSON.stringify({ workflows: chosen, expected: state.workflowDrafts.expected }) })
       .then(function (data) {
         el("wd-result").hidden = true;
         state.workflowDrafts = null;
@@ -368,7 +431,8 @@
   // comment for the full boundary.
   el("ad-discover-btn").addEventListener("click", function () {
     var profile = currentProfile();
-    if (!profile) return;
+    var target = preparedTarget();
+    if (!profile || !target || state.discoveryController) return;
     setText(el("ad-error"), "");
     el("ad-result").hidden = true;
     var username = el("ad-username").value;
@@ -382,10 +446,10 @@
     el("ad-cancel-btn").hidden = false;
     setText(el("ad-error"), "Observing login. This can take up to one minute.");
     updateStartAvailability();
-    api("/api/profiles/" + encodeURIComponent(profile.id) + "/auth-discovery", {
+    api("/api/profiles/" + encodeURIComponent(target.profileId) + "/auth-discovery", {
       method: "POST",
       signal: controller.signal,
-      body: JSON.stringify({ username: username, password: password })
+      body: JSON.stringify({ username: username, password: password, expected: { fingerprint: target.fingerprint, origin: target.origin } })
     }).then(function (data) {
       if (!currentProfile() || currentProfile().id !== profile.id || controller.signal.aborted) return;
       state.discoveryResult = { profileId: profile.id, data: data };
@@ -529,11 +593,7 @@
     api("/api/profiles", { method: "POST", body: JSON.stringify(parsed) })
       .then(function () {
         el("profile-editor-section").hidden = true;
-        return loadProfiles();
-      })
-      .then(function () {
-        el("profile-select").value = parsed.id;
-        updateAuthVisibility();
+        return loadProfiles(parsed.id);
       })
       .catch(function (err) {
         setText(el("pe-error"), err.message);
@@ -546,14 +606,46 @@
   // Now also runs automatically whenever the selected profile changes, and
   // drives a plain-language "next action" line so the guidance is visible
   // before Start is clicked. Server-side checks remain authoritative.
+  function currentMode() { return document.querySelector('input[name="mode"]:checked').value; }
+
+  /** The prepared target, only if it still belongs to what is selected right now. */
+  function preparedTarget() {
+    var profile = currentProfile();
+    var t = state.target;
+    return profile && t && t.profileId === profile.id && t.mode === currentMode() ? t : null;
+  }
+
+  function operationLabel() {
+    if (el("auth-only").checked) return "Authentication only";
+    var ids = el("workflow-ids").value.trim();
+    if (ids) return "Run workflows: " + ids;
+    var report = state.setup;
+    var declared = report && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "pass"; });
+    return declared ? "Run all declared workflows, then declared checks" : "Exploration";
+  }
+
+  function renderTargetLine() {
+    var profile = currentProfile();
+    var t = preparedTarget();
+    var line = el("target-line");
+    if (!profile) { setText(line, "No application selected. Choose one in step 1."); return; }
+    if (!t) { setText(line, "Preparing target for " + profile.name + "… (Start stays disabled until setup has been checked)"); return; }
+    var origin = t.environmentKind === "local-fixture" ? "local fixture started per run" : t.origin;
+    setText(line, "Target: " + t.name + " · " + origin + " · " + t.environmentKind + " · Operation: " + operationLabel() + " · Mode: " + t.mode);
+  }
+
   function updateStartAvailability() {
     var report = state.setup;
+    var ready = Boolean(preparedTarget());
     var noWorkflows = report && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "skipped" && c.detail.indexOf("No workflows") === 0; });
-    el("start-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController || !report || !report.overallReady || (noWorkflows && !el("auth-only").checked));
-    el("ad-discover-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController);
-    el("wd-discover-btn").disabled = Boolean(state.starting || state.currentRunId || state.discoveryController);
+    var busy = Boolean(state.starting || state.currentRunId || state.discoveryController);
+    el("start-btn").disabled = busy || !ready || !report || !report.overallReady || Boolean(noWorkflows && !el("auth-only").checked);
+    el("ad-discover-btn").disabled = busy || !ready;
+    el("wd-discover-btn").disabled = busy || !ready;
+    renderTargetLine();
   }
   el("auth-only").addEventListener("change", updateStartAvailability);
+  el("workflow-ids").addEventListener("input", updateStartAvailability);
   function summarizeSetupStatus(report) {
     var byId = {};
     report.checks.forEach(function (c) { byId[c.id] = c; });
@@ -572,19 +664,30 @@
 
   function runCheckSetup() {
     var profile = currentProfile();
-    if (!profile) return;
     var version = ++state.setupVersion;
+    // Abort the previous readiness request: a check for an abandoned
+    // selection must not go on to probe that application.
+    if (state.setupController) state.setupController.abort();
+    var setupController = new AbortController();
+    state.setupController = setupController;
     state.setup = null;
-    updateStartAvailability();
+    state.target = null;
     var container = el("preflight-results");
     var statusLine = el("setup-status-line");
     container.innerHTML = "";
-    setText(container, "Checking...");
+    container.className = "";
     setText(statusLine, "");
-    var mode = document.querySelector('input[name="mode"]:checked').value;
-    return api("/api/preflight?profileId=" + encodeURIComponent(profile.id) + "&mode=" + mode).then(function (report) {
-      if (version !== state.setupVersion || !currentProfile() || currentProfile().id !== profile.id) return;
+    if (!profile) { updateStartAvailability(); return Promise.resolve(); }
+    setText(container, "Checking...");
+    updateStartAvailability();
+    var mode = currentMode();
+    return api("/api/preflight?profileId=" + encodeURIComponent(profile.id) + "&mode=" + mode, { signal: setupController.signal }).then(function (report) {
+      // Ignore a response for a selection, mode or check that is no longer current.
+      if (version !== state.setupVersion || !currentProfile() || currentProfile().id !== profile.id || currentMode() !== mode) return;
       state.setup = report;
+      state.target = report.target && report.target.profileId === profile.id && report.mode === mode
+        ? { profileId: report.target.profileId, name: report.target.name, origin: report.target.origin, environmentKind: report.target.environmentKind, fingerprint: report.target.fingerprint, mode: mode }
+        : null;
       if (profile.authMode !== "none" && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "skipped" && c.detail.indexOf("No workflows") === 0; })) el("auth-only").checked = true;
       if (profile.authMode === "none") el("auth-only").checked = false;
       updateStartAvailability();
@@ -625,7 +728,6 @@
     });
   }
   el("check-setup-btn").addEventListener("click", runCheckSetup);
-  el("profile-select").addEventListener("change", runCheckSetup);
 
   function updateLiveNotice() {
     var profile = currentProfile();
@@ -642,7 +744,6 @@
     }
   }
   document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", function () { updateLiveNotice(); runCheckSetup(); }); });
-  el("profile-select").addEventListener("change", updateLiveNotice);
 
   function resetCounters() {
     ["c-pages", "c-actions", "c-remaining-actions", "c-remaining-time", "c-reportable", "c-needs-review"].forEach(function (id) {
@@ -677,11 +778,12 @@
 
   el("start-btn").addEventListener("click", function () {
     var profile = currentProfile();
-    if (!profile) return;
+    var target = preparedTarget();
+    if (!profile || !target || state.starting || state.currentRunId) return;
     state.starting = true;
     updateStartAvailability();
-    var mode = document.querySelector('input[name="mode"]:checked').value;
-    var body = { profileId: profile.id, mode: mode, authenticationOnly: el("auth-only").checked };
+    var mode = target.mode;
+    var body = { profileId: target.profileId, mode: mode, authenticationOnly: el("auth-only").checked, expected: { fingerprint: target.fingerprint, origin: target.origin } };
     var ids = el("workflow-ids").value.trim();
     if (ids && !body.authenticationOnly) body.workflowIds = ids.split(",").map(function (id) { return id.trim(); });
     if (profile.authMode !== "none") {
@@ -707,6 +809,10 @@
       // (2026-09-21 fix) -- checking the box means the identical Start click
       // now succeeds, rather than leaving the user to re-derive that from
       // the message text alone.
+      if (err.data && err.data.code === "TARGET_CHANGED") {
+        suffix = " Setup is being re-checked for the current selection.";
+        runCheckSetup();
+      }
       if (err.data && err.data.code === "NO_WORKFLOWS_CONFIGURED" && !el("auth-only").checked) {
         el("auth-only").checked = true;
         suffix = " \"Authentication only\" has been checked for you -- click Start again to test login.";
@@ -910,6 +1016,47 @@
   }
 
 
+  // QA-lead summary (src/reporting/qa-summary.ts): derived only from this
+  // run's artifacts. Application candidates, AutoQA/configuration failures
+  // and unsupported capabilities are listed separately, and a run that
+  // executed nothing says so instead of looking like a pass.
+  function renderQaSummary(container, runId) {
+    var panel = document.createElement("div"); panel.id = "qa-summary"; container.appendChild(panel);
+    fetch("/api/artifacts/" + encodeURIComponent(runId) + "/qa-summary.json").then(function (r) { return r.ok ? r.json() : null; }).then(function (q) {
+      if (!q) return;
+      var add = function (tag, text, cls) { var n = document.createElement(tag); if (cls) n.className = cls; setText(n, text); panel.appendChild(n); return n; };
+      add("h3", "QA summary");
+      var verdict = add("p", q.verdict.message, "qa-verdict"); verdict.setAttribute("data-verdict", q.verdict.kind); verdict.setAttribute("role", "status");
+      add("p", "Application: " + q.application.name + " · " + q.application.origin + " · " + q.application.environmentKind + " · configuration " + (q.application.fingerprint || "unknown") + " · operation: " + q.operation.replace(/-/g, " ") + " · run " + q.runStatus + (q.stopReason ? " (" + q.stopReason + ")" : ""), "next-step");
+      add("p", "Authentication: " + q.authentication.state.replace(/-/g, " ") + " — " + q.authentication.detail);
+      add("p", "API authentication: " + q.apiAuthentication.state.replace(/-/g, " ") + " — " + q.apiAuthentication.detail);
+      var w = q.workflows;
+      add("p", "Workflows selected " + w.selected + " · attempted " + w.attempted + " · completed " + w.completed + " · failed " + w.failed + " · blocked " + w.blocked + " · cancelled " + w.cancelled + " · unsupported " + w.unsupported + " · not attempted " + w.notAttempted + ". Checks declared " + q.checks.declared + " · executed " + q.checks.ran + " · passed " + q.checks.passed + " · mismatched " + q.checks.mismatched + " · not run " + q.checks.notRun + ".");
+      w.items.forEach(function (item) {
+        if (!item.assertions.length && !item.firstAttemptAssertions) return;
+        var table = document.createElement("table"); table.className = "qa-assertions";
+        var caption = document.createElement("caption"); setText(caption, item.id + " — " + item.status + (item.reproduced === true ? " (mismatch reproduced)" : item.reproduced === false ? " (did not reproduce)" : "")); table.appendChild(caption);
+        var head = document.createElement("tr"); ["Assertion", "Expected", "Observed", "Result"].forEach(function (h) { var th = document.createElement("th"); th.scope = "col"; setText(th, h); head.appendChild(th); }); table.appendChild(head);
+        item.assertions.forEach(function (a) { var tr = document.createElement("tr"); [a.assertion, a.expected, a.observed, a.passed ? "passed" : "mismatch"].forEach(function (v) { var td = document.createElement("td"); setText(td, v); tr.appendChild(td); }); table.appendChild(tr); });
+        panel.appendChild(table);
+      });
+      var section = function (title, list, render) {
+        add("h4", title + " (" + list.length + ")");
+        if (!list.length) { add("p", "None.", "empty"); return; }
+        var ul = document.createElement("ul"); list.forEach(function (x) { var li = document.createElement("li"); setText(li, render(x)); ul.appendChild(li); }); panel.appendChild(ul);
+      };
+      section("Application finding candidates — need human review", q.findings.applicationCandidates, function (c) {
+        return c.id + ": " + c.title + ". Severity " + c.severity + " — " + c.severityRule + " Expected vs observed: " + c.expectedVsObserved.join("; ") + ". Steps: " + c.reproductionSteps.join(" → ") + ". Evidence: " + c.evidenceRefs.join(", ");
+      });
+      section("AutoQA or configuration failures (not application findings)", q.findings.autoqaFailures, function (f) { return f.id + " [" + f.kind + "]: " + f.reason; });
+      section("Unsupported or not run", q.findings.unsupported, function (u) { return u.id + " (" + u.source + "): " + u.reason; });
+      section("Not assessed", q.notAssessed, function (n) { return n; });
+      var a = q.accounting;
+      add("p", "Browser actions: " + a.browserActions + " · HTTP check requests: " + a.httpCheckRequests + " · Model decisions: " + a.modelDecisions + " (provider: " + a.provider + ") · External model requests: " + a.externalModelRequests + ".", "next-step");
+      var link = document.createElement("a"); link.href = "/api/artifacts/" + encodeURIComponent(runId) + "/qa-summary.json"; link.target = "_blank"; link.rel = "noopener noreferrer"; setText(link, "qa-summary.json"); panel.appendChild(link);
+    }).catch(function () { /* Older runs have no qa-summary.json. */ });
+  }
+
   function renderWorkflowResults(container, runId) {
     var panel = document.createElement("div"); container.appendChild(panel);
     api("/api/runs/" + encodeURIComponent(runId) + "/workflows").then(function (data) {
@@ -1025,6 +1172,7 @@
       var external = summary.usage ? (summary.usage.explorer.requests + summary.usage.critic.requests) : "unknown";
       setText(accounting, "Browser actions: " + summary.actionsPerformed + " · HTTP check requests: " + (checks && checks.usage ? checks.usage.requests : 0) + " · Model decisions: " + summary.modelCalls + " (provider: " + summary.provider + ") · External model requests: " + external + ".");
     });
+    renderQaSummary(container, runId);
     renderWorkflowResults(container, runId);
     renderCheckResults(container, runId);
     var canonicalIds = new Set((report.groups || []).map(function (g) { return g.canonicalFindingId; }));
@@ -1133,7 +1281,7 @@
   function recoverActiveRun(activeRun) {
     if (!activeRun) return;
     var profile = state.profiles.find(function (p) { return p.id === activeRun.profileId; });
-    if (profile) el("profile-select").value = profile.id;
+    if (profile && el("profile-select").value !== profile.id) selectProfile(profile.id);
     state.currentRunId = activeRun.runId;
     el("start-btn").disabled = true;
     el("stop-btn").hidden = false;

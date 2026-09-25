@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { DeclaredApiCheck } from "./checks-manifest.js";
-import { checkBudget, createCheckRequester, scopedCheckUrl, sessionModeFor, type CheckBudget, type RunSession } from "./request-scope.js";
+import { checkBudget, createCheckRequester, scopedCheckUrl, sessionFields, type CheckBudget, type RunSession } from "./request-scope.js";
 import { evaluateAssertions } from "./shape-check.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
@@ -44,7 +44,7 @@ export async function runApiChecks(
   const findings: Finding[] = [];
   let findingIndex = startingFindingIndex;
   const request = createCheckRequester(profile, origin, budget, session);
-  const record = (entry: CheckLedgerEntry): void => appendCheckLedgerEntry(runDir, { ...entry, session: sessionModeFor(profile, session) }, extraSecrets);
+  const record = (entry: CheckLedgerEntry): void => appendCheckLedgerEntry(runDir, { ...entry, ...sessionFields(profile, session) }, extraSecrets);
 
   for (const check of checks) {
     if (findingIndex > profile.limits.maxFindings) {

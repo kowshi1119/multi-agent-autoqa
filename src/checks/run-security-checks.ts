@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { DeclaredSecurityCheck } from "./checks-manifest.js";
-import { checkBudget, createCheckRequester, scopedCheckUrl, sessionModeFor, type CheckBudget, type RunSession } from "./request-scope.js";
+import { checkBudget, createCheckRequester, scopedCheckUrl, sessionFields, type CheckBudget, type RunSession } from "./request-scope.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
 import { normalizePathname } from "../mapping/state-signature.js";
@@ -67,7 +67,7 @@ export async function runSecurityChecks(
   const findings: Finding[] = [];
   let findingIndex = startingFindingIndex;
   const request = createCheckRequester(profile, origin, budget, session);
-  const record = (dir: string, entry: CheckLedgerEntry, secrets: readonly string[]): void => appendCheckLedgerEntry(dir, { ...entry, session: sessionModeFor(profile, session) }, secrets);
+  const record = (dir: string, entry: CheckLedgerEntry, secrets: readonly string[]): void => appendCheckLedgerEntry(dir, { ...entry, ...sessionFields(profile, session) }, secrets);
 
   for (const check of checks) {
     if (findingIndex > profile.limits.maxFindings) {

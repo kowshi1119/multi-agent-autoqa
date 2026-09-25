@@ -3,6 +3,7 @@ import { createLogger } from "../../logger.js";
 import { runPreflight, schemaFailureReport } from "../../preflight/doctor.js";
 import { loadWorkflowManifest } from "../../pilot/workflow-manifest.js";
 import { ProfileError } from "../../profiles/schema.js";
+import { targetIdentity } from "../../profiles/fingerprint.js";
 import type { ProfileStore } from "../../profiles/store.js";
 import { profileToAppConfig } from "../../profiles/to-app-config.js";
 import { sendJson } from "../http-helpers.js";
@@ -20,8 +21,12 @@ export async function handlePreflight(res: ServerResponse, profileStore: Profile
     // scoped to any particular not-yet-started run's own selection (see
     // run-manager.ts's own runPreflight() call for that narrower case).
     const workflowManifest = loadWorkflowManifest(profileStore.getDir(), profile.id);
+    // Identity is taken BEFORE the readiness probe, so a configuration edit
+    // that lands while the probe runs yields a fingerprint the server will
+    // reject at Start rather than silently accepting the new target.
+    const target = targetIdentity(profileStore, profile.id);
     const report = await runPreflight(profile, config, createLogger(), workflowManifest);
-    sendJson(res, 200, report);
+    sendJson(res, 200, { ...report, mode, target });
   } catch (error) {
     if (error instanceof ProfileError) {
       sendJson(res, 200, schemaFailureReport(profileId, error.message));

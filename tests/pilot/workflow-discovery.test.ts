@@ -33,7 +33,9 @@ describe("read-only workflow discovery", () => {
     expect(result.status).toBe("observed");
     if (result.status !== "observed") return;
 
-    const byName = new Map(result.candidates.map((w) => [w.execution!.steps[0]!.action.type === "click" ? (w.execution!.steps[0]!.action as { target: { name: string } }).target.name : "", w]));
+    // Navigation drafts from the landing page; list-page drafts (search, detail, ...) are covered in stateful-workflows.test.ts.
+    const fromHome = result.candidates.filter((w) => w.page === "/home");
+    const byName = new Map(fromHome.map((w) => [w.execution!.steps[0]!.action.type === "click" ? (w.execution!.steps[0]!.action as { target: { name: string } }).target.name : "", w]));
     expect([...byName.keys()].sort()).toEqual(["Help", "Profile", "Statements"]);
     expect(byName.get("Statements")?.execution?.completion).toEqual({ urlPattern: completionPatternFor(server.origin, "/statements"), visible: { role: "heading", name: "Statements" } });
 

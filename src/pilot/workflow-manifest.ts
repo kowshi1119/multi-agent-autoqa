@@ -4,6 +4,28 @@ import { z } from "zod";
 import { elementTargetSchema, qaActionSchema } from "../actions.js";
 import { redactSecrets } from "../redact.js";
 
+const queryParamsSchema = z.record(z.string().max(200)).refine((q) => Object.keys(q).length <= 10, "At most 10 query parameters");
+const roleNameSchema = z.string().regex(/^[a-z]+$/, "ARIA role names are lowercase words");
+
+/**
+ * Outcome assertions. `urlPattern` + `visible` are required (and are all a
+ * legacy manifest has); the rest are optional and each must actually hold.
+ * `changedFrom` compares the accessible names of `role` elements (optionally
+ * within `within`) with a snapshot taken before the workflow's first step --
+ * the result set must differ. Only counts and a same/different verdict are
+ * recorded as evidence, never the names themselves.
+ */
+export const completionSchema = z.object({
+  urlPattern: z.string().refine(v => { try { new RegExp(v); return true; } catch { return false; } }, "Invalid URL pattern"),
+  visible: elementTargetSchema,
+  query: queryParamsSchema.optional(),
+  absent: z.array(elementTargetSchema).max(5).optional(),
+  inputValue: z.object({ target: elementTargetSchema, equals: z.string().max(200) }).optional(),
+  count: z.object({ within: elementTargetSchema.optional(), role: roleNameSchema, min: z.number().int().min(0).optional(), max: z.number().int().min(0).optional() }).optional(),
+  changedFrom: z.object({ within: elementTargetSchema.optional(), role: roleNameSchema }).optional(),
+});
+export type WorkflowCompletion = z.infer<typeof completionSchema>;
+
 /** A human-authored expectation. Optional execution is interpreted by the existing planner/FSM only when the profile selects declared mode. Legacy declarations remain readable. */
 export const declaredWorkflowSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]+$/),
@@ -15,12 +37,19 @@ export const declaredWorkflowSchema = z.object({
   expectedOutcome: z.string().min(1),
   limitations: z.string().optional(),
   evidenceRequired: z.array(z.string()).optional(),
+  /** Discovery's own observation record: when, how, and which controls. Evidence for the assertions, not an execution result. */
+  observed: z.object({ observedAt: z.string(), summary: z.string().max(2000), controls: z.array(elementTargetSchema).max(10) }).optional(),
+  /** Return to a known starting state after the workflow (success or failure), verified by a visible element. */
+  reset: z.object({ pathname: z.string().startsWith("/"), visible: elementTargetSchema }).optional(),
   execution: z.object({
-    steps: z.array(z.object({ pathname: z.string().startsWith("/"), resultingPathname: z.string().startsWith("/").optional(), action: qaActionSchema })).min(1).max(25),
-    completion: z.object({
-      urlPattern: z.string().refine(v => { try { new RegExp(v); return true; } catch { return false; } }, "Invalid URL pattern"),
-      visible: elementTargetSchema,
-    }),
+    steps: z.array(z.object({
+      pathname: z.string().startsWith("/"),
+      resultingPathname: z.string().startsWith("/").optional(),
+      /** Query parameters that must be present, exactly, after this step. */
+      resultingQuery: queryParamsSchema.optional(),
+      action: qaActionSchema,
+    })).min(1).max(25),
+    completion: completionSchema,
   }).refine(e => e.steps.every(s => s.action.type !== "stop" && (s.action.type !== "press" || Boolean(s.action.target))), "Workflow steps require supported, explicitly targeted actions").optional(),
 });
 export type DeclaredWorkflow = z.infer<typeof declaredWorkflowSchema>;

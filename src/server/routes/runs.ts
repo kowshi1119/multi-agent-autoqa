@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { ProfileError } from "../../profiles/schema.js";
+import { expectedTargetSchema, TargetChangedError } from "../../profiles/fingerprint.js";
 import { LiveModeNotConfirmedError, NoWorkflowsConfiguredError, PreflightFailedError, RunAlreadyActiveError, type RunManager } from "../../run-manager.js";
 import { readJsonBody, sendJson } from "../http-helpers.js";
 
@@ -13,6 +14,11 @@ const limitsSchema = z.object({
   maxCriticCalls: z.number().int().positive(),
 });
 
+/**
+ * `expected` is mandatory over HTTP: every UI-started run must name the
+ * exact configuration the user saw in the readiness check. Strict, so an
+ * unrecognised field is an error rather than silently ignored.
+ */
 const startRunSchema = z.object({
   profileId: z.string().regex(/^[A-Za-z0-9_-]+$/),
   mode: z.enum(["demo", "live"]),
@@ -20,7 +26,8 @@ const startRunSchema = z.object({
   confirmedLimits: limitsSchema.optional(),
   authenticationOnly: z.boolean().optional(),
   workflowIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).min(1).optional(),
-});
+  expected: expectedTargetSchema,
+}).strict();
 
 export async function handleStartRun(req: IncomingMessage, res: ServerResponse, runManager: RunManager): Promise<void> {
   let body: unknown;
@@ -33,7 +40,8 @@ export async function handleStartRun(req: IncomingMessage, res: ServerResponse, 
 
   const parsed = startRunSchema.safeParse(body);
   if (!parsed.success) {
-    sendJson(res, 400, { error: "Invalid start-run request", issues: parsed.error.issues });
+    // Never echo the body: it may carry credentials.
+    sendJson(res, 400, { error: "Invalid start-run request. Choose an application and check setup first; nothing was sent.", issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })) });
     return;
   }
 
@@ -41,6 +49,10 @@ export async function handleStartRun(req: IncomingMessage, res: ServerResponse, 
     const { runId } = await runManager.startRun(parsed.data);
     sendJson(res, 200, { runId });
   } catch (error) {
+    if (error instanceof TargetChangedError) {
+      sendJson(res, 409, { error: error.message, code: "TARGET_CHANGED" });
+      return;
+    }
     if (error instanceof RunAlreadyActiveError) {
       sendJson(res, 409, { error: error.message });
       return;

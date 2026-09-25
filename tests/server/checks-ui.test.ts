@@ -41,6 +41,7 @@ it.each([false, true])("shows real check evidence and preserves Stop during HTTP
   const base = "http://127.0.0.1:" + ui.port;
   browser = await chromium.launch({ headless: true }); const page = await browser.newPage();
   await page.goto(base);
+  await page.selectOption("#profile-select", "checks");
   const response = page.waitForResponse(r => r.url() === base + "/api/runs" && r.request().method() === "POST");
   await page.locator("#start-btn").click();
   const runId = (await (await response).json()).runId;

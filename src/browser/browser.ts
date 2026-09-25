@@ -13,6 +13,7 @@ import {
 } from "../safety/navigation-guard.js";
 import type { SafetyEvent } from "../types.js";
 import type { AuthResult, SessionBootstrap, TransientCredentials } from "../auth/session-bootstrap.js";
+import { AuthMechanismObserver } from "../auth/mechanism-observer.js";
 import { attachPageRecorders, createPageRecords, type PageRecords } from "./observation.js";
 
 export class BrowserLaunchError extends Error {
@@ -55,6 +56,8 @@ export type PageSession = {
   context: BrowserContext;
   page: Page;
   records: PageRecords;
+  /** Present on authenticated sessions: sanitized record of how the application authenticates its own API calls. */
+  authObserver?: AuthMechanismObserver;
 };
 
 export class BrowserManager {
@@ -127,6 +130,25 @@ export class BrowserManager {
     const records = createPageRecords();
     const extraSecrets = credentialSecrets(authOptions?.credentials);
 
+    // Attached before sign-in so the application's first API calls on its
+    // landing page are seen, but the declared login exchange itself
+    // (auth.allowedRequests, which may carry credentials) is never observed.
+    let authObserver: AuthMechanismObserver | undefined;
+    if (authOptions) {
+      const { profile } = authOptions;
+      const loginExchange = profile.auth.allowedRequests ?? [];
+      authObserver = new AuthMechanismObserver(
+        profile.resources.allowedApiOrigins,
+        profile.apiChecks.useRunSession && profile.apiChecks.runSessionAuth === "observed-authorization"
+      );
+      page.on("request", (request) => {
+        let url: URL;
+        try { url = new URL(request.url()); } catch { return; }
+        if (loginExchange.some((r) => r.origin === url.origin && r.method === request.method() && r.pathname === url.pathname)) return;
+        void authObserver!.observe(request);
+      });
+    }
+
     if (authOptions) {
       try {
         await this.ensureAuthenticated(context, page, authOptions, signal);
@@ -147,7 +169,7 @@ export class BrowserManager {
     // credential-entry sequence itself.
     attachPageRecorders(page, records, extraSecrets);
 
-    return { context, page, records };
+    return { context, page, records, ...(authObserver ? { authObserver } : {}) };
   }
 
   /**

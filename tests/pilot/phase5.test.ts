@@ -52,7 +52,10 @@ describe('Phase 5 constrained workflow integration',()=>{
   expect(result.budget.snapshot().actionOutcomes).toEqual({attempted:2,successful:2,blocked:0,failed:0});
   expect(result.usageTracker.summary().explorer.requests).toBe(0);
   const proof=JSON.parse(readFileSync(join(dir,'workflows/records.json'),'utf8'));
-  expect(proof.evidence.assertion).toEqual({passed:true,urlMatched:true,signalVisible:true});
+  expect(proof.evidence.assertion).toMatchObject({passed:true,urlMatched:true,signalVisible:true});
+  // Every declared assertion is reported with expected vs observed.
+  expect(proof.evidence.assertion.assertions.length).toBeGreaterThanOrEqual(2);
+  expect(proof.evidence.assertion.assertions.every((a:{passed:boolean})=>a.passed)).toBe(true);
  });
  it('checks the action budget within a multi-action workflow',async()=>{
   const p=profile(); p.limits.maxActions=2;
@@ -63,7 +66,8 @@ describe('Phase 5 constrained workflow integration',()=>{
  it('does not repeatedly offer a failed workflow or call it an application defect',async()=>{
   const m=manifest();m.workflows[0]!.execution!.steps[0]!.action={type:'click',target:{role:'button',name:'Missing'}};
   const {result,status}=await run(profile(),m);
-  expect(status.entries[0]?.status).toBe('failed');expect(result.finalCtx.recordedSteps).toHaveLength(1);expect(result.finalCtx.findings).toHaveLength(0);expect(result.budget.modelCalls).toBeLessThan(4);
+  // A control that cannot be found is recorded as an AutoQA/configuration blocker, not an application failure.
+  expect(status.entries[0]?.status).toBe('blocked');expect(status.entries[0]?.notes).toContain('AutoQA/configuration issue');expect(result.finalCtx.recordedSteps).toHaveLength(1);expect(result.finalCtx.findings).toHaveLength(0);expect(result.budget.modelCalls).toBeLessThan(4);
  });
  it('blocks an undeclared mutation at the network boundary and never credits workflow completion',async()=>{
   const before=mutations;const m=manifest();m.workflows[0]!.execution!.steps[0]!.action={type:'click',target:{role:'button',name:'Unsafe'}};m.workflows[0]!.execution!.completion={urlPattern:'/home$',visible:{role:'heading',name:'Blocked'}};

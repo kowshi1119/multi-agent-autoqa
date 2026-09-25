@@ -1,5 +1,14 @@
 # AutoQA
 
+## Target binding, stateful read-only workflows and QA summaries — 2026-09-25
+
+- **No wrong-target operations.** Nothing is selected on load. Readiness returns the selected application's origin, environment and configuration fingerprint, shown beside Start together with the operation. Every run, discovery and workflow-save request carries that `expected` target. The server rejects a mismatch (409 `TARGET_CHANGED`) **before** contacting any application. A readiness request for an abandoned selection is aborted, and a double click starts one run.
+- **Stateful read-only workflows.** Discovery (1d) now also looks at up to two list pages for record detail links, filter and pagination links, and GET search/filter forms. A form is submitted only when its GET endpoint is listed in `resources.allowedFormSubmitEndpoints` and its kind in `workflows.allowedWorkflowKinds`; otherwise it appears under "Requires your configuration" and is not submitted. Drafts assert outcomes (query parameters, result set changed, identity heading, observed empty state, retained input value), not clicks, and declare a verified reset. A failing assertion is retried once from the reset state and recorded as reproduced or not. Record counts, balances and permissions are never invented.
+- **Authentication mechanism, observed not assumed.** Authenticated runs write `auth-mechanism.json` (counts and Authorization scheme names only). If the app authenticates its API with a header, cookie-based checks are reported as a mechanism mismatch, not an expired session. `apiChecks.runSessionAuth: "observed-authorization"` (opt-in) reuses the app's own Bearer header for the same origin, in memory only.
+- **QA summary.** Each run writes `qa-summary.json`, shown first in Results. It lists workflow statuses with expected vs observed, application finding candidates (provisional severity with the rule stated), AutoQA/configuration failures and unsupported items separately, what was not assessed, and browser actions / HTTP check requests / model decisions / external model requests. A run that executed nothing reads "No checks were executed — this is not a QA pass."
+
+Try it with no keys: `npm run fixture:auth`, then `npm run ui` → choose **Authenticated checks demo** → 1d Discover (`demo-a` / `demo-a-synthetic-password`) → tick drafts → Save → Start. Verification figures and run IDs are in PROGRESS.md. Ajeer acceptance for these features is pending a local sign-in (docs/AJEER_PILOT_SETUP.md).
+
 ## Run-scoped authenticated checks and read-only workflow discovery — 2026-09-24
 
 **Try it with no keys and no real target:** in one terminal `npm run fixture:auth` (synthetic sign-in site on localhost:4175; synthetic accounts `demo-a` / `demo-a-synthetic-password` and `demo-b` / `demo-b-synthetic-password`), in another `npm run ui`. Choose **Authenticated checks demo**, then:

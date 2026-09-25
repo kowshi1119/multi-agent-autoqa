@@ -17,6 +17,8 @@ export type CheckLedgerEntry = {
   findingId?: string;
   /** Which session the check's requests used: none needed, the run's own authenticated session, a session the target had already rejected, or no usable session. */
   session?: "anonymous" | "run-session" | "expired" | "unavailable";
+  /** With session "run-session": how that session was attached (apiChecks.runSessionAuth). */
+  sessionAuth?: "cookie" | "observed-authorization";
 };
 
 export type ChecksLedger = {

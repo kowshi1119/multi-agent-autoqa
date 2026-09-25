@@ -140,6 +140,9 @@ export class ActionPolicy {
       // Exact configured SPA controls are permitted; the network guard still denies undeclared mutations.
       if (!context.isSubmitControl && !context.isAmbiguousEnter) return allowed();
     }
+    // Choosing an option is only ever an explicitly declared, user-confirmed
+    // workflow step; exploration never changes a selection on a real target.
+    if (action.type === "select") return denied("Selecting an option is only allowed as a declared workflow step.");
     if (action.type === "fill") return allowed();
 
     // Enter pressed in a field with no enclosing form -- cannot resolve
