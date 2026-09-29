@@ -31,7 +31,13 @@ export type AuthFixtureOptions = {
 };
 
 /** Runtime-switchable variants: known application bugs, plus a page-view session limit for expiry-mid-workflow tests. */
-export type FixtureBugs = { searchIgnoresQuery?: boolean; filterIgnored?: boolean; detailWrongHeading?: boolean; sessionMaxPageViews?: number };
+export type FixtureBugs = {
+  searchIgnoresQuery?: boolean; filterIgnored?: boolean; detailWrongHeading?: boolean; sessionMaxPageViews?: number;
+  /** Seeded workflow regression: the list page heading is renamed. */
+  statementsHeadingChanged?: boolean;
+  /** Seeded API regression: /api/me stops returning the email field. */
+  apiMeMissingEmail?: boolean;
+};
 
 /** Twelve synthetic statements; first words are unique so a one-word search narrows to exactly one record. */
 export const FIXTURE_STATEMENTS = ["Coffee House", "Book Nook", "Grocery Mart", "City Transit", "Fuel Stop", "Pharmacy Plus", "Cinema Hall", "Garden Centre", "Bakery Lane", "Music Shop", "Sports Depot", "Tea Corner"]
@@ -50,7 +56,7 @@ function statementsPage(url: URL, bugs: FixtureBugs): string {
   if (url.searchParams.get("status")) keep.set("status", url.searchParams.get("status") as string);
   const pageLink = (n: number, label: string) => { const p = new URLSearchParams(keep); p.set("page", String(n)); return `<a href="/statements?${p}">${label}</a>`; };
   const shownQ = escapeHtml(url.searchParams.get("q") ?? "");
-  return page("Statements", `<h1>Statements</h1>
+  return page("Statements", `<h1>${bugs.statementsHeadingChanged ? "Statement history" : "Statements"}</h1>
 <form method="get" action="/statements" role="search" aria-label="Statement search">
   <label for="q">Search statements</label><input id="q" name="q" type="search" value="${shownQ}">
   <label for="status">Status</label><select id="status" name="status"><option value="">All</option><option value="paid"${status === "paid" ? " selected" : ""}>Paid</option><option value="pending"${status === "pending" ? " selected" : ""}>Pending</option></select>
@@ -252,7 +258,7 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         }
         const account = AUTH_FIXTURE_ACCOUNTS[session.account];
 
-        if (method === "GET" && path === "/api/me") { json(res, 200, { id: session.account, email: account.email, role: account.role }); return; }
+        if (method === "GET" && path === "/api/me") { json(res, 200, bugs.apiMeMissingEmail ? { id: session.account, role: account.role } : { id: session.account, email: account.email, role: account.role }); return; }
         if (method === "GET" && path === "/api/statements") { json(res, 200, { owner: session.account, count: 2, items: [{ id: "st-1", amount: 10 }, { id: "st-2", amount: 25 }] }); return; }
         if (method === "GET" && path === "/api/big") { json(res, 200, { owner: session.account, padding: "x".repeat(2_000_000) }); return; }
         if (method === "GET" && path === "/api/slow-body") {

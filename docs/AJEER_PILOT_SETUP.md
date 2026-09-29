@@ -1,5 +1,17 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Status — 2026-09-29: regression suites available, Ajeer still pending
+
+Nothing was run against Ajeer in Phase 11. Ajeer still has no saved workflows or declared checks, so no Ajeer suite exists and no Ajeer baseline or regression result is claimed. Ajeer's endpoints, permissions and budgets are unchanged.
+
+Once the local session below has produced saved read-only workflows, you can:
+1. choose Ajeer → **1e. Regression suites → New suite**, tick those workflows as required, save;
+2. enter credentials locally, Start;
+3. if the run is PASS, click **Approve this run as the suite baseline**;
+4. later runs of the suite are compared with it.
+
+The command-line path (`npm run suite`) reads credentials only from the `QA_USERNAME`/`QA_PASSWORD` environment variables on your own machine. It never takes them as arguments and never stores a session. Until those run IDs exist, Ajeer suite acceptance is **pending**.
+
 ## Latest status — 2026-09-25: Ajeer acceptance pending one local session
 
 Nothing new has been run against Ajeer in this phase. All new capability (target binding, stateful workflows, auth-mechanism diagnosis, QA summary) is verified on synthetic fixtures only.

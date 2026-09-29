@@ -19,6 +19,12 @@ export type CheckLedgerEntry = {
   session?: "anonymous" | "run-session" | "expired" | "unavailable";
   /** With session "run-session": how that session was attached (apiChecks.runSessionAuth). */
   sessionAuth?: "cookie" | "observed-authorization";
+  /** API checks that were sent: every declared assertion with a stable id and its outcome (first response). */
+  assertionResults?: Array<{ id: string; assertion: string; expected: string; observed: string; passed: boolean }>;
+  /** Observed attempts for a failing check (first request plus the confirmation, when one was sent). */
+  attempts?: { total: number; failed: number };
+  /** The finding's dedup key (src/reporting/dedup.ts), so a later run can recognise the same finding. */
+  findingFingerprint?: string;
 };
 
 export type ChecksLedger = {

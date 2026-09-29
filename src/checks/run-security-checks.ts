@@ -7,6 +7,7 @@ import { normalizePathname } from "../mapping/state-signature.js";
 import type { CheckClassification, CheckLedgerEntry } from "./types.js";
 import type { Finding } from "../types.js";
 import type { ProjectProfile } from "../profiles/schema.js";
+import { dedupKeyForFinding } from "../reporting/dedup.js";
 
 export type SecurityChecksResult = { findings: Finding[]; nextFindingIndex: number };
 
@@ -134,7 +135,7 @@ export async function runSecurityChecks(
     };
     findings.push(finding);
 
-    record(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId }, extraSecrets);
+    record(runDir, { checkId: check.id, kind: "security", ran: true, classification: outcome.classification, assertion: check.description, observation: outcome.observation, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId, findingFingerprint: dedupKeyForFinding(finding) }, extraSecrets);
   }
 
   return { findings, nextFindingIndex: findingIndex };
@@ -312,7 +313,7 @@ async function runSessionBoundaryCheck(
     reportDisposition: "report",
   };
   findings.push(finding);
-  record(runDir, { checkId: check.id, kind: "security", ran: true, classification: "confirmed", assertion: check.description, observation: finding.actual, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId }, extraSecrets);
+  record(runDir, { checkId: check.id, kind: "security", ran: true, classification: "confirmed", assertion: check.description, observation: finding.actual, evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`), findingId, findingFingerprint: dedupKeyForFinding(finding) }, extraSecrets);
 }
 
 function blockedEntry(check: DeclaredSecurityCheck, reason: string): CheckLedgerEntry {

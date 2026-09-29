@@ -26,6 +26,10 @@ import { checkBudget, sessionModeFor, type CheckBudget, type RunSession } from "
 import { writeCheckEvidence } from "./checks/evidence.js";
 import { runApiChecks } from "./checks/run-api-checks.js";
 import { runSecurityChecks } from "./checks/run-security-checks.js";
+import { findSuite, suiteContentHash, validateSuite, type Suite } from "./suites/suite-manifest.js";
+import { buildSuiteResult, snapshotFor, writeJsonRedacted, type SuiteRunSnapshot } from "./suites/result.js";
+import { currentBaseline } from "./suites/baselines.js";
+import { compareToBaseline } from "./suites/compare.js";
 
 export class RunAlreadyActiveError extends Error {
   constructor(message = "A run is already active. Stop it before starting another.") {
@@ -98,7 +102,24 @@ export type StartRunInput = {
    * (including the preflight reachability probe) contacts a target.
    */
   expected?: ExpectedTarget;
+  /**
+   * Run a saved regression suite (src/suites/). The suite is validated before
+   * anything is contacted; it selects the workflows and checks to run and may
+   * only lower the profile's limits. It cannot be combined with workflowIds
+   * or authenticationOnly.
+   */
+  suiteId?: string;
 };
+
+/** A suite that is missing, stale, incompatible or empty; nothing was contacted. */
+export class SuiteInvalidError extends Error {
+  constructor(readonly errors: string[]) {
+    super(`The suite cannot run: ${errors.join(" ")} Nothing was sent to the application.`);
+    this.name = "SuiteInvalidError";
+  }
+}
+
+type SuiteRunContext = { snapshot: SuiteRunSnapshot; checkIds: Set<string>; checksOnly: boolean; authRequired: boolean };
 
 /**
  * `lastEvent` (Phase 4 continuation) is the most recent RunProgressEvent
@@ -195,19 +216,45 @@ export class RunManager {
 
     try {
       if (input.expected) assertExpectedTarget(this.profileStore, input.profileId, input.expected);
-      const profile = this.profileStore.load(input.profileId);
+      let profile = this.profileStore.load(input.profileId);
+      let suiteRun: SuiteRunContext | undefined;
+      let suiteWorkflowIds: string[] | undefined;
+      if (input.suiteId !== undefined) {
+        if (input.workflowIds || input.authenticationOnly) throw new SuiteInvalidError(["A suite run cannot also select individual workflows or Authentication only."]);
+        let suite: Suite;
+        try { suite = findSuite(this.profileStore.getDir(), profile.id, input.suiteId); } catch (error) { throw new SuiteInvalidError([error instanceof Error ? error.message : String(error)]); }
+        const validation = validateSuite(this.profileStore, profile.id, suite);
+        if (!validation.ok) throw new SuiteInvalidError(validation.errors);
+        // Suites can only lower limits (validated above); applied to this run's in-memory copy only.
+        const effectiveLimits = {
+          maxActions: Math.min(profile.limits.maxActions, suite.limits.maxActions ?? Infinity),
+          maxDurationMs: Math.min(profile.limits.maxDurationMs, suite.limits.maxDurationMs ?? Infinity),
+          maxApiRequests: Math.min(profile.limits.maxApiRequests ?? profile.limits.maxActions, suite.limits.maxApiRequests ?? Infinity),
+        };
+        profile = { ...profile, limits: { ...profile.limits, ...effectiveLimits } };
+        suiteWorkflowIds = suite.items.filter((i) => i.kind === "workflow").map((i) => i.id);
+        suiteRun = {
+          snapshot: snapshotFor("", profile.id, suite, suiteContentHash(suite), effectiveLimits, input.mode),
+          checkIds: new Set(suite.items.filter((i) => i.kind !== "workflow").map((i) => i.id)),
+          checksOnly: suiteWorkflowIds.length === 0,
+          authRequired: profile.auth.mode !== "none",
+        };
+      }
 
       if (input.mode === "live" && !limitsMatch(profile.limits, input.confirmedLimits)) {
         throw new LiveModeNotConfirmedError();
       }
 
       let workflowManifest = loadWorkflowManifest(this.profileStore.getDir(), profile.id);
+      if (suiteWorkflowIds) workflowManifest = workflowManifest ? { ...workflowManifest, workflows: workflowManifest.workflows.filter(w => suiteWorkflowIds!.includes(w.id)) } : undefined;
       if (input.workflowIds) {
         if (new Set(input.workflowIds).size !== input.workflowIds.length || input.workflowIds.some(id => !workflowManifest?.workflows.some(w => w.id === id))) throw new Error("Invalid workflow selection");
         workflowManifest = workflowManifest ? { ...workflowManifest, workflows: workflowManifest.workflows.filter(w => input.workflowIds!.includes(w.id)) } : undefined;
       }
-      if (input.authenticationOnly) workflowManifest = workflowManifest ? { ...workflowManifest, workflows: [] } : undefined;
-      if (profile.workflows.executionMode === "declared" && !input.authenticationOnly && !workflowManifest?.workflows.length) throw new NoWorkflowsConfiguredError();
+      // A checks-only suite signs in exactly like Authentication only, then runs its checks with that session.
+      const authenticationOnly = input.authenticationOnly || suiteRun?.checksOnly;
+      if (authenticationOnly) workflowManifest = workflowManifest ? { ...workflowManifest, workflows: [] } : undefined;
+      if (profile.workflows.executionMode === "declared" && !authenticationOnly && !workflowManifest?.workflows.length) throw new NoWorkflowsConfiguredError();
       const config = profileToAppConfig(profile);
       if (input.mode === "demo") {
         // Demo mode is a hard safety property, not just a UI label: force
@@ -232,6 +279,10 @@ export class RunManager {
       const runDir = join(this.runsRootDir, runId);
       ensureDir(runDir);
       if (workflowManifest) snapshotManifest(runDir, workflowManifest, credentialSecrets(input.credentials));
+      if (suiteRun) {
+        suiteRun.snapshot = { ...suiteRun.snapshot, runId };
+        writeJsonRedacted(join(runDir, "suite-run.json"), suiteRun.snapshot, credentialSecrets(input.credentials));
+      }
       // A UI-submitted credential never touches process.env (see
       // TransientCredentials/redact.ts#credentialSecrets) -- this logger is
       // built with the actual per-run values so every line it writes is
@@ -252,11 +303,11 @@ export class RunManager {
       const qaContext: QaSummaryContext = {
         runId,
         application: { profileId: identity.profileId, name: identity.name, origin: identity.origin, environmentKind: identity.environmentKind, fingerprint: identity.fingerprint.slice(0, 12) },
-        operation: input.authenticationOnly ? "authentication-only" : profile.workflows.executionMode === "declared" ? "declared-workflows" : "exploration",
+        operation: suiteRun ? "regression-suite" : input.authenticationOnly ? "authentication-only" : profile.workflows.executionMode === "declared" ? "declared-workflows" : "exploration",
         authRequired: profile.auth.mode !== "none",
         apiChecksUseRunSession: profile.apiChecks.useRunSession,
       };
-      void this.executeRun(profile, config, runId, runDir, logger, startedAt, controller, actionPolicy, sessionAuth, active, credentialSecrets(input.credentials), workflowManifest, input.authenticationOnly, qaContext).finally(() => {
+      void this.executeRun(profile, config, runId, runDir, logger, startedAt, controller, actionPolicy, sessionAuth, active, credentialSecrets(input.credentials), workflowManifest, authenticationOnly, qaContext, suiteRun).finally(() => {
         if (this.current?.runId === runId) this.current = undefined;
       });
 
@@ -287,8 +338,22 @@ export class RunManager {
     extraSecrets: readonly string[],
     workflowManifest?: WorkflowManifest,
     authenticationOnly?: boolean,
-    qaContext?: QaSummaryContext
+    qaContext?: QaSummaryContext,
+    suiteRun?: SuiteRunContext
   ): Promise<void> {
+    // Suite outcome and comparison, derived from this run's artifacts; like the QA summary it never changes the run's outcome.
+    const saveSuiteResult = (): void => {
+      if (!suiteRun) return;
+      try {
+        const result = buildSuiteResult(runDir, suiteRun.snapshot, suiteRun.authRequired);
+        writeJsonRedacted(join(runDir, "suite-result.json"), result, extraSecrets);
+        let baseline;
+        try { baseline = currentBaseline(this.profileStore.getDir(), profile.id, suiteRun.snapshot.suite.id); } catch (error) { logger.warn({ error: String(error) }, "Suite baseline could not be read"); }
+        writeJsonRedacted(join(runDir, "suite-comparison.json"), compareToBaseline(result, baseline), extraSecrets);
+      } catch (error) {
+        logger.warn({ error: error instanceof Error ? error.message : String(error) }, "suite-result.json could not be written");
+      }
+    };
     // Derived QA-lead view; a failure to build it must never change the run's outcome.
     const saveQaSummary = (): void => {
       if (!qaContext) return;
@@ -312,9 +377,13 @@ export class RunManager {
     // while the run's browser context and local fixture are still open, so
     // an authenticated profile can use THIS run's session (in memory only)
     // and a local fixture needs no second server. Never for auth-only runs.
-    const checksManifest = !authenticationOnly && (profile.apiChecks.enabled || profile.securityChecks.enabled)
+    const loadedChecks = (!authenticationOnly || suiteRun?.checksOnly) && (profile.apiChecks.enabled || profile.securityChecks.enabled)
       ? loadChecksManifest(this.profileStore.getDir(), profile.id)
       : undefined;
+    // A suite runs only the checks it selected.
+    const checksManifest = loadedChecks && suiteRun
+      ? { ...loadedChecks, apiChecks: loadedChecks.apiChecks.filter((c) => suiteRun.checkIds.has(c.id)), securityChecks: loadedChecks.securityChecks.filter((c) => suiteRun.checkIds.has(c.id)) }
+      : loadedChecks;
     let checkUsage: CheckBudget | undefined;
     const runChecks = async ({ finalCtx, origin, session }: { finalCtx: PipelineResult["finalCtx"]; origin: string; session?: RunSession }): Promise<void> => {
       if (!checksManifest) return;
@@ -348,6 +417,7 @@ export class RunManager {
         headless: true,
         workflowManifest,
         authenticationOnly,
+        ...(suiteRun?.checksOnly ? { runChecksAfterAuthentication: true } : {}),
         onProgress: event => {
           // Pipeline completion precedes declared checks and report saving.
           // Publish one terminal event only after the whole run finishes.
@@ -369,6 +439,7 @@ export class RunManager {
 
       assembleReport(pipelineResult, config, runId, runDir, startedAt, profile, extraSecrets, this.profileStore.getDir());
       saveQaSummary();
+      saveSuiteResult();
       const last = terminalEvent ?? active.lastEvent;
       if (last) emit({ ...last, phase: pipelineResult.finalCtx.state === "CANCELLED" ? "stopped" : pipelineResult.finalCtx.state === "FAILED" ? "failed" : "completed", detail: pipelineResult.finalCtx.stopReason ?? "Run finished." });
     } catch (error) {
@@ -437,6 +508,7 @@ export class RunManager {
       };
       writeRunSummary(runDir, fallback);
       saveQaSummary();
+      saveSuiteResult();
       emit({ phase: "failed", detail: message, pagesVisited: 0, actionsPerformed: 0, remainingActions: 0, remainingDurationMs: 0, reportableCount: 0, needsReviewCount: 0 });
     }
   }

@@ -131,8 +131,11 @@ export class Orchestrator {
   }
 
   /** The run's own browser context, only when this run authenticated successfully and the session has not been closed yet. */
+  /** Set only once the profile's login conditions were verified in this run (also for authentication-only runs). */
+  private authenticated = false;
+
   getAuthenticatedContext(): PageSession["context"] | undefined {
-    return this.authStorageState && this.session ? this.session.context : undefined;
+    return this.authenticated && this.session ? this.session.context : undefined;
   }
 
   /** Sanitized auth-mechanism observations for the current authenticated session (see AuthMechanismObserver). */
@@ -354,6 +357,7 @@ export class Orchestrator {
     }
 
     authEvidence(sessionAuth ? "success" : "not-required");
+    this.authenticated = Boolean(sessionAuth);
     if (this.deps.authenticationOnly) return this.transition(ctx, "MAP");
     if (sessionAuth) {
       // Captured once, right after login, so Validator's fresh per-attempt

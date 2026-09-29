@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import type { DeclaredApiCheck } from "./checks-manifest.js";
 import { checkBudget, createCheckRequester, scopedCheckUrl, sessionFields, type CheckBudget, type RunSession } from "./request-scope.js";
-import { evaluateAssertions } from "./shape-check.js";
+import { evaluateAssertionResults, evaluateAssertions } from "./shape-check.js";
+import { dedupKeyForFinding } from "../reporting/dedup.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
 import { normalizePathname } from "../mapping/state-signature.js";
@@ -99,6 +100,7 @@ export async function runApiChecks(
         classification: "passed",
         assertion: check.description,
         observation: `status ${response.status}, all declared assertions satisfied`,
+        assertionResults: evaluateAssertionResults(check.assertions, response.status, response.contentType, response.body),
         evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`),
       });
       continue;
@@ -160,6 +162,9 @@ export async function runApiChecks(
       observation: `${failures.length} assertion(s) failed: ${failures.map((f) => `${f.assertion} (${f.detail})`).join("; ")}.${confirmNote}`,
       evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`),
       findingId,
+      findingFingerprint: dedupKeyForFinding(finding),
+      assertionResults: evaluateAssertionResults(check.assertions, response.status, response.contentType, response.body),
+      attempts: { total: "failed" in confirm ? 1 : 2, failed: "failed" in confirm ? 1 : confirmFailures.length ? 2 : 1 },
     });
   }
 

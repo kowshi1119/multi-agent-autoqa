@@ -48,6 +48,11 @@
   .card h3 { margin: 0 0 4px; font-size: 0.95rem; }
   .bucket-title { font-size: 0.95rem; font-weight: 600; margin-top: 1em; }
   .empty { color: var(--muted); font-style: italic; }
+  .suite-decision { font-weight: 700; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); }
+  .suite-decision[data-decision="FAIL"] { border-left: 4px solid #b91c1c; }
+  .suite-decision[data-decision="INCOMPLETE"] { border-left: 4px solid #b45309; }
+  .suite-decision[data-decision="PASS"] { border-left: 4px solid #15803d; }
+  .suite-item-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
   .qa-verdict { font-weight: 600; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); }
   .qa-verdict[data-verdict="no-checks-executed"], .qa-verdict[data-verdict="needs-review"] { border-left: 4px solid #b45309; }
   .qa-verdict[data-verdict="partial"] { border-left: 4px solid #6b7280; }
@@ -156,6 +161,28 @@
   <div id="wd-status" class="error-text" role="status" style="margin-top:0.6em;"></div>
 </section>
 
+<section id="suites-section" hidden>
+  <h2>1e. Regression suites</h2>
+  <p class="empty">A suite is a named, approved selection of <em>saved</em> workflows and declared checks (never discovery drafts). Choosing one here makes Start run exactly that suite. A suite can only lower the profile's limits, never widen its scope. Its decision (PASS / FAIL / INCOMPLETE) applies only to that suite.</p>
+  <label for="suite-select">Suite</label>
+  <select id="suite-select"><option value="">— No suite (individual run) —</option></select>
+  <button id="suite-new-btn">New suite</button>
+  <button id="suite-edit-btn" disabled>Edit suite</button>
+  <div id="suite-scope" class="next-step" role="status" aria-live="polite"></div>
+  <div id="suite-editor" hidden class="card" style="margin-top:0.6em;">
+    <label for="suite-id">Suite ID (letters, digits, - and _)</label>
+    <input id="suite-id" type="text" autocomplete="off" maxlength="64">
+    <label for="suite-name">Name</label>
+    <input id="suite-name" type="text" autocomplete="off" maxlength="120">
+    <label for="suite-description">Description</label>
+    <input id="suite-description" type="text" autocomplete="off" maxlength="1000">
+    <div id="suite-items"></div>
+    <div id="suite-limits"></div>
+    <div style="margin-top:0.6em;"><button id="suite-save-btn" class="primary">Save suite</button> <button id="suite-cancel-btn">Cancel</button></div>
+  </div>
+  <div id="suite-status" class="error-text" role="status"></div>
+</section>
+
 <section id="auth-section" hidden>
   <h2>2. Sign in for this run</h2>
   <p class="empty">Not saved -- used only for this run.</p>
@@ -209,7 +236,7 @@
   // solely from a readiness response that still matches the selected
   // profile and mode, and carries the server's configuration fingerprint,
   // which the server re-checks before contacting anything.
-  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, target: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null };
+  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, target: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null, suites: [], suiteItems: [], suiteLimits: null };
 
   function el(id) { return document.getElementById(id); }
 
@@ -259,6 +286,7 @@
       select.value = data.profiles.some(function (p) { return p.id === selectedId; }) ? selectedId : "";
       if (select.value !== previous) return onProfileChanged();
       updateAuthVisibility();
+      loadSuites(el("suite-select").value);
       return runCheckSetup();
     });
   }
@@ -283,6 +311,117 @@
     return "explorer: " + explorer + ", critic: " + critic;
   }
 
+  // --- Regression suites (1e) ---------------------------------------------
+  // The server validates and hashes every suite; nothing here can widen a
+  // profile's scope or limits. Start sends only the suite ID, and the server
+  // re-validates it before anything is contacted.
+  function selectedSuite() {
+    var id = el("suite-select").value;
+    return id ? state.suites.find(function (x) { return x.id === id; }) || null : null;
+  }
+  function describeSuiteScope(suite) {
+    if (!suite) return "No suite selected. Start runs an individual operation (see step 4).";
+    var req = suite.items.filter(function (i) { return i.required; }).map(function (i) { return i.id; });
+    var opt = suite.items.filter(function (i) { return !i.required; }).map(function (i) { return i.id; });
+    var limits = Object.keys(suite.limits || {}).map(function (k) { return k + " " + suite.limits[k]; }).join(", ") || "profile limits";
+    var baseline = suite.baseline ? "Baseline: run " + suite.baseline.runId + " (revision " + suite.baseline.suiteRevision + ", approved " + suite.baseline.approvedAt + ")." : "Baseline: none approved yet — runs will show their own decision without a comparison.";
+    var text = suite.name + " · revision " + suite.revision + " · " + suite.target.origin + " (" + suite.target.environmentKind + ") · Required: " + (req.join(", ") || "none") + " · Optional: " + (opt.join(", ") || "none") + " · Limits: " + limits + ". " + baseline;
+    if (!suite.valid) text += " This suite cannot run: " + suite.errors.join(" ");
+    return text;
+  }
+  function renderSuiteSelect(keepId) {
+    var select = el("suite-select");
+    select.innerHTML = "";
+    var none = document.createElement("option"); none.value = ""; setText(none, "— No suite (individual run) —"); select.appendChild(none);
+    state.suites.forEach(function (suite) {
+      var opt = document.createElement("option"); opt.value = suite.id;
+      setText(opt, suite.name + " (rev " + suite.revision + (suite.valid ? "" : ", needs attention") + ")");
+      select.appendChild(opt);
+    });
+    select.value = state.suites.some(function (x) { return x.id === keepId; }) ? keepId : "";
+    onSuiteChanged();
+  }
+  function onSuiteChanged() {
+    var suite = selectedSuite();
+    setText(el("suite-scope"), describeSuiteScope(suite));
+    el("suite-edit-btn").disabled = !suite;
+    el("auth-only").disabled = Boolean(suite);
+    el("workflow-ids").disabled = Boolean(suite);
+    if (suite) { el("auth-only").checked = false; el("workflow-ids").value = ""; }
+    updateStartAvailability();
+  }
+  el("suite-select").addEventListener("change", onSuiteChanged);
+  function loadSuites(keepId) {
+    var profile = currentProfile();
+    state.suites = []; state.suiteItems = []; state.suiteLimits = null;
+    el("suite-editor").hidden = true;
+    setText(el("suite-status"), "");
+    if (!profile) { el("suites-section").hidden = true; renderSuiteSelect(""); return Promise.resolve(); }
+    el("suites-section").hidden = false;
+    return api("/api/profiles/" + encodeURIComponent(profile.id) + "/suites").then(function (data) {
+      if (!currentProfile() || currentProfile().id !== profile.id) return;
+      state.suites = data.suites; state.suiteItems = data.availableItems; state.suiteLimits = data.profileLimits;
+      renderSuiteSelect(keepId || "");
+    }).catch(function (err) { setText(el("suite-status"), "Suites could not be loaded: " + err.message); renderSuiteSelect(""); });
+  }
+  function openSuiteEditor(suite) {
+    var profile = currentProfile();
+    if (!profile) return;
+    el("suite-editor").hidden = false;
+    el("suite-id").value = suite ? suite.id : ""; el("suite-id").disabled = Boolean(suite);
+    el("suite-name").value = suite ? suite.name : ""; el("suite-description").value = suite ? suite.description : "";
+    var items = el("suite-items"); items.innerHTML = "";
+    var heading = document.createElement("p"); heading.className = "next-step";
+    setText(heading, state.suiteItems.length ? "Choose saved workflows and declared checks. Required items decide PASS/FAIL; optional items are reported only." : "This application has no saved workflows or declared checks yet. Save workflows in 1d first.");
+    items.appendChild(heading);
+    state.suiteItems.forEach(function (item, index) {
+      var existing = suite ? suite.items.find(function (i) { return i.kind === item.kind && i.id === item.id; }) : null;
+      var row = document.createElement("div"); row.className = "suite-item-row";
+      var include = document.createElement("label");
+      var box = document.createElement("input"); box.type = "checkbox"; box.id = "suite-include-" + index; box.checked = Boolean(existing);
+      include.appendChild(box); include.appendChild(document.createTextNode(" " + item.kind + " " + item.id + " — " + item.description));
+      var required = document.createElement("label");
+      var req = document.createElement("input"); req.type = "checkbox"; req.id = "suite-required-" + index; req.checked = existing ? existing.required : true;
+      required.appendChild(req); required.appendChild(document.createTextNode(" required"));
+      row.appendChild(include); row.appendChild(required);
+      if (item.note) { var note = document.createElement("span"); note.className = "next-step"; setText(note, item.note); row.appendChild(note); }
+      items.appendChild(row);
+    });
+    var limits = el("suite-limits"); limits.innerHTML = "";
+    ["maxActions", "maxDurationMs", "maxApiRequests"].forEach(function (key) {
+      var label = document.createElement("label"); label.setAttribute("for", "suite-limit-" + key);
+      setText(label, key + " (optional; at most " + state.suiteLimits[key] + ", the profile's limit)");
+      var input = document.createElement("input"); input.type = "number"; input.min = "1"; input.max = String(state.suiteLimits[key]); input.id = "suite-limit-" + key;
+      input.value = suite && suite.limits[key] ? String(suite.limits[key]) : "";
+      limits.appendChild(label); limits.appendChild(input);
+    });
+    setText(el("suite-status"), "");
+  }
+  el("suite-new-btn").addEventListener("click", function () { openSuiteEditor(null); });
+  el("suite-edit-btn").addEventListener("click", function () { openSuiteEditor(selectedSuite()); });
+  el("suite-cancel-btn").addEventListener("click", function () { el("suite-editor").hidden = true; });
+  el("suite-save-btn").addEventListener("click", function () {
+    var profile = currentProfile(); var target = preparedTarget();
+    if (!profile) return;
+    if (!target) { setText(el("suite-status"), "Wait until setup has been checked for this application, then save."); return; }
+    var items = [];
+    state.suiteItems.forEach(function (item, index) {
+      if (el("suite-include-" + index).checked) items.push({ kind: item.kind, id: item.id, required: el("suite-required-" + index).checked });
+    });
+    var limits = {};
+    ["maxActions", "maxDurationMs", "maxApiRequests"].forEach(function (key) { var v = el("suite-limit-" + key).value.trim(); if (v) limits[key] = Number(v); });
+    var suite = { id: el("suite-id").value.trim(), name: el("suite-name").value.trim(), description: el("suite-description").value.trim(), items: items, limits: limits };
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/suites", { method: "POST", body: JSON.stringify({ suite: suite, expected: { fingerprint: target.fingerprint, origin: target.origin } }) })
+      .then(function (data) {
+        return loadSuites(data.suite.id).then(function () { setText(el("suite-status"), "Saved " + data.suite.name + " as revision " + data.suite.revision + ". It is selected; Start runs it."); });
+      })
+      .catch(function (err) {
+        var detail = err.data && err.data.errors ? " " + err.data.errors.join(" ") : err.data && err.data.issues ? " Check the ID and name." : "";
+        if (err.data && err.data.code === "TARGET_CHANGED") runCheckSetup();
+        setText(el("suite-status"), "Not saved: " + err.message + detail);
+      });
+  });
+
   function updateAuthVisibility() {
     var profile = currentProfile();
     var needsAuth = Boolean(profile) && profile.authMode !== "none";
@@ -302,6 +441,7 @@
     ["ad-username", "ad-password", "wd-username", "wd-password", "auth-username", "auth-password", "workflow-ids"].forEach(function (id) { el(id).value = ""; });
     updateAuthVisibility();
     updateLiveNotice();
+    loadSuites("");
     return runCheckSetup();
   }
   el("profile-select").addEventListener("change", onProfileChanged);
@@ -414,6 +554,7 @@
         el("auth-only").checked = false;
         el("workflow-ids").value = data.saved.join(", ");
         setText(el("wd-status"), "Saved " + data.saved.join(", ") + " (declared, not yet executed). Enter credentials under 2, then Start to execute them.");
+        loadSuites(el("suite-select").value);
         return runCheckSetup();
       })
       .catch(function (error) { setText(el("wd-status"), error.message); });
@@ -616,6 +757,8 @@
   }
 
   function operationLabel() {
+    var suite = selectedSuite();
+    if (suite) return "Suite " + suite.name + " rev " + suite.revision + " (" + suite.items.filter(function (i) { return i.required; }).length + " required, " + suite.items.filter(function (i) { return !i.required; }).length + " optional)";
     if (el("auth-only").checked) return "Authentication only";
     var ids = el("workflow-ids").value.trim();
     if (ids) return "Run workflows: " + ids;
@@ -639,7 +782,9 @@
     var ready = Boolean(preparedTarget());
     var noWorkflows = report && report.checks.some(function (c) { return c.id === "workflows-configured" && c.status === "skipped" && c.detail.indexOf("No workflows") === 0; });
     var busy = Boolean(state.starting || state.currentRunId || state.discoveryController);
-    el("start-btn").disabled = busy || !ready || !report || !report.overallReady || Boolean(noWorkflows && !el("auth-only").checked);
+    var suite = selectedSuite();
+    el("start-btn").disabled = busy || !ready || !report || !report.overallReady || Boolean(suite ? !suite.valid : noWorkflows && !el("auth-only").checked);
+    el("suite-new-btn").disabled = busy || !currentProfile();
     el("ad-discover-btn").disabled = busy || !ready;
     el("wd-discover-btn").disabled = busy || !ready;
     renderTargetLine();
@@ -783,9 +928,15 @@
     state.starting = true;
     updateStartAvailability();
     var mode = target.mode;
-    var body = { profileId: target.profileId, mode: mode, authenticationOnly: el("auth-only").checked, expected: { fingerprint: target.fingerprint, origin: target.origin } };
-    var ids = el("workflow-ids").value.trim();
-    if (ids && !body.authenticationOnly) body.workflowIds = ids.split(",").map(function (id) { return id.trim(); });
+    var suite = selectedSuite();
+    var body = { profileId: target.profileId, mode: mode, expected: { fingerprint: target.fingerprint, origin: target.origin } };
+    if (suite) {
+      body.suiteId = suite.id;
+    } else {
+      body.authenticationOnly = el("auth-only").checked;
+      var ids = el("workflow-ids").value.trim();
+      if (ids && !body.authenticationOnly) body.workflowIds = ids.split(",").map(function (id) { return id.trim(); });
+    }
     if (profile.authMode !== "none") {
       body.credentials = { username: el("auth-username").value, password: el("auth-password").value };
     }
@@ -812,6 +963,10 @@
       if (err.data && err.data.code === "TARGET_CHANGED") {
         suffix = " Setup is being re-checked for the current selection.";
         runCheckSetup();
+      }
+      if (err.data && err.data.code === "SUITE_INVALID") {
+        suffix = " " + (err.data.errors || []).join(" ");
+        loadSuites(el("suite-select").value);
       }
       if (err.data && err.data.code === "NO_WORKFLOWS_CONFIGURED" && !el("auth-only").checked) {
         el("auth-only").checked = true;
@@ -1016,6 +1171,78 @@
   }
 
 
+  // Suite decision and baseline comparison (src/suites/). Deterministic,
+  // derived from the run's artifacts; the comparison is shown separately
+  // from the decision, and approving a baseline is always an explicit click.
+  var CATEGORY_LABELS = {
+    "newly-failing": "Newly failing", "still-failing": "Still failing", "not-executed": "Not executed (not a pass)", "unsupported": "Unsupported",
+    "incomparable": "Incomparable", "fixed": "Previously failing, now passing", "added": "Added", "removed": "Removed", "unchanged-passing": "Unchanged passing"
+  };
+  function renderSuiteResult(container, runId) {
+    var panel = document.createElement("div"); panel.id = "suite-result"; panel.setAttribute("data-run", runId); container.appendChild(panel);
+    api("/api/runs/" + encodeURIComponent(runId) + "/suite").then(function (data) {
+      if (!data.result) { var none = document.createElement("p"); setText(none, "Suite result not recorded: " + (data.baselineEligibility.reason || "")); panel.appendChild(none); return; }
+      var r = data.result, c = data.comparison;
+      var add = function (tag, text, cls) { var n = document.createElement(tag); if (cls) n.className = cls; setText(n, text); panel.appendChild(n); return n; };
+      add("h3", "Suite " + r.suite.name + " (revision " + r.suite.revision + ")");
+      var decision = add("p", r.decision + " — " + r.decisionReason, "suite-decision"); decision.setAttribute("data-decision", r.decision); decision.setAttribute("role", "status");
+      add("p", r.scope, "next-step");
+      add("p", "Application: " + r.target.origin + " (" + r.target.environmentKind + ") · authentication " + r.authentication + " · items passed " + r.counts.passed + ", failed " + r.counts.failed + ", not executed " + r.counts.notExecuted + ", unsupported " + r.counts.unsupported + " (" + r.counts.required + " required, " + r.counts.optional + " optional).");
+      if (r.coverageGaps.length) {
+        add("h4", "Remaining coverage gaps (" + r.coverageGaps.length + ")");
+        var gaps = document.createElement("ul"); r.coverageGaps.forEach(function (g) { var li = document.createElement("li"); setText(li, g.identity + " — " + g.status + ": " + g.reason); gaps.appendChild(li); }); panel.appendChild(gaps);
+      }
+      add("h4", "Changes since the approved baseline");
+      if (!c || !c.comparable) {
+        add("p", (c && c.reason) || "No comparison available.", "empty");
+      } else {
+        add("p", "Baseline: run " + c.baseline.runId + " (revision " + c.baseline.suiteRevision + ", approved " + c.baseline.approvedAt + "). " + c.notes.join(" "), "next-step");
+        var groups = {};
+        c.entries.forEach(function (e) { (groups[e.category] = groups[e.category] || []).push(e); });
+        Object.keys(CATEGORY_LABELS).forEach(function (cat) {
+          var list = groups[cat] || [];
+          var h = add("h4", CATEGORY_LABELS[cat] + " (" + list.length + ")"); h.setAttribute("data-category", cat);
+          if (!list.length || cat === "unchanged-passing") return;
+          var ul = document.createElement("ul"); ul.setAttribute("data-category-list", cat);
+          list.forEach(function (e) {
+            var li = document.createElement("li");
+            var text = e.identity + (e.required ? " [required]" : " [optional]") + ": " + e.assertion;
+            if (e.expected !== undefined) text += " · expected " + e.expected;
+            if (e.observed !== undefined) text += " · observed " + e.observed;
+            if (e.baselineObserved !== undefined) text += " · baseline observed " + e.baselineObserved;
+            if (e.reproduction) text += " · " + e.reproduction;
+            if (e.sameFindingAsBaseline) text += " · same finding as in the baseline";
+            if (e.reason) text += " · " + e.reason;
+            li.appendChild(document.createTextNode(text + " "));
+            e.evidenceRefs.forEach(function (ref) {
+              var a = document.createElement("a"); a.href = "/api/artifacts/" + encodeURIComponent(runId) + "/" + ref.split("/").map(encodeURIComponent).join("/"); a.target = "_blank"; a.rel = "noopener noreferrer"; setText(a, ref + " "); li.appendChild(a);
+            });
+            ul.appendChild(li);
+          });
+          panel.appendChild(ul);
+        });
+      }
+      var e = data.baselineEligibility;
+      var approve = document.createElement("button"); approve.id = "approve-baseline-btn"; setText(approve, "Approve this run as the suite baseline"); panel.appendChild(approve);
+      var confirm = null;
+      if (e.eligible && e.replaceRequired) {
+        var label = document.createElement("label"); confirm = document.createElement("input"); confirm.type = "checkbox"; confirm.id = "replace-baseline";
+        label.appendChild(confirm); label.appendChild(document.createTextNode(" Replace the current baseline (" + e.currentBaselineRunId + "); it stays in the baseline history.")); panel.appendChild(label);
+      }
+      var why = add("p", e.eligible ? "Approving is an explicit decision: later runs of this suite will be compared with this run." : e.reason, e.eligible ? "next-step" : "empty");
+      why.id = "baseline-reason";
+      approve.disabled = !e.eligible;
+      approve.addEventListener("click", function () {
+        if (confirm && !confirm.checked) { setText(why, "Tick the confirmation to replace the current baseline."); return; }
+        approve.disabled = true;
+        api("/api/runs/" + encodeURIComponent(runId) + "/baseline", { method: "POST", body: JSON.stringify({ suiteId: r.suite.id, replace: Boolean(confirm && confirm.checked) }) })
+          .then(function () { setText(why, "Approved: run " + runId + " is now the baseline for " + r.suite.name + "."); loadSuites(el("suite-select").value); })
+          .catch(function (err) { approve.disabled = false; setText(why, "Not approved: " + err.message); });
+      });
+      add("p", "Browser actions: " + r.accounting.browserActions + " · HTTP check requests: " + r.accounting.httpCheckRequests + " · Model decisions: " + r.accounting.modelDecisions + " · External model requests: " + r.accounting.externalModelRequests + ".", "next-step");
+    }).catch(function () { /* Not a suite run. */ });
+  }
+
   // QA-lead summary (src/reporting/qa-summary.ts): derived only from this
   // run's artifacts. Application candidates, AutoQA/configuration failures
   // and unsupported capabilities are listed separately, and a run that
@@ -1172,6 +1399,7 @@
       var external = summary.usage ? (summary.usage.explorer.requests + summary.usage.critic.requests) : "unknown";
       setText(accounting, "Browser actions: " + summary.actionsPerformed + " · HTTP check requests: " + (checks && checks.usage ? checks.usage.requests : 0) + " · Model decisions: " + summary.modelCalls + " (provider: " + summary.provider + ") · External model requests: " + external + ".");
     });
+    renderSuiteResult(container, runId);
     renderQaSummary(container, runId);
     renderWorkflowResults(container, runId);
     renderCheckResults(container, runId);

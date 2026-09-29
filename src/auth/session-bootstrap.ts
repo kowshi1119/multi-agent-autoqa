@@ -175,9 +175,9 @@ export function selectSessionBootstrap(profile: ProjectProfile): SessionBootstra
  * explicitly (see FormLoginBootstrap) rather than silently proceeding
  * unauthenticated.
  */
-export function resolveTransientCredentials(): TransientCredentials | undefined {
-  const username = process.env["QA_USERNAME"];
-  const password = process.env["QA_PASSWORD"];
+export function resolveTransientCredentials(env: NodeJS.ProcessEnv = process.env): TransientCredentials | undefined {
+  const username = env["QA_USERNAME"];
+  const password = env["QA_PASSWORD"];
   if (!username || !password) return undefined;
   return { username, password };
 }

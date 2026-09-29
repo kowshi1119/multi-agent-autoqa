@@ -1,5 +1,28 @@
 # AutoQA
 
+## Regression suites, baselines and release decisions — 2026-09-29
+
+1. **Choose application → 1e. Regression suites → New suite.** Tick saved workflows and declared checks, and mark each required or optional. Limits can only be lower than the profile's. Discovery drafts must be saved (1d) before they can be added.
+2. **Review scope** (revision, required vs optional, limits, current baseline). The target line beside Start shows "Suite <name> rev N".
+3. **Start.** The suite runs through the normal run path (target binding, lock, sign-in, budgets, Stop).
+4. **Review:**
+   - The decision: **PASS** (every required item executed and passed), **FAIL** (a required item produced a failing result) or **INCOMPLETE** (required coverage missing). FAIL also lists any coverage gaps.
+   - Then the changes since the approved baseline: newly failing, still failing, fixed, unchanged, added, removed, not executed, unsupported, incomparable. Each shows expected vs observed, evidence links and the reproduction record.
+5. **Approve this run as the suite baseline** is always your explicit choice. Only a completed PASS run of the current revision is eligible; otherwise the button explains why. Replacing a baseline needs confirmation, and the old one is kept in history.
+
+A decision applies **only to that suite** on that origin; it is not proof the application is secure or defect-free. If the target, environment, sign-in mode or API session mode changed, the comparison is refused with the reason. If a workflow or check definition changed, that item is marked incomparable. A missing result is never a pass, and a failed sign-in yields "not executed", not regressions.
+
+**Command line** (same execution path as the UI):
+```bash
+QA_USERNAME=demo-a QA_PASSWORD=demo-a-synthetic-password npm run suite -- --profile auth-demo --suite smoke --json suite-result.json
+```
+Exit codes: `0` PASS · `1` FAIL · `2` INCOMPLETE · `3` rejected before execution (invalid, stale or incompatible suite, target mismatch, missing credentials) · `4` internal error.
+- Passwords and tokens are never accepted as arguments.
+- A sign-in profile without `QA_USERNAME`/`QA_PASSWORD` in the environment is refused, and nothing is contacted.
+- Demo mode only (mock providers); no CI job, hosted service or stored browser session is involved.
+
+Try it with no keys: `npm run fixture:auth`, then `npm run ui` → **Authenticated checks demo** → suite **Statements smoke** (shipped in `profiles/auth-demo.suites.json`). Baselines are saved in `profiles/<id>.baselines.json`, which stays local (git-ignored). Run IDs and verification are in PROGRESS.md.
+
 ## Target binding, stateful read-only workflows and QA summaries — 2026-09-25
 
 - **No wrong-target operations.** Nothing is selected on load. Readiness returns the selected application's origin, environment and configuration fingerprint, shown beside Start together with the operation. Every run, discovery and workflow-save request carries that `expected` target. The server rejects a mismatch (409 `TARGET_CHANGED`) **before** contacting any application. A readiness request for an abandoned selection is aborted, and a double click starts one run.

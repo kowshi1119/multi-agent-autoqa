@@ -195,6 +195,8 @@ export type PipelineOptions = {
   config: AppConfig;
   workflowManifest?: WorkflowManifest;
   authenticationOnly?: boolean;
+  /** Checks-only regression suites: sign in like Authentication only, then still run onSessionReady checks. */
+  runChecksAfterAuthentication?: boolean;
   runId: string;
   runDir: string;
   logger: Logger;
@@ -341,10 +343,11 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     const finalCtx = await orchestrator.run(initialCtx);
     const safetyEvents = orchestrator.getSafetyEvents();
     const authObserver = orchestrator.getAuthObserver();
-    if (authObserver && !options.authenticationOnly) {
+    const checksAllowed = !options.authenticationOnly || options.runChecksAfterAuthentication;
+    if (authObserver && checksAllowed) {
       writeFileSync(join(runDir, "auth-mechanism.json"), JSON.stringify(authObserver.summary(), null, 2), "utf-8");
     }
-    if (options.onSessionReady && !options.authenticationOnly && !abortSignal?.aborted && finalCtx.state !== "FAILED" && finalCtx.state !== "CANCELLED") {
+    if (options.onSessionReady && checksAllowed && !abortSignal?.aborted && finalCtx.state !== "FAILED" && finalCtx.state !== "CANCELLED") {
       const context = orchestrator.getAuthenticatedContext();
       const session: RunSession | undefined = sessionAuth
         ? {

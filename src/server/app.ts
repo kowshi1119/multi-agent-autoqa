@@ -14,6 +14,7 @@ import { handleListRuns, handleRunEvents, handleRunStatus, handleStartRun, handl
 import { handleWorkflows } from "./routes/workflows.js";
 import { handleSaveTriage } from "./routes/triage.js";
 import { handleChecks } from "./routes/checks.js";
+import { handleApproveBaseline, handleListSuites, handleSaveSuite, handleSuiteRun } from "./routes/suites.js";
 import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -97,6 +98,29 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const saveWorkflowsMatch = /^\/api\/profiles\/([^/]+)\/workflows$/.exec(path);
     if (saveWorkflowsMatch && method === "POST") {
       await handleSaveWorkflows(req, res, profileStore, decodeURIComponent(saveWorkflowsMatch[1] as string), () => runManager.isBusy());
+      return;
+    }
+
+    const suitesMatch = /^\/api\/profiles\/([^/]+)\/suites$/.exec(path);
+    if (suitesMatch && method === "GET") {
+      handleListSuites(res, profileStore, decodeURIComponent(suitesMatch[1] as string));
+      return;
+    }
+    if (suitesMatch && method === "POST") {
+      await handleSaveSuite(req, res, profileStore, decodeURIComponent(suitesMatch[1] as string));
+      return;
+    }
+
+    const suiteRunMatch = /^\/api\/runs\/([^/]+)\/suite$/.exec(path);
+    if (suiteRunMatch && method === "GET") {
+      const id = decodeURIComponent(suiteRunMatch[1] as string);
+      handleSuiteRun(res, profileStore, runsRootDir, id, runManager.getActiveRun()?.runId === id);
+      return;
+    }
+
+    const baselineMatch = /^\/api\/runs\/([^/]+)\/baseline$/.exec(path);
+    if (baselineMatch && method === "POST") {
+      await handleApproveBaseline(req, res, profileStore, runsRootDir, decodeURIComponent(baselineMatch[1] as string), runManager.getActiveRun()?.runId);
       return;
     }
 

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "profileId": "auth-demo",
+  "suites": [
+    {
+      "id": "smoke",
+      "name": "Statements smoke",
+      "description": "Open Statements and read the signed-in profile; security headers reported but optional.",
+      "revision": 1,
+      "createdAt": "2026-09-29T00:00:00.000Z",
+      "updatedAt": "2026-09-29T00:00:00.000Z",
+      "target": {
+        "origin": "http://localhost:4175",
+        "environmentKind": "owned-sandbox",
+        "authMode": "form-login",
+        "runSessionAuth": "cookie"
+      },
+      "items": [
+        {
+          "kind": "workflow",
+          "id": "NAV-STATEMENTS",
+          "required": true,
+          "definitionHash": "563ad90357e775398b78c1cab05c2c637626f9dd6dfd29ddac88975caef0ebc7"
+        },
+        {
+          "kind": "api-check",
+          "id": "AUTH-ME",
+          "required": true,
+          "definitionHash": "5106b4821c2c128cafb98be6d57108fa3e3251a23d3da8a369a52b523a7e1647"
+        },
+        {
+          "kind": "api-check",
+          "id": "AUTH-STATEMENTS",
+          "required": true,
+          "definitionHash": "98f313565c39b8004852c1e485d3d97afdb75d43c9dbc33abee091fa9c14c178"
+        },
+        {
+          "kind": "security-check",
+          "id": "AUTH-HEADERS",
+          "required": false,
+          "definitionHash": "9bef03222a2b970232545ce9b56e4f5a6f1e95f764f1d615a85fcb12e8f91e76"
+        }
+      ],
+      "limits": {}
+    }
+  ]
+}

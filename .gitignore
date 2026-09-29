@@ -11,6 +11,7 @@ profiles/*.json
 !profiles/auth-demo.json
 !profiles/auth-demo.checks.json
 !profiles/auth-demo.workflows.json
+!profiles/auth-demo.suites.json
 !profiles/checks-demo.checks.json
 .env
 .env.*

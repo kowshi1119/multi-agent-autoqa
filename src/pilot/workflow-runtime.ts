@@ -15,7 +15,8 @@ export function readSnapshot(runDir: string): WorkflowManifest | undefined {
   return existsSync(file) ? workflowManifestSchema.parse(JSON.parse(readFileSync(file, "utf8"))) : undefined;
 }
 
-export type AssertionResult = { assertion: string; expected: string; observed: string; passed: boolean };
+/** `id` is stable per declared assertion (url, visible, query:<key>, absent:<n>, inputValue, count, changedFrom) so runs can be compared by identity, not order. */
+export type AssertionResult = { id?: string; assertion: string; expected: string; observed: string; passed: boolean };
 export type CompletionResult = { passed: boolean; urlMatched: boolean; signalVisible: boolean; assertions: AssertionResult[] };
 
 const describeTarget = (t: ElementTarget): string => [t.role, t.name ?? t.label ?? t.text ?? t.testId].filter(Boolean).join(" ");
@@ -44,30 +45,30 @@ export async function checkCompletion(page: Page, workflow: DeclaredWorkflow, si
   const results: AssertionResult[] = [];
   const urlMatched = await page.waitForURL(new RegExp(c.urlPattern), { timeout: 3000, signal }).then(() => true).catch(() => false) && new RegExp(c.urlPattern).test(page.url());
   const current = new URL(page.url());
-  results.push({ assertion: "URL matches the expected page", expected: c.urlPattern, observed: current.pathname, passed: urlMatched });
+  results.push({ id: "url", assertion: "URL matches the expected page", expected: c.urlPattern, observed: current.pathname, passed: urlMatched });
   const signalVisible = !signal?.aborted && await buildLocator(page, c.visible).waitFor({ state: "visible", timeout: 3000, signal }).then(() => true).catch(() => false);
-  results.push({ assertion: "Element visible", expected: describeTarget(c.visible), observed: signalVisible ? "visible" : "not visible", passed: signalVisible });
+  results.push({ id: "visible", assertion: "Element visible", expected: describeTarget(c.visible), observed: signalVisible ? "visible" : "not visible", passed: signalVisible });
   for (const [key, value] of Object.entries(c.query ?? {})) {
     const observed = current.searchParams.get(key);
-    results.push({ assertion: `Query parameter "${key}"`, expected: value, observed: observed ?? "(absent)", passed: observed === value });
+    results.push({ id: `query:${key}`, assertion: `Query parameter "${key}"`, expected: value, observed: observed ?? "(absent)", passed: observed === value });
   }
-  for (const target of c.absent ?? []) {
+  for (const [index, target] of (c.absent ?? []).entries()) {
     const count = await buildLocator(page, target).count().catch(() => -1);
-    results.push({ assertion: "Element absent", expected: `${describeTarget(target)} not present`, observed: count === 0 ? "absent" : count < 0 ? "could not evaluate" : `${count} present`, passed: count === 0 });
+    results.push({ id: `absent:${index}`, assertion: "Element absent", expected: `${describeTarget(target)} not present`, observed: count === 0 ? "absent" : count < 0 ? "could not evaluate" : `${count} present`, passed: count === 0 });
   }
   if (c.inputValue) {
     const value = await buildLocator(page, c.inputValue.target).inputValue({ timeout: 3000 }).catch(() => undefined);
-    results.push({ assertion: `Control value of ${describeTarget(c.inputValue.target)}`, expected: c.inputValue.equals, observed: value ?? "(control not found)", passed: value === c.inputValue.equals });
+    results.push({ id: "inputValue", assertion: `Control value of ${describeTarget(c.inputValue.target)}`, expected: c.inputValue.equals, observed: value ?? "(control not found)", passed: value === c.inputValue.equals });
   }
   if (c.count) {
     const n = await scopedByRole(page, c.count.within, c.count.role).count().catch(() => -1);
     const range = `${c.count.min ?? 0}..${c.count.max ?? "∞"}`;
-    results.push({ assertion: `Number of ${c.count.role} elements`, expected: range, observed: n < 0 ? "could not evaluate" : String(n), passed: n >= (c.count.min ?? 0) && (c.count.max === undefined || n <= c.count.max) });
+    results.push({ id: "count", assertion: `Number of ${c.count.role} elements`, expected: range, observed: n < 0 ? "could not evaluate" : String(n), passed: n >= (c.count.min ?? 0) && (c.count.max === undefined || n <= c.count.max) });
   }
   if (c.changedFrom) {
     const after = await resultSnapshot(page, c.changedFrom.within, c.changedFrom.role);
     const changed = snapshot !== undefined && (after.length !== snapshot.length || after.some((v, i) => v !== snapshot[i]));
-    results.push({ assertion: `${c.changedFrom.role} results differ from the starting page`, expected: `different from the ${snapshot?.length ?? "?"} starting items`, observed: snapshot === undefined ? "no starting snapshot" : `${after.length} items, ${changed ? "different" : "unchanged"}`, passed: changed });
+    results.push({ id: "changedFrom", assertion: `${c.changedFrom.role} results differ from the starting page`, expected: `different from the ${snapshot?.length ?? "?"} starting items`, observed: snapshot === undefined ? "no starting snapshot" : `${after.length} items, ${changed ? "different" : "unchanged"}`, passed: changed });
   }
   const passed = !signal?.aborted && results.every((r) => r.passed);
   return { passed, urlMatched, signalVisible, assertions: results };

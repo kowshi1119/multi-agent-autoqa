@@ -1,5 +1,76 @@
 # AutoQA — Progress
 
+## Phase 11: saved regression suites, approved baselines, assertion-level comparison, release decisions — 2026-09-29
+
+**Baseline confirmed before editing.** HEAD `9463b29` = origin/main with a clean tree. The focused Phase 10 suites were re-run fresh before any change (target-binding, stateful-workflows, auth-mechanism, qa-summary: 27/27 passed). The recorded 742 / 91 was not treated as fresh; the full count below is from this phase's own run.
+
+### What changed and why
+- **Suites** (`src/suites/suite-manifest.ts`, `profiles/<id>.suites.json`). A suite is a named selection of *saved* workflows and *declared* API/security checks. Each item is required or optional, and the suite carries optional limits (which can only be lower than the profile's), an id, name, description, revision, dates, and a target reference (origin, environment, auth mode, API session mode).
+  - Every item stores a `definitionHash` of its executable definition and assertions. Editing a workflow or check makes the suite **stale**, and it is refused until re-saved.
+  - The server computes the hashes, revision and target; the client's values are never trusted. Discovery drafts can't be added.
+  - Validation rejects: missing or renamed items, stale definitions, a changed origin / environment / auth mode / API session mode, duplicates, no required item, limits above the profile's, and checks disabled in the profile. All of this happens **before any application is contacted**.
+- **Execution through the existing path.** `StartRunInput.suiteId` goes through the same `RunManager.startRun`: strict request schema, required `expected` target, run lock, fingerprint check, preflight, credentials, cancellation and budgets.
+  - The suite selects the workflows (the existing `workflowIds` filter) and the checks (a new id filter in `runChecks`), and lowers limits on the in-memory profile copy only.
+  - A checks-only suite signs in like Authentication only and then runs its checks with that session. This needed one fix: the orchestrator now exposes the verified session in authentication-only mode (`authenticated` flag), and user-facing auth-only runs still never run checks.
+  - Each run writes `suite-run.json` (snapshot), `suite-result.json` and `suite-comparison.json`, all redacted.
+- **Stable assertion identities.** Workflow assertions carry ids: `url`, `visible`, `query:<k>`, `absent:<n>`, `inputValue`, `count`, `changedFrom`. API checks now record every declared assertion, passing or failing (`status`, `content-type`, `field:<path>`, `shape:<path>`, `invariant:<i>`), plus attempt counts and the finding's dedup key (`dedupKeyForFinding`). A security check is one `result` assertion with its limitation stated. Identity is `<kind>:<item>#<assertion>`, never display order.
+- **Decision** (`src/suites/result.ts`, deterministic, no model input):
+  - **FAIL** if any required item produced a valid failing result;
+  - otherwise **INCOMPLETE** if any required item has no pass/fail result (not executed, unsupported, cancelled, budget, authentication failure);
+  - otherwise **PASS**.
+  - Coverage gaps are always listed, so a FAIL with missing coverage shows both facts. Optional items never decide.
+  - Every result says it applies only to that suite, revision and origin.
+- **Baselines** (`src/suites/baselines.ts`, `profiles/<id>.baselines.json`, git-ignored). Approval is an explicit action and copies the run's suite result; the run directory is never modified (verified by hash in tests).
+  - Only completed **PASS** runs of the same application, suite and current revision are eligible. Cancelled, incomplete or failing runs are refused with a plain reason.
+  - An existing baseline is replaced only with explicit `replace`, and the old one is kept in history.
+- **Comparison** (`src/suites/compare.ts`) categories: newly failing, still failing (flagged "same finding as the baseline" when the dedup keys match), fixed, unchanged passing, added, removed, not executed, unsupported, incomparable.
+  - A changed origin, environment, auth mode or API session mode makes the whole comparison incomparable, with the reason, and no entries are produced.
+  - A changed item definition makes that item incomparable. A suite revision change is reported but not blocking.
+  - A missing result is never a pass. An authentication failure yields "not executed", never regressions.
+  - Each entry carries expected, observed, the baseline's observed value, evidence links and the reproduction record (e.g. "failed 2 of 2 attempt(s) (sample size 2) … Not labelled flaky from a single retry").
+- **UI** (section 1e "Regression suites" + results): choose a suite → review scope (revision, required/optional, limits, baseline) → Start (target line shows "Suite X rev N (a required, b optional)"; Authentication only and Workflow IDs are disabled while a suite is selected) → decision banner, coverage gaps, changes grouped with new failures first, evidence links, usage → **Approve this run as the suite baseline**. The button is disabled with the reason when the run isn't eligible, and replacing a baseline needs a tick. There's also a create/edit editor. Existing auth-only, discovery and individual workflow paths are unchanged.
+- **CLI** `npm run suite -- --profile <id> --suite <id> [--json <file>] [--profiles-dir d] [--runs-dir d]`. It uses the same `RunManager.startRun`, demo mode (mock providers), and the existing `QA_USERNAME`/`QA_PASSWORD` environment input. Credential-like arguments are refused. Missing credentials → exit 3, with nothing contacted. Exit codes: **0 PASS, 1 FAIL, 2 INCOMPLETE, 3 rejected before execution, 4 internal error**. SIGINT stops the run. No CI jobs were added and no sessions are persisted.
+- **Fixture:** new known-bug switches `statementsHeadingChanged` (workflow regression) and `apiMeMissingEmail` (API regression).
+- **Example:** `profiles/auth-demo.suites.json` ships a synthetic "smoke" suite (NAV-STATEMENTS, AUTH-ME, AUTH-STATEMENTS required; AUTH-HEADERS optional).
+
+### Verification
+- **Real UI + CLI demo** (built server, synthetic fixture on :4175, profiles copied to a temp dir, mock providers, 0 external model requests, `POST /api/transfer` hits 0):
+  - A1 healthy `RUN-20260929-050040973Z-2c13`: **PASS**, approved as baseline.
+  - A2 workflow regression `RUN-20260929-050045165Z-f170`: **FAIL**; newly failing `workflow:NAV-STATEMENTS#visible` (expected heading Statements, observed not visible; failed 2 of 2 attempts); 13 unchanged passing; AUTH-HEADERS still failing; approval refused ("A required item failed…").
+  - A3 API regression `RUN-20260929-050055563Z-ae95`: **FAIL**; newly failing `api-check:AUTH-ME#field:email` (expected present, observed missing).
+  - A4 corrected `RUN-20260929-050059648Z-42a9`: **PASS**; 0 newly failing, 14 unchanged passing.
+  - A5 Stop `RUN-20260929-050103652Z-f3f2`: **INCOMPLETE**; approval refused ("This run was cancelled…"); Start usable afterwards.
+  - CLI B1 `RUN-20260929-050107709Z-7e08`: exit 0, PASS vs the UI-approved baseline.
+  - CLI B2 `RUN-20260929-050110863Z-f2ab`: exit 1, FAIL, newly failing `api-check:AUTH-ME#field:email`.
+  - CLI B3 (no credentials): exit 3, nothing contacted.
+  - No password or cookie value in any of these run directories or the baselines file.
+- **Seeded regressions exercised by tests:** healthy baseline, new workflow assertion failure, new API assertion failure, corrected failure, unchanged existing finding (same dedup key), optional failure fixed (`fixed`), authentication failure (INCOMPLETE, no regressions), cancellation, duplicate start, renamed check and changed assertion (rejected with 0 fixture requests; re-saved revision → item incomparable), changed API session mode (whole comparison refused), budget exhaustion (`maxApiRequests: 1`), unsupported required mutation.
+- **Canonical fixture** `RUN-20260929-050150939Z-e364`: 74 actions, 38 mock decisions, 36.1 s; detection P 0.667 / R 1.000 / F1 0.800 (6 TP, 3 FP, 0 FN); final 0.750 / 1.000 / 0.857; grouped 1.0 / 1.0 / 1.0. Benchmark definitions unchanged.
+- **Intermediate** full run during development: 762 tests / 96 files passed. Failures seen during development, all fixed before freezing:
+  - checks-only suites saw no session in authentication-only mode (real defect, fixed);
+  - test harness races (saving before the target was prepared; reading the previous run's panel) and the demo script's same race — harness only.
+  - One API test miscounted target requests because it called readiness (which legitimately probes the target) after taking the baseline count.
+- **Final** (frozen source): `npm run verify:local`, 2026-09-29: typecheck and build passed; **762 tests / 96 files passed, zero failures (491.76 s, two workers)** (742 recorded baseline + 20 new); challenge corpus VALID. The source diff hash was identical before and after the run (`c5d810f7c3986540`); only PROGRESS.md, README.md and docs/AJEER_PILOT_SETUP.md were edited afterwards. Not real-model evaluation and not Ajeer acceptance.
+
+### New tests (20 in 5 new files, plus 1 updated helper)
+`tests/suites/suite-units.test.ts` (10), `tests/suites/suite-run.test.ts` (6, real Chromium), `tests/suites/cli.test.ts` (2), `tests/server/suites-api.test.ts` (1), `tests/server/suites-ui.test.ts` (1), helper `tests/helpers/suite-env.ts`.
+
+### Status
+| Capability | State |
+|---|---|
+| Saved suites, validation, stale detection | Implemented, verified locally (synthetic) |
+| Suite execution via the existing RunManager path (UI + CLI) | Implemented, verified locally |
+| PASS / FAIL / INCOMPLETE decision | Implemented, verified locally |
+| Explicit baselines, eligibility, history | Implemented, verified locally |
+| Assertion-level comparison, incomparability rules | Implemented, verified locally |
+| Ajeer suites | **Pending**: Ajeer still has no saved workflows or checks; needs the local sign-in session in docs/AJEER_PILOT_SETUP.md first |
+
+**Limitations.**
+- Security-check comparison is at check level (one `result` assertion).
+- Checks that didn't run are classified from the ledger's reason text: cancellation, budget and session → not executed; anything else → unsupported.
+- The CLI runs demo mode only (declared workflows and checks need no model) and reads credentials only from the environment. Unattended sign-in for real targets therefore depends on the operator's environment; no session is ever persisted.
+- A decision covers only the suite's own assertions. It is not evidence that the application is secure or defect-free.
+
 ## Phase 10: reliable target selection, stateful read-only workflows, QA-lead results — 2026-09-25
 
 **Baseline** (not re-run, taken from the record): HEAD `1957ec7` = origin/main; 709 tests / 85 files recorded on 2026-09-24; no runs since 2026-09-24 05:51; `profiles/ajeer.workflows.json` empty; no Ajeer checks manifest. Before this phase, target binding was **defective**: on page load the UI fell back to the first profile file (`ajeer`), the Start body carried only `profileId`, and the server probed whatever id it received. That caused the unintended Ajeer attempt disclosed below (`RUN-20260924-054743933Z-635b`).

@@ -25,7 +25,7 @@ export type QaSummary = {
   schemaVersion: 1;
   runId: string;
   application: { profileId: string; name: string; origin: string; environmentKind: string; fingerprint?: string };
-  operation: "authentication-only" | "declared-workflows" | "exploration";
+  operation: "authentication-only" | "declared-workflows" | "exploration" | "regression-suite";
   runStatus: RunSummary["status"] | "unknown";
   stopReason?: string;
   verdict: { kind: "no-checks-executed" | "needs-review" | "partial" | "passed-within-scope"; message: string; executedChecks: number; notExecuted: number };
