@@ -9,13 +9,13 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
 const MAX_BODY_BYTES = 1_000_000;
 
 /** Bounded read of a JSON request body -- never trusts Content-Length alone, and never buffers unbounded input. */
-export function readJsonBody(req: IncomingMessage): Promise<unknown> {
+export function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   return new Promise((resolvePromise, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
         reject(new Error("Request body too large"));
         req.destroy();
         return;

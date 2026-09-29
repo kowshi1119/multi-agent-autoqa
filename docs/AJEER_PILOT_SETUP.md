@@ -1,5 +1,15 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Status — 2026-09-29 (Phase 12): requirements, contracts and security evidence available; Ajeer still pending
+
+Nothing was run against Ajeer in Phase 12. Ajeer's scope (origin, path prefixes, no form endpoints) and budgets (25 actions, 5 pages, 180 s) are unchanged. No Ajeer contract, requirement, suite or baseline exists, and no Ajeer result is claimed.
+
+After the local session below has produced saved read-only workflows, you can also:
+- write and approve Ajeer requirements (1f) linked to those workflows' assertions;
+- import a contract only if you hold a JSON OpenAPI 3.0 document for Ajeer's API. Nothing is fetched from the network, and only GET operations on Ajeer's approved origin can be approved.
+
+Credentials are entered only in the local UI, or in `QA_USERNAME`/`QA_PASSWORD` on your machine for the CLI. They are never recovered from chat, logs or old artifacts.
+
 ## Status — 2026-09-29: regression suites available, Ajeer still pending
 
 Nothing was run against Ajeer in Phase 11. Ajeer still has no saved workflows or declared checks, so no Ajeer suite exists and no Ajeer baseline or regression result is claimed. Ajeer's endpoints, permissions and budgets are unchanged.

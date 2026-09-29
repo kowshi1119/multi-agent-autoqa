@@ -1,5 +1,5 @@
 import type { Baseline } from "./baselines.js";
-import type { SuiteAssertion, SuiteItemResult, SuiteResult } from "./result.js";
+import { verdictOf, type SuiteAssertion, type SuiteItemResult, type SuiteResult } from "./result.js";
 
 /**
  * Assertion-level comparison of a suite run against its approved baseline.
@@ -84,6 +84,14 @@ export function compareToBaseline(current: SuiteResult, baseline: Baseline | und
       entries.push({ ...common, identity: item.identity, category: "incomparable", assertion: item.itemId, reason: "The assertion definition changed since the baseline; approve a new baseline to compare this item.", baselineEvidenceRefs: before.evidenceRefs });
       continue;
     }
+    // Versioned rule: a security check recorded as one aggregate result (Phase 8–11) cannot be matched
+    // assertion-by-assertion with the per-assertion model (Phase 12). Say so instead of guessing.
+    const modelBefore = before.kind === "security-check" ? (before.assertionModel ?? "aggregate-v1") : undefined;
+    const modelNow = item.kind === "security-check" ? (item.assertionModel ?? "aggregate-v1") : undefined;
+    if (modelBefore !== modelNow && item.status !== "not-executed" && item.status !== "unsupported") {
+      entries.push({ ...common, identity: item.identity, category: "incomparable", assertion: item.itemId, reason: `Security results changed from ${modelBefore} to ${modelNow} assertions; approve a new baseline to compare individual assertions.`, baselineEvidenceRefs: before.evidenceRefs });
+      continue;
+    }
     if (item.status === "not-executed" || item.status === "unsupported") {
       const assertions: Array<Pick<SuiteAssertion, "identity" | "assertion" | "expected" | "observed">> = before.assertions.length ? before.assertions : [{ identity: item.identity, assertion: item.itemId, expected: "", observed: "" }];
       for (const a of assertions) {
@@ -97,15 +105,24 @@ export function compareToBaseline(current: SuiteResult, baseline: Baseline | und
       const prior = beforeAssertions.get(a.identity);
       const detail = { ...common, identity: a.identity, assertion: a.assertion, expected: a.expected, observed: a.observed, baselineEvidenceRefs: before.evidenceRefs };
       if (!prior) { entries.push({ ...detail, category: "added", reason: "New assertion in this item (not in the baseline run)." }); continue; }
-      const category: ComparisonCategory = a.passed ? (prior.passed ? "unchanged-passing" : "fixed") : prior.passed ? "newly-failing" : "still-failing";
-      const repro = !a.passed ? reproduction(item) : undefined;
+      const now = verdictOf(a), then = verdictOf(prior);
+      if (now === "unsupported" || now === "not-assessed") {
+        entries.push({ ...detail, category: now === "unsupported" ? "unsupported" : "not-executed", baselineObserved: prior.observed, reason: `${a.limitations ?? "This assertion could not be assessed in this run."} A missing result is not a pass.` });
+        continue;
+      }
+      if (then !== "pass" && then !== "fail") {
+        entries.push({ ...detail, category: "added", baselineObserved: prior.observed, reason: "The baseline has no pass/fail result for this assertion, so this is its first comparable result." });
+        continue;
+      }
+      const category: ComparisonCategory = now === "pass" ? (then === "pass" ? "unchanged-passing" : "fixed") : then === "pass" ? "newly-failing" : "still-failing";
+      const repro = now === "fail" ? reproduction(item) : undefined;
       entries.push({
         ...detail,
         category,
         baselineObserved: prior.observed,
         ...(repro ? { reproduction: repro } : {}),
         ...(category === "still-failing" && item.findingFingerprint && before.findingFingerprint ? { sameFindingAsBaseline: item.findingFingerprint === before.findingFingerprint } : {}),
-        ...(item.limitation && !a.passed ? { reason: item.limitation } : {}),
+        ...(now === "fail" && (a.severityRationale || item.limitation) ? { reason: [item.limitation, a.severityRationale].filter(Boolean).join(" ") } : {}),
       });
     }
     for (const prior of before.assertions) {
@@ -119,5 +136,6 @@ export function compareToBaseline(current: SuiteResult, baseline: Baseline | und
   const counts = emptyCounts();
   for (const e of entries) counts[e.category]++;
   if (current.authentication === "failed") notes.push("Authentication failed in this run: items are reported as not executed, not as regressions.");
+  if (current.authentication === "interrupted") notes.push("Sign-in was interrupted (cancelled or budget) in this run: items are reported as not executed, not as regressions.");
   return { ...withBaseline, comparable: true, notes, entries, counts };
 }

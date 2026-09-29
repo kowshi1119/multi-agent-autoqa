@@ -1,0 +1,27 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Cyclic references (AutoQA fixture)", "version": "1.0.0" },
+  "paths": {
+    "/api/accounts/{accountId}": {
+      "get": {
+        "operationId": "getAccountTree",
+        "parameters": [{ "name": "accountId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "A self-referencing node", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Node" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Node": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "parent": { "$ref": "#/components/schemas/Node" }
+        }
+      }
+    }
+  }
+}

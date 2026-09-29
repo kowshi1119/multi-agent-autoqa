@@ -1,0 +1,66 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Synthetic accounts API (AutoQA fixture)", "version": "1.0.0" },
+  "servers": [{ "url": "https://api.untrusted.example/v1" }],
+  "paths": {
+    "/api/accounts/{accountId}": {
+      "get": {
+        "operationId": "getAccount",
+        "summary": "Read one synthetic account",
+        "parameters": [{ "name": "accountId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "The account", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/api/statements": {
+      "get": {
+        "operationId": "listStatements",
+        "servers": [{ "url": "https://other-host.example" }],
+        "responses": {
+          "200": { "description": "Statements", "content": { "application/json": { "schema": {
+            "type": "object",
+            "required": ["owner", "items"],
+            "properties": {
+              "owner": { "type": "string" },
+              "items": { "type": "array", "items": { "oneOf": [{ "$ref": "#/components/schemas/Statement" }] } }
+            }
+          } } } }
+        }
+      }
+    },
+    "/api/transfer": {
+      "post": {
+        "operationId": "createTransfer",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Transfer created" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Account": {
+        "type": "object",
+        "required": ["id", "name", "status", "balance", "nickname", "tags"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "example": "Everyday" },
+          "status": { "type": "string", "enum": ["active", "closed"] },
+          "balance": { "$ref": "#/components/schemas/Balance" },
+          "nickname": { "type": "string", "nullable": true },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Balance": {
+        "type": "object",
+        "required": ["currency", "minorUnits"],
+        "properties": {
+          "currency": { "type": "string", "description": "ISO 4217 code" },
+          "minorUnits": { "type": "integer" }
+        }
+      },
+      "Statement": { "type": "object", "properties": { "id": { "type": "string" } } }
+    }
+  }
+}

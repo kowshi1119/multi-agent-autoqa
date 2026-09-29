@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { contractSchemaSchema } from "../contracts/openapi.js";
 
 /** Mirrors src/pilot/workflow-manifest.ts's own <profileId>.<x>.json load pattern. */
 export class ChecksManifestError extends Error {
@@ -30,6 +31,21 @@ export const declaredApiCheckSchema = z.object({
   pathname: z.string().min(1).startsWith("/"),
   description: z.string().min(1),
   requestBody: z.unknown().optional(),
+  /** Explicit, non-secret query parameters (contract checks). Values are validated; the path itself stays canonical. */
+  query: z.record(z.string().regex(/^[A-Za-z0-9._~-]{1,100}$/), z.string().regex(/^[A-Za-z0-9._~-]{1,100}$/)).optional(),
+  /**
+   * An approved OpenAPI 3.0 contract slice (src/contracts/openapi.ts). Only GET
+   * checks may carry one; the schema is stored resolved so the run never reads
+   * the contract document again.
+   */
+  contract: z.object({
+    source: z.string().max(200),
+    documentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    operation: z.string().max(300),
+    status: z.string().regex(/^[1-5][0-9][0-9]$/),
+    contentType: z.string().max(200).nullable(),
+    schema: contractSchemaSchema.nullable(),
+  }).strict().optional(),
   assertions: z.object({
     expectedStatus: z.number().int().optional(),
     expectedContentType: z.string().optional(),
@@ -96,4 +112,20 @@ export function loadChecksManifest(profilesDir: string, profileId: string): Chec
   }
   if (result.data.profileId !== profileId) throw new ChecksManifestError("Manifest profile ID mismatch");
   return result.data;
+}
+
+/**
+ * Adds or replaces approved API checks (e.g. reviewed contract drafts) by id.
+ * Validated as a whole before an atomic write; security checks are kept as they are.
+ */
+export function saveApiChecks(profilesDir: string, profileId: string, checks: DeclaredApiCheck[]): ChecksManifest {
+  const existing = loadChecksManifest(profilesDir, profileId) ?? { schemaVersion: 1 as const, profileId, apiChecks: [], securityChecks: [] };
+  const byId = new Map(existing.apiChecks.map((c) => [c.id, c]));
+  for (const check of checks) byId.set(check.id, check);
+  const next = checksManifestSchema.parse({ ...existing, apiChecks: [...byId.values()] });
+  const path = manifestPath(profilesDir, profileId);
+  mkdirSync(profilesDir, { recursive: true });
+  writeFileSync(`${path}.tmp`, JSON.stringify(next, null, 2), "utf-8");
+  renameSync(`${path}.tmp`, path);
+  return next;
 }

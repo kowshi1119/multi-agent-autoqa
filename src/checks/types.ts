@@ -5,6 +5,8 @@
  */
 export type CheckClassification = "confirmed" | "needs_review" | "informational" | "unsupported" | "passed";
 
+import type { AssertionVerdict, ReasonCode } from "../outcomes/outcome.js";
+
 export type CheckLedgerEntry = {
   checkId: string;
   kind: "api" | "security";
@@ -20,7 +22,11 @@ export type CheckLedgerEntry = {
   /** With session "run-session": how that session was attached (apiChecks.runSessionAuth). */
   sessionAuth?: "cookie" | "observed-authorization";
   /** API checks that were sent: every declared assertion with a stable id and its outcome (first response). */
-  assertionResults?: Array<{ id: string; assertion: string; expected: string; observed: string; passed: boolean }>;
+  assertionResults?: Array<{ id: string; assertion: string; expected: string; observed: string; passed: boolean; verdict?: AssertionVerdict; reasonCode?: ReasonCode; confidence?: "low" | "medium" | "high"; limitations?: string; severityRationale?: string; evidenceRefs?: string[] }>;
+  /** Machine-readable outcome (ledger schemaVersion 2). Decisions use this, never `blockedReason` wording. */
+  reasonCode?: ReasonCode;
+  /** How assertions are modelled: one aggregate result (v1) or individual assertions (v2). */
+  assertionModel?: "aggregate-v1" | "per-assertion-v2";
   /** Observed attempts for a failing check (first request plus the confirmation, when one was sent). */
   attempts?: { total: number; failed: number };
   /** The finding's dedup key (src/reporting/dedup.ts), so a later run can recognise the same finding. */
@@ -28,6 +34,7 @@ export type CheckLedgerEntry = {
 };
 
 export type ChecksLedger = {
-  schemaVersion: 1;
+  /** 1: Phase 8–11 (no reason codes); 2: Phase 12 (structured reason codes). */
+  schemaVersion: 1 | 2;
   entries: CheckLedgerEntry[];
 };

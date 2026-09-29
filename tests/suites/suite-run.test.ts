@@ -64,7 +64,9 @@ describe("regression suites: seeded regressions are detected, fixes recognised, 
     expect(workflowRegression.comparison!.entries.find((e) => e.identity === "workflow:OPEN-STATEMENTS#url")?.category).toBe("unchanged-passing");
     expect(workflowRegression.comparison!.entries.find((e) => e.identity === "api-check:ME#status")?.category).toBe("unchanged-passing");
     // The existing optional security finding is recognised as the same finding.
-    expect(workflowRegression.comparison!.entries.find((e) => e.identity === "security-check:HEADERS#result")).toMatchObject({ category: "still-failing", sameFindingAsBaseline: true });
+    expect(workflowRegression.comparison!.entries.find((e) => e.identity === "security-check:HEADERS#header:content-security-policy")).toMatchObject({ category: "still-failing", sameFindingAsBaseline: true });
+    // HSTS cannot be assessed over http:// (RFC 6797): reported as not executed, never as a pass or a failure.
+    expect(workflowRegression.comparison!.entries.find((e) => e.identity === "security-check:HEADERS#header:strict-transport-security")?.category).toBe("not-executed");
     expect(baselineEligibility(env.runsDir, workflowRegression.runId, "demo", findSuite(env.profilesDir, "demo", "smoke"))).toMatchObject({ eligible: false, reason: expect.stringContaining("A required item failed") });
     // The baseline was not replaced by the newer run.
     expect(currentBaseline(env.profilesDir, "demo", "smoke")?.runId).toBe(healthy.runId);
@@ -127,6 +129,7 @@ describe("regression suites: seeded regressions are detected, fixes recognised, 
     const cancelled = await started;
     expect(cancelled.result.runStatus).toBe("cancelled");
     expect(cancelled.result.decision).toBe("INCOMPLETE");
+    expect(cancelled.result.coverageGaps.every((g) => g.reasonCode === "cancelled")).toBe(true);
     expect(baselineEligibility(env.runsDir, cancelled.runId, "demo", findSuite(env.profilesDir, "demo", "smoke"))).toEqual({ eligible: false, reason: "This run was cancelled, so it can't be a passing baseline." });
   }, 200_000);
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { redactSecrets } from "../redact.js";
 import { redactStructuredEvidence } from "./redact-structured.js";
 import type { ChecksLedger, CheckLedgerEntry } from "./types.js";
+import { legacyReasonCode } from "../outcomes/outcome.js";
 
 function ledgerPath(runDir: string): string {
   return join(runDir, "check-results.json");
@@ -25,8 +26,10 @@ export function writeCheckEvidence(evidenceDir: string, filename: string, data: 
 export function appendCheckLedgerEntry(runDir: string, entry: CheckLedgerEntry, extraSecrets: readonly string[] = []): void {
   mkdirSync(runDir, { recursive: true });
   const path = ledgerPath(runDir);
-  const existing: ChecksLedger = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as ChecksLedger) : { schemaVersion: 1, entries: [] };
-  const updated: ChecksLedger = { schemaVersion: 1, entries: [...existing.entries, entry] };
+  const existing: ChecksLedger = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as ChecksLedger) : { schemaVersion: 2, entries: [] };
+  // Every v2 entry carries a structured code; passing/failing results derive it from structural fields only.
+  const coded: CheckLedgerEntry = { ...entry, reasonCode: entry.reasonCode ?? legacyReasonCode(entry) };
+  const updated: ChecksLedger = { schemaVersion: 2, entries: [...existing.entries, coded] };
   writeFileSync(path, redactSecrets(JSON.stringify(updated, null, 2), extraSecrets), "utf-8");
 }
 

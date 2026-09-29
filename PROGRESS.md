@@ -1,5 +1,91 @@
 # AutoQA — Progress
 
+## Phase 12: requirements coverage, API contract testing, reliable security evidence — 2026-09-29
+
+**Baseline confirmed before editing.** HEAD `6861639` = origin/main with a clean tree. The recorded 762 / 96 was not re-used as fresh evidence; the final count below is this phase's own run.
+
+### What changed and why
+1. **Structured outcomes** (`src/outcomes/outcome.ts`).
+   - One reason-code vocabulary for workflow, API and security results: `ok`, `assertion-failed`, `auth-failed`, `session-expired`, `auth-unsupported`, `scope-rejected`, `not-authorized`, `cancelled`, `budget-exhausted`, `missing-configuration`, `transport-error`, `bounds-exceeded`, `malformed-response`, `unsupported-validation`, `control-not-found`, `policy-blocked`, `reset-failed`, `precondition-failed`, `not-reached`, `not-applicable`, `internal-error`, `legacy-unknown`.
+   - Assertion verdicts are separate: `pass` / `fail` / `unsupported` / `not-assessed`.
+   - The HTTP client, request scope and both check runners emit codes. The check ledger is now `schemaVersion: 2`. Suite results (`schemaVersion: 2`) carry `reasonCode`, per-assertion `verdict`, `assertionModel`, and a new `partially-assessed` item status.
+   - The text-matching classifier (`classifyNotRun`) is **removed**. Decisions, comparisons, coverage and CLI output use codes and verdicts only. A test rewrites every explanation with misleading wording and shows the decision, statuses and gaps are identical.
+   - Sign-in outcomes use `authentication.json`'s structured reason. **Fixed:** a Stop during sign-in used to count as an authentication failure; it is now `cancelled`, with authentication shown as "interrupted".
+2. **Versioned compatibility.**
+   - Ledger v1 entries are read structurally only: a recorded pass or failure is kept; anything else is `legacy-unknown` (a coverage gap, never a guessed pass or failure).
+   - Workflow records without `failureKind` are `legacy-unknown`.
+   - A security check recorded as one aggregate result (`aggregate-v1`) is marked **incomparable** against the new per-assertion model (`per-assertion-v2`), with the reason.
+   - Historical artifacts are never rewritten (a test checks the bytes of a v1 ledger are unchanged after reading).
+3. **Per-assertion security evidence** (`src/checks/security-assertions.ts`). Every assertion records a stable id, the expected policy, a sanitized observation, its verdict, confidence, limitations and, when failing, a severity rationale.
+   - Security headers: `header:<name>`. HSTS is **not assessed** over `http://` (RFC 6797 §7.2/§8.1, accessed 2026-09-29).
+   - Cookies: `cookie:<name>:<attr>`. `Secure` is not assessed on non-localhost `http://` (MDN Set-Cookie, accessed 2026-09-29).
+   - Secret leakage: `secret:sensitive-field` / `secret:key-shaped-value`.
+   - Cross-account: `cross-account:denied`, synthetic fixture only. An inconclusive response is now **not assessed**; previously it counted as a policy failure.
+   - A non-2xx response makes every assertion not assessed. Several failing assertions on one response still produce **one** finding (never several vulnerabilities). A missing header is a policy finding with a "no exploit demonstrated" rationale, never a confirmed high-severity vulnerability.
+4. **Bounded OpenAPI 3.0 contract slice** (`src/contracts/openapi.ts`, routes `POST /api/profiles/:id/contract/{parse,drafts,approve}`).
+   - JSON `openapi: 3.0.x` only. 3.1 and Swagger 2.0 are refused as unsupported versions.
+   - Only local `#/…` references; remote or file references are refused and never fetched.
+   - Supported schema subset: `type`, `properties`, `required`, `items`, `enum`, `nullable`, plus annotation keywords. Every other keyword (oneOf/anyOf/allOf/not/additionalProperties/pattern/min/max…), plus cycles (`cyclic-$ref`), reference chains deeper than 16 (`$ref-depth`) and missing types, becomes an **unsupported** assertion, never a pass.
+   - Bounds: document ≤ 1 MiB, schema ≤ 2,000 nodes, ≤ 20,000 validation steps, first 50 array elements checked, ≤ 500 operations.
+   - `servers` are informational only. Drafts are bound to the profile's origin and path prefixes and need explicit non-secret path/query values. Credential-like parameter names are refused, as are values outside `[A-Za-z0-9._~-]{1,100}`.
+   - Only GET is approvable; importing POST/PUT/PATCH/DELETE never authorizes it. Approval re-derives drafts from the document on the server and saves nothing if any selection is refused. No assertion is derived from examples.
+   - Assertion ids depend only on the schema: `contract:status`, `contract:content-type`, `contract:json`, and `contract:$.path:required|type|enum|unsupported:<kw>`. Observations never include response values.
+   - Malformed JSON (`malformed-response`), contract mismatch, transport errors and unsupported validation are distinct. Query parameters are validated and appended only after every scope gate.
+5. **Approved requirements and traceable coverage** (`src/requirements-coverage/`, `profiles/<id>.requirements.json`, git-ignored). The existing `RequirementRule` (Critic context) was inspected and deliberately left separate; approved requirements never reach a model.
+   - A requirement has an ID, revision, description, importance, and acceptance criteria. Each criterion is required or optional and linked to catalogue assertions, or to `*` for all of an item's assertions. The catalogue is derived from approved definitions.
+   - Saving always creates a draft revision; approval is explicit and records each linked item's definition hash. Suggestions only restate approved assertions and are never saved automatically. JSON import makes drafts; export includes everything.
+   - Coverage is computed per suite run from the requirements snapshotted at run start. Criteria are passed / failed / partially assessed / not assessed / unsupported / incomparable. A requirement passes only when every required criterion passed, and a click or page visit is never evidence.
+   - The summary shows its denominators and mapping rules and is labelled coverage of declared requirements, not of the application.
+   - Criterion comparison against the baseline run's coverage: newly failing, still failing, fixed, unchanged, added, removed, not assessed, incomparable. A changed requirement revision is incomparable.
+6. **QA coverage report** (`src/reporting/coverage-report.ts`). `coverage-report.json` and `coverage-report.md` per suite run contain:
+   - the decision with coverage gaps and reason codes, and declared requirement coverage;
+   - newly failing criteria and assertions, API contract mismatches and assertions not validated;
+   - security policy findings with confidence, limitations and rationale, and security assertions not assessed;
+   - execution/configuration failures by reason code, unassessed areas, and usage.
+   Every line names its run, requirement revision, assertion identity and evidence files. No response bodies. The UI shows it in Results with download links, and the CLI prints the requirement coverage line and report paths.
+7. **UI 1f "Requirements and API contracts":** requirement list with an explicit "Approve revision N" button, editor with multi-select evidence links, suggestions, JSON import/export, and contract upload → operations → draft review → approve. Also fixed a UI race: contract approval now reports success only after suites and the requirement catalogue have refreshed.
+
+### Verification
+- **Real UI + CLI demo** (built server, synthetic fixture on :4175 with `securityHeaders: "partial"`, `auth-demo` copied to a temp dir, mock providers, 0 external model requests):
+  - **Setup:**
+    - imported `fixture/contracts/accounts.openapi.json`; its server list was ignored, and the reviewed draft `GET /api/accounts/acc-1` was approved;
+    - approved REQ-ACCOUNT (C1 minorUnits type + balance required; C2 status enum; C3 optional CSP), REQ-STATEMENTS and REQ-EXPORT (unmapped);
+    - created the suite "Accounts contract".
+  - C1 healthy `RUN-20260929-060855728Z-1afa`: PASS; requirements passed 2 of 3 (66.7%); required criteria with evidence 3 of 4; REQ-EXPORT not assessed; security finding CSP only (X-Content-Type-Options and X-Frame-Options pass; HSTS not assessed). Approved as baseline.
+  - C2 seeded wrong type `RUN-20260929-060900170Z-33c7`: FAIL; newly failing criterion `REQ-ACCOUNT#C1`; contract mismatch `contract:$.balance.minorUnits:type` (expected integer, observed got string).
+  - C3 seeded enum `RUN-20260929-060904291Z-797a`: FAIL; newly failing `REQ-ACCOUNT#C2`; `contract:$.status:enum` value not in the declared set (value omitted).
+  - C4 corrected `RUN-20260929-060908425Z-12bf`: PASS; 0 newly failing criteria.
+  - C5 CLI `RUN-20260929-060913848Z-1680`: exit 0, with the same coverage line.
+  - No password, cookie or account data in any of these reports.
+- **Controlled failures covered by tests:**
+  - contract data: missing required field; wrong type; wrong enum value; unexpected content type; malformed JSON; valid nullable and nested values;
+  - contract documents: unsupported keywords (oneOf); cyclic reference; reference chain over the depth bound; schema over the node bound; unsupported versions; remote references; off-origin servers (a counting server received **0** requests); scope-rejected parameter values (nothing saved, nothing sent); POST import never approvable;
+  - security: one header assertion failing while others pass;
+  - requirements: unmapped requirement; partially assessed requirement; changed acceptance criteria (revision 2 incomparable, revision 1 history unchanged); draft excluded;
+  - run conditions: authentication failure (all `auth-failed`, no regressions); cancellation (`cancelled`); reworded explanations with unchanged codes; v1 ledger compatibility; aggregate→per-assertion security incomparability.
+- **Canonical fixture** `RUN-20260929-060943850Z-7b11`: 74 actions, 38 mock decisions, 36.6 s; detection P 0.667 / R 1.000 / F1 0.800 (6 TP, 3 FP, 0 FN); final 0.750 / 1.000 / 0.857; grouped 1.0. Benchmark labels, matcher and grouping unchanged.
+- **Intentionally updated tests** (behaviour changes above, not implementation workarounds):
+  - `bounds.test.ts`: an inconclusive cross-account response is now not assessed;
+  - `suite-run.test.ts`: security identities are per assertion;
+  - `suite-units.test.ts`: the text classifier test is replaced by reason-code tests.
+- An intermediate full run found one wording regression in API failure summaries (fixed by keeping the established wording).
+- **Final** (frozen source): `npm run verify:local`, 2026-09-29: typecheck and build passed; **780 tests / 101 files passed, zero failures (539.36 s, two workers)** (762 recorded + 18 net new); challenge corpus VALID. Source diff hash identical before and after the run (`54877d366ce2e708`); only PROGRESS.md, README.md and docs/AJEER_PILOT_SETUP.md were edited afterwards. Not real-model evaluation and not Ajeer acceptance.
+
+### Status
+| Capability | State |
+|---|---|
+| Structured reason codes; v1 compatibility reader | Implemented, verified locally |
+| Per-assertion security evidence | Implemented, verified locally (synthetic) |
+| OpenAPI 3.0 contract slice (GET only) | Implemented, verified locally (synthetic) |
+| Approved requirements, coverage, criterion comparison, reports | Implemented, verified locally (synthetic) |
+| Ajeer workflows, suites, requirements, contracts | **Pending** a local sign-in; no Ajeer run this phase |
+
+**Limitations.**
+- Contracts: JSON OpenAPI 3.0.x only; no YAML, 3.1, request bodies, header/cookie parameters, `additionalProperties`, composition keywords or numeric/string constraints (reported as unsupported); only the first 50 array elements are checked.
+- Cookie assertions are named after cookies seen at run time, so requirements link them with `*`.
+- Coverage counts only approved requirements and only this suite's assertions.
+- Security assertions are policy checks, not exploit demonstrations.
+
 ## Phase 11: saved regression suites, approved baselines, assertion-level comparison, release decisions — 2026-09-29
 
 **Baseline confirmed before editing.** HEAD `9463b29` = origin/main with a clean tree. The focused Phase 10 suites were re-run fresh before any change (target-binding, stateful-workflows, auth-mechanism, qa-summary: 27/27 passed). The recorded 742 / 91 was not treated as fresh; the full count below is from this phase's own run.

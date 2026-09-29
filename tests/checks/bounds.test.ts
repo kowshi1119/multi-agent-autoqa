@@ -88,11 +88,13 @@ it("does not call a different failure a reproduction", async () => {
 });
 
 it.each([
-  { status: 200, owner: "demo-b", expected: "confirmed" },
-  { status: 200, owner: "demo-a", expected: "needs_review" },
-  { status: 500, owner: "", expected: "needs_review" },
-  { status: 403, owner: "", expected: "passed" },
-])("requires resource ownership evidence, not just HTTP status: $status/$owner", async ({ status, owner, expected }) => {
+  { status: 200, owner: "demo-b", expected: "confirmed", verdict: "fail" },
+  // Phase 12: an inconclusive response (neither a denial nor B's data) is
+  // "not assessed", no longer a failed policy; only a denial passes.
+  { status: 200, owner: "demo-a", expected: "informational", verdict: "not-assessed" },
+  { status: 500, owner: "", expected: "informational", verdict: "not-assessed" },
+  { status: 403, owner: "", expected: "passed", verdict: "pass" },
+])("requires resource ownership evidence, not just HTTP status: $status/$owner", async ({ status, owner, expected, verdict }) => {
   vi.spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(new Response("{}", { headers: { "set-cookie": "session=a; Path=/" } }))
     .mockResolvedValueOnce(new Response("{}", { headers: { "set-cookie": "session=b; Path=/" } }))
@@ -101,6 +103,7 @@ it.each([
   const runDir = dir();
   await runSecurityChecks(profile(), [{ id: "boundary", kind: "session-boundary", pathname: "/", description: "local only", sessionBoundary: { loginPathname: "/api/login-demo", accountAId: "demo-a", accountBId: "demo-b", resourcePathnameTemplate: "/api/account/{accountId}/resource" } }], runDir, 1, "http://localhost:4173");
   expect(loadCheckLedger(runDir).entries[0]?.classification).toBe(expected);
+  expect(loadCheckLedger(runDir).entries[0]?.assertionResults?.[0]).toMatchObject({ id: "cross-account:denied", verdict });
 });
 
 it("checks every cookie and never treats attribute words in a value as attributes", async () => {

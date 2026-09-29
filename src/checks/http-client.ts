@@ -7,10 +7,14 @@ export type CheckHttpResponse = {
   setCookies: string[];
   /** Parsed JSON when the content-type says so and parsing succeeded, else the raw capped-length text. */
   body: unknown;
+  /** True when the content-type declared JSON but the body did not parse. */
+  jsonParseFailed?: boolean;
   bodyTruncated: boolean;
 };
 
-export type CheckHttpError = { failed: true; reason: string; sessionExpired?: boolean; unsupported?: boolean };
+import type { ReasonCode } from "../outcomes/outcome.js";
+
+export type CheckHttpError = { failed: true; code: ReasonCode; reason: string; sessionExpired?: boolean; unsupported?: boolean };
 
 /**
  * Thin fetch() wrapper shared by run-api-checks.ts and run-security-
@@ -40,7 +44,7 @@ export async function fireCheckRequest(
       ...(requestBody !== undefined ? { body: JSON.stringify(requestBody) } : {}),
     });
   } catch {
-    return { failed: true, reason: signal.aborted ? "Request cancelled or timed out." : "Request transport failed." };
+    return { failed: true, code: abortSignal?.aborted ? "cancelled" : "transport-error", reason: abortSignal?.aborted ? "Request cancelled." : signal.aborted ? "Request timed out." : "Request transport failed." };
   }
 
   const headers: Record<string, string> = {};
@@ -54,11 +58,11 @@ export async function fireCheckRequest(
       const next = await reader.read();
       if (next.done) break;
       bytes += next.value.byteLength;
-      if (bytes > responseSizeCapBytes) return { failed: true, reason: "Response exceeded the byte limit; assertions were not evaluated." };
+      if (bytes > responseSizeCapBytes) return { failed: true, code: "bounds-exceeded", reason: "Response exceeded the byte limit; assertions were not evaluated." };
       chunks.push(next.value);
     }
   } catch {
-    return { failed: true, reason: signal.aborted ? "Response cancelled or timed out." : "Response stream failed." };
+    return { failed: true, code: abortSignal?.aborted ? "cancelled" : "transport-error", reason: abortSignal?.aborted ? "Response cancelled." : signal.aborted ? "Response timed out." : "Response stream failed." };
   } finally {
     await reader?.cancel().catch(() => {});
   }
@@ -67,14 +71,16 @@ export async function fireCheckRequest(
   const contentType = response.headers.get("content-type") ?? undefined;
 
   let body: unknown = capped;
+  let jsonParseFailed = false;
   if (contentType?.includes("application/json") && !truncated) {
     try {
       body = JSON.parse(capped);
     } catch {
+      jsonParseFailed = true;
       // Leave body as the raw text -- an unparseable JSON content-type is
       // itself a legitimate assertion failure, not a crash.
     }
   }
 
-  return { status: response.status, contentType, headers, setCookies: response.headers.getSetCookie(), body, bodyTruncated: truncated };
+  return { status: response.status, contentType, headers, setCookies: response.headers.getSetCookie(), body, bodyTruncated: truncated, ...(jsonParseFailed ? { jsonParseFailed } : {}) };
 }

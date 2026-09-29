@@ -2,11 +2,14 @@ import { join } from "node:path";
 import type { DeclaredApiCheck } from "./checks-manifest.js";
 import { checkBudget, createCheckRequester, scopedCheckUrl, sessionFields, type CheckBudget, type RunSession } from "./request-scope.js";
 import { evaluateAssertionResults, evaluateAssertions } from "./shape-check.js";
+import { evaluateContract } from "../contracts/openapi.js";
+import type { AssertionOutcome } from "../outcomes/outcome.js";
 import { dedupKeyForFinding } from "../reporting/dedup.js";
 import { appendCheckLedgerEntry, writeCheckEvidence } from "./evidence.js";
 import { generateFindingId } from "../report.js";
 import { normalizePathname } from "../mapping/state-signature.js";
 import type { CheckLedgerEntry } from "./types.js";
+import type { ReasonCode } from "../outcomes/outcome.js";
 import type { Finding } from "../types.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 
@@ -49,39 +52,45 @@ export async function runApiChecks(
 
   for (const check of checks) {
     if (findingIndex > profile.limits.maxFindings) {
-      record(blockedEntry(check, "Finding budget exhausted before this check."));
+      record(blockedEntry(check, "budget-exhausted", "Finding budget exhausted before this check."));
       continue;
     }
     if (abortSignal?.aborted) {
-      record(blockedEntry(check, "Run was cancelled before this check ran."));
+      record(blockedEntry(check, "cancelled", "Run was cancelled before this check ran."));
       continue;
     }
 
     const isMutating = check.method !== "GET";
     const allowed = !isMutating || profile.apiChecks.allowedMutatingEndpoints.some((e) => e.method === check.method && e.pathname === check.pathname);
     if (!allowed) {
-      record(blockedEntry(check, `${check.method} ${check.pathname} is a mutating request not present in apiChecks.allowedMutatingEndpoints.`));
+      record(blockedEntry(check, "not-authorized", `${check.method} ${check.pathname} is a mutating request not present in apiChecks.allowedMutatingEndpoints.`));
       continue;
     }
     if (!scopedCheckUrl(profile, origin, check.pathname)) {
-      record(blockedEntry(check, `${check.pathname} is outside navigation.allowedPathPrefixes.`));
+      record(blockedEntry(check, "scope-rejected", `${check.pathname} is outside navigation.allowedPathPrefixes.`));
       continue;
     }
     if (budget.used >= budget.max) {
-      record(blockedEntry(check, "API request budget exhausted."));
+      record(blockedEntry(check, "budget-exhausted", "API request budget exhausted."));
       continue;
     }
 
     const beforeRequest = budget.used;
     const url = new URL(check.pathname, origin).toString();
-    const response = await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal);
+    if (check.contract && check.method !== "GET") {
+      record(blockedEntry(check, "not-authorized", "Contract checks are executable only for GET operations; importing a contract never authorizes a mutation."));
+      continue;
+    }
+    const response = await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal, undefined, check.query);
 
     if ("failed" in response) {
-      record({ ...blockedEntry(check, response.reason), ran: budget.used > beforeRequest, observation: response.reason });
+      record({ ...blockedEntry(check, response.code, response.reason), ran: budget.used > beforeRequest, observation: response.reason });
       continue;
     }
 
-    const failures = evaluateAssertions(check.assertions, response.status, response.contentType, response.body);
+    const results = evaluateCheck(check, response);
+    const failures = failureList(check, response, results);
+    const gaps = results.filter((r) => r.verdict === "unsupported" || r.verdict === "not-assessed");
     const requestSnapshot = { method: check.method, url, body: check.requestBody, sessionHeadersOmitted: profile.auth.mode !== "none" };
     const responseSnapshot = { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
 
@@ -97,10 +106,11 @@ export async function runApiChecks(
         checkId: check.id,
         kind: "api",
         ran: true,
-        classification: "passed",
+        classification: gaps.length ? "informational" : "passed",
+        reasonCode: gaps.length ? (gaps.every((g) => g.reasonCode === "bounds-exceeded") ? "bounds-exceeded" : "unsupported-validation") : "ok",
         assertion: check.description,
-        observation: `status ${response.status}, all declared assertions satisfied`,
-        assertionResults: evaluateAssertionResults(check.assertions, response.status, response.contentType, response.body),
+        observation: gaps.length ? `status ${response.status}; no assertion failed, but ${gaps.length} could not be validated (${gaps.map((g) => g.id).slice(0, 5).join(", ")}${gaps.length > 5 ? ", …" : ""}) — not a pass` : `status ${response.status}, all declared assertions satisfied`,
+        assertionResults: results.map(toLedgerAssertion),
         evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`),
       });
       continue;
@@ -112,7 +122,7 @@ export async function runApiChecks(
     const confirm = check.method === "GET"
       ? await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal)
       : { failed: true as const, reason: "Automatic mutation replay is unsupported." };
-    const confirmFailures = "failed" in confirm ? [] : evaluateAssertions(check.assertions, confirm.status, confirm.contentType, confirm.body);
+    const confirmFailures = "failed" in confirm ? [] : failureList(check, confirm, evaluateCheck(check, confirm));
     const reproduced = confirmFailures.some(c => failures.some(f => f.assertion === c.assertion && f.detail === c.detail));
     const classification = reproduced ? "confirmed" : "needs_review";
     const findingId = generateFindingId(findingIndex++);
@@ -163,7 +173,8 @@ export async function runApiChecks(
       evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`),
       findingId,
       findingFingerprint: dedupKeyForFinding(finding),
-      assertionResults: evaluateAssertionResults(check.assertions, response.status, response.contentType, response.body),
+      reasonCode: results.some((r) => r.reasonCode === "malformed-response" && r.verdict === "fail") ? "malformed-response" : "assertion-failed",
+      assertionResults: results.map(toLedgerAssertion),
       attempts: { total: "failed" in confirm ? 1 : 2, failed: "failed" in confirm ? 1 : confirmFailures.length ? 2 : 1 },
     });
   }
@@ -171,15 +182,35 @@ export async function runApiChecks(
   return { findings, nextFindingIndex: findingIndex };
 }
 
-function blockedEntry(check: DeclaredApiCheck, reason: string): CheckLedgerEntry {
+function blockedEntry(check: DeclaredApiCheck, reasonCode: ReasonCode, reason: string): CheckLedgerEntry {
   return {
     checkId: check.id,
     kind: "api",
     ran: false,
     blockedReason: reason,
+    reasonCode,
     classification: "unsupported",
     assertion: check.description,
     observation: "Not run.",
     evidenceRefs: [],
   };
+}
+
+/** Declared assertions plus, for contract checks, the contract's own per-assertion results (stable ids, no response values). */
+function evaluateCheck(check: DeclaredApiCheck, response: { status: number; contentType: string | undefined; body: unknown; jsonParseFailed?: boolean }): AssertionOutcome[] {
+  const declared: AssertionOutcome[] = evaluateAssertionResults(check.assertions, response.status, response.contentType, response.body)
+    .map((a) => ({ ...a, verdict: a.passed ? "pass" as const : "fail" as const, reasonCode: a.passed ? "ok" as const : "assertion-failed" as const }));
+  return check.contract ? [...declared, ...evaluateContract(check.contract, response)] : declared;
+}
+
+function toLedgerAssertion(a: AssertionOutcome) {
+  return { ...a, passed: a.verdict === "pass" };
+}
+
+/** Failure lines for findings and the ledger: declared assertions keep their established wording; contract failures follow. */
+function failureList(check: DeclaredApiCheck, response: { status: number; contentType: string | undefined; body: unknown }, results: AssertionOutcome[]) {
+  return [
+    ...evaluateAssertions(check.assertions, response.status, response.contentType, response.body),
+    ...results.filter((r) => r.id.startsWith("contract:") && r.verdict === "fail").map((r) => ({ id: r.id, assertion: r.id, detail: r.observed })),
+  ];
 }

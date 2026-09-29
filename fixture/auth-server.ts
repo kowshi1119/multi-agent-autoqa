@@ -28,6 +28,8 @@ export type AuthFixtureOptions = {
   apiAuth?: "cookie" | "bearer";
   /** Known-bug variants for negative tests; can also be changed at runtime with setBugs(). */
   bugs?: FixtureBugs;
+  /** "partial": API responses also carry X-Frame-Options (nosniff is always sent) but no CSP, so exactly one header policy fails. */
+  securityHeaders?: "partial";
 };
 
 /** Runtime-switchable variants: known application bugs, plus a page-view session limit for expiry-mid-workflow tests. */
@@ -37,6 +39,18 @@ export type FixtureBugs = {
   statementsHeadingChanged?: boolean;
   /** Seeded API regression: /api/me stops returning the email field. */
   apiMeMissingEmail?: boolean;
+  /** Contract regressions on GET /api/accounts/{id} (see fixture/contracts/accounts.openapi.json). */
+  contractMissingField?: boolean;
+  contractWrongType?: boolean;
+  contractBadEnum?: boolean;
+  contractHtml?: boolean;
+  contractMalformedJson?: boolean;
+};
+
+/** Synthetic account records for contract tests: nested object, nullable field, enum, array. Currency "XXX" is the ISO 4217 testing code. */
+export const FIXTURE_ACCOUNTS: Record<string, { id: string; name: string; status: "active" | "closed"; balance: { currency: string; minorUnits: number }; nickname: string | null; tags: string[] }> = {
+  "acc-1": { id: "acc-1", name: "Everyday", status: "active", balance: { currency: "XXX", minorUnits: 1250 }, nickname: null, tags: ["primary"] },
+  "acc-2": { id: "acc-2", name: "Savings", status: "closed", balance: { currency: "XXX", minorUnits: 0 }, nickname: "Rainy day", tags: [] },
 };
 
 /** Twelve synthetic statements; first words are unique so a one-word search narrows to exactly one record. */
@@ -154,12 +168,14 @@ function readBody(req: IncomingMessage, limit = 16_384): Promise<string> {
   });
 }
 
-function json(res: ServerResponse, status: number, value: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json", "X-Content-Type-Options": "nosniff" });
+function baseJson(res: ServerResponse, status: number, value: unknown, extra: Record<string, string> = {}): void {
+  res.writeHead(status, { "Content-Type": "application/json", "X-Content-Type-Options": "nosniff", ...extra });
   res.end(JSON.stringify(value));
 }
 
 export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promise<AuthFixtureServer> {
+  const extraHeaders: Record<string, string> = options.securityHeaders === "partial" ? { "X-Frame-Options": "DENY" } : {};
+  const json = (res: ServerResponse, status: number, value: unknown): void => baseJson(res, status, value, extraHeaders);
   const sessions = new Map<string, { account: AccountId; apiRequests: number; pageViews: number; token: string }>();
   const hits = new Map<string, number>();
   const requestLog: string[] = [];
@@ -259,6 +275,19 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         const account = AUTH_FIXTURE_ACCOUNTS[session.account];
 
         if (method === "GET" && path === "/api/me") { json(res, 200, bugs.apiMeMissingEmail ? { id: session.account, role: account.role } : { id: session.account, email: account.email, role: account.role }); return; }
+        const accountMatch = /^\/api\/accounts\/([A-Za-z0-9-]+)$/.exec(path);
+        if (method === "GET" && accountMatch) {
+          const record = FIXTURE_ACCOUNTS[accountMatch[1] as string];
+          if (!record) { json(res, 404, { error: "not found" }); return; }
+          if (bugs.contractHtml) { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...extraHeaders }); res.end("<p>Account</p>"); return; }
+          if (bugs.contractMalformedJson) { res.writeHead(200, { "Content-Type": "application/json", ...extraHeaders }); res.end('{"id": "acc-1", "name": '); return; }
+          const body: Record<string, unknown> = { ...record, balance: { ...record.balance } };
+          if (bugs.contractMissingField) delete body["status"];
+          if (bugs.contractWrongType) (body["balance"] as Record<string, unknown>)["minorUnits"] = String(record.balance.minorUnits);
+          if (bugs.contractBadEnum) body["status"] = "frozen";
+          json(res, 200, body);
+          return;
+        }
         if (method === "GET" && path === "/api/statements") { json(res, 200, { owner: session.account, count: 2, items: [{ id: "st-1", amount: 10 }, { id: "st-2", amount: 25 }] }); return; }
         if (method === "GET" && path === "/api/big") { json(res, 200, { owner: session.account, padding: "x".repeat(2_000_000) }); return; }
         if (method === "GET" && path === "/api/slow-body") {

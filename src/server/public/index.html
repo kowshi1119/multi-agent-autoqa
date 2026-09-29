@@ -183,6 +183,30 @@
   <div id="suite-status" class="error-text" role="status"></div>
 </section>
 
+<section id="requirements-section" hidden>
+  <h2>1f. Requirements and API contracts</h2>
+  <p class="empty">Requirements are yours: write the acceptance criteria and link each one to assertions of approved workflows or checks. Saving creates a <em>draft</em>; only an approved revision counts in coverage, and editing an approved requirement creates a new draft revision. Suggestions only restate existing assertions. Nothing here is sent to any model.</p>
+  <div id="req-list"></div>
+  <div style="margin-top:0.4em;"><button id="req-new-btn">New requirement</button> <button id="req-suggest-btn">Suggest drafts from approved assertions</button> <a id="req-export-link" href="#">Export requirements (JSON)</a> <label for="req-import-file" style="display:inline">Import JSON:</label> <input type="file" id="req-import-file" accept="application/json,.json"></div>
+  <div id="req-suggestions" class="next-step"></div>
+  <div id="req-editor" hidden class="card" style="margin-top:0.6em;">
+    <label for="req-id">Requirement ID</label><input id="req-id" type="text" maxlength="64" autocomplete="off">
+    <label for="req-title">Title</label><input id="req-title" type="text" maxlength="200" autocomplete="off">
+    <label for="req-description">Description</label><input id="req-description" type="text" maxlength="2000" autocomplete="off">
+    <label for="req-importance">Importance</label><select id="req-importance"><option value="critical">critical</option><option value="high">high</option><option value="medium" selected>medium</option><option value="low">low</option></select>
+    <div id="req-criteria"></div>
+    <button id="req-add-criterion-btn">Add acceptance criterion</button>
+    <div style="margin-top:0.6em;"><button id="req-save-btn" class="primary">Save draft</button> <button id="req-cancel-btn">Cancel</button></div>
+  </div>
+  <div id="req-status" class="error-text" role="status"></div>
+  <h3>Import an API contract (OpenAPI 3.0, JSON)</h3>
+  <p class="empty">Supported: OpenAPI 3.0.x JSON; local <code>#/components/schemas</code> references; type, properties, required, items, enum, nullable. Other schema keywords are reported as unsupported and never pass. The contract's servers are ignored: checks run only against this application's approved origin and paths. Only GET operations can be approved, and nothing runs until you run a suite.</p>
+  <label for="contract-file">Contract file</label><input type="file" id="contract-file" accept="application/json,.json">
+  <div id="contract-ops"></div>
+  <div id="contract-drafts"></div>
+  <div id="contract-status" class="error-text" role="status"></div>
+</section>
+
 <section id="auth-section" hidden>
   <h2>2. Sign in for this run</h2>
   <p class="empty">Not saved -- used only for this run.</p>
@@ -236,7 +260,7 @@
   // solely from a readiness response that still matches the selected
   // profile and mode, and carries the server's configuration fingerprint,
   // which the server re-checks before contacting anything.
-  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, target: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null, suites: [], suiteItems: [], suiteLimits: null };
+  var state = { profiles: [], currentRunId: null, eventSource: null, pollTimer: null, setup: null, target: null, setupVersion: 0, starting: false, discoveryController: null, discoveryResult: null, suites: [], suiteItems: [], suiteLimits: null, requirements: [], catalog: [], contract: null };
 
   function el(id) { return document.getElementById(id); }
 
@@ -287,6 +311,7 @@
       if (select.value !== previous) return onProfileChanged();
       updateAuthVisibility();
       loadSuites(el("suite-select").value);
+      loadRequirements();
       return runCheckSetup();
     });
   }
@@ -310,6 +335,177 @@
       : "off";
     return "explorer: " + explorer + ", critic: " + critic;
   }
+
+  // --- Requirements and contracts (1f) -------------------------------------
+  // The server validates every requirement link against approved assertions
+  // and re-derives contract drafts from the document on approval; nothing
+  // here can widen scope or approve anything implicitly.
+  function catalogOptions() {
+    var out = [];
+    state.catalog.forEach(function (item) {
+      out.push({ value: item.kind + "|" + item.itemId + "|*", label: item.kind + " " + item.itemId + " — every assertion" });
+      item.assertionIds.forEach(function (a) { out.push({ value: item.kind + "|" + item.itemId + "|" + a, label: item.kind + " " + item.itemId + " # " + a }); });
+    });
+    return out;
+  }
+  function addCriterionRow(criterion) {
+    var box = el("req-criteria");
+    var index = box.children.length;
+    var row = document.createElement("div"); row.className = "card req-criterion";
+    var idLabel = document.createElement("label"); setText(idLabel, "Criterion ID"); var id = document.createElement("input"); id.className = "crit-id"; id.value = criterion ? criterion.id : "C" + (index + 1); id.maxLength = 64;
+    var dLabel = document.createElement("label"); setText(dLabel, "Acceptance criterion (your words)"); var desc = document.createElement("input"); desc.className = "crit-desc"; desc.maxLength = 500; desc.value = criterion ? criterion.description : "";
+    var reqLabel = document.createElement("label"); var req = document.createElement("input"); req.type = "checkbox"; req.className = "crit-required"; req.checked = criterion ? criterion.required : true; reqLabel.appendChild(req); reqLabel.appendChild(document.createTextNode(" required for the requirement to pass"));
+    var lLabel = document.createElement("label"); setText(lLabel, "Evidence: linked assertions (none = unmapped, reported as not assessed)");
+    var links = document.createElement("select"); links.multiple = true; links.size = 6; links.className = "crit-links";
+    catalogOptions().forEach(function (o) {
+      var opt = document.createElement("option"); opt.value = o.value; setText(opt, o.label);
+      if (criterion && criterion.links.some(function (l) { return l.kind + "|" + l.itemId + "|" + l.assertionId === o.value; })) opt.selected = true;
+      links.appendChild(opt);
+    });
+    [idLabel, id, dLabel, desc, reqLabel, lLabel, links].forEach(function (n) { row.appendChild(n); });
+    box.appendChild(row);
+  }
+  function openRequirementEditor(r) {
+    el("req-editor").hidden = false;
+    el("req-id").value = r ? r.id : ""; el("req-id").disabled = Boolean(r && r.revision);
+    el("req-title").value = r ? r.title : ""; el("req-description").value = r ? (r.description || "") : ""; el("req-importance").value = r ? r.importance : "medium";
+    el("req-criteria").innerHTML = "";
+    (r ? r.criteria : [null]).forEach(function (c) { addCriterionRow(c); });
+    setText(el("req-status"), "");
+  }
+  function renderRequirements() {
+    var list = el("req-list"); list.innerHTML = "";
+    if (!state.requirements.length) { var p = document.createElement("p"); p.className = "empty"; setText(p, "No requirements yet."); list.appendChild(p); return; }
+    state.requirements.forEach(function (r) {
+      var row = document.createElement("div"); row.className = "suite-item-row"; row.setAttribute("data-requirement", r.id);
+      var text = document.createElement("span"); setText(text, r.id + " rev " + r.revision + " · " + r.status + " · " + r.importance + " · " + r.title + " · " + r.criteria.length + " criteria (" + r.criteria.filter(function (c) { return !c.links.length; }).length + " unmapped)"); row.appendChild(text);
+      var edit = document.createElement("button"); setText(edit, "Edit"); edit.addEventListener("click", function () { openRequirementEditor(r); }); row.appendChild(edit);
+      if (r.status === "draft") {
+        var approve = document.createElement("button"); approve.className = "req-approve-btn"; setText(approve, "Approve revision " + r.revision);
+        approve.addEventListener("click", function () {
+          api("/api/profiles/" + encodeURIComponent(currentProfile().id) + "/requirements/" + encodeURIComponent(r.id) + "/approve", { method: "POST", body: JSON.stringify({ revision: r.revision }) })
+            .then(function () { setText(el("req-status"), "Approved " + r.id + " revision " + r.revision + "."); return loadRequirements(); })
+            .catch(function (err) { setText(el("req-status"), "Not approved: " + err.message + (err.data && err.data.errors ? " " + err.data.errors.join(" ") : "")); });
+        });
+        row.appendChild(approve);
+      }
+      list.appendChild(row);
+    });
+  }
+  function loadRequirements() {
+    var profile = currentProfile();
+    if (!profile) { el("requirements-section").hidden = true; return Promise.resolve(); }
+    el("requirements-section").hidden = false;
+    el("req-export-link").href = "/api/profiles/" + encodeURIComponent(profile.id) + "/requirements/export";
+    return api("/api/profiles/" + encodeURIComponent(profile.id) + "/requirements").then(function (data) {
+      if (!currentProfile() || currentProfile().id !== profile.id) return;
+      state.requirements = data.requirements; state.catalog = data.catalog;
+      renderRequirements();
+    }).catch(function (err) { setText(el("req-status"), "Requirements could not be loaded: " + err.message); });
+  }
+  el("req-new-btn").addEventListener("click", function () { openRequirementEditor(null); });
+  el("req-cancel-btn").addEventListener("click", function () { el("req-editor").hidden = true; });
+  el("req-add-criterion-btn").addEventListener("click", function () { addCriterionRow(null); });
+  el("req-save-btn").addEventListener("click", function () {
+    var profile = currentProfile(); if (!profile) return;
+    var criteria = Array.prototype.slice.call(document.querySelectorAll("#req-criteria .req-criterion")).map(function (row) {
+      return {
+        id: row.querySelector(".crit-id").value.trim(), description: row.querySelector(".crit-desc").value.trim(), required: row.querySelector(".crit-required").checked,
+        links: Array.prototype.slice.call(row.querySelector(".crit-links").selectedOptions).map(function (o) { var parts = o.value.split("|"); return { kind: parts[0], itemId: parts[1], assertionId: parts.slice(2).join("|") }; })
+      };
+    });
+    var requirement = { id: el("req-id").value.trim(), title: el("req-title").value.trim(), description: el("req-description").value.trim(), importance: el("req-importance").value, criteria: criteria };
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/requirements", { method: "POST", body: JSON.stringify({ requirement: requirement }) })
+      .then(function (data) { el("req-editor").hidden = true; setText(el("req-status"), "Saved " + data.requirement.id + " revision " + data.requirement.revision + " as a draft. Approve it to count it in coverage."); return loadRequirements(); })
+      .catch(function (err) { setText(el("req-status"), "Not saved: " + err.message + (err.data && err.data.errors ? " " + err.data.errors.join(" ") : err.data && err.data.issues ? " Check the IDs and fill every criterion." : "")); });
+  });
+  el("req-suggest-btn").addEventListener("click", function () {
+    var profile = currentProfile(); if (!profile) return;
+    api("/api/profiles/" + encodeURIComponent(profile.id) + "/requirements/suggestions").then(function (data) {
+      var box = el("req-suggestions"); box.innerHTML = "";
+      var note = document.createElement("p"); setText(note, data.note); box.appendChild(note);
+      data.suggestions.forEach(function (sug) {
+        var b = document.createElement("button"); setText(b, "Use as draft: " + sug.id); b.addEventListener("click", function () { openRequirementEditor(Object.assign({}, sug, { revision: 0 })); el("req-id").disabled = false; }); box.appendChild(b);
+      });
+    }).catch(function (err) { setText(el("req-status"), err.message); });
+  });
+  el("req-import-file").addEventListener("change", function () {
+    var profile = currentProfile(); var file = el("req-import-file").files[0];
+    if (!profile || !file) return;
+    file.text().then(function (text) {
+      var parsed; try { parsed = JSON.parse(text); } catch (e) { setText(el("req-status"), "Not imported: the file is not valid JSON."); return; }
+      return api("/api/profiles/" + encodeURIComponent(profile.id) + "/requirements/import", { method: "POST", body: JSON.stringify(parsed) })
+        .then(function (data) { setText(el("req-status"), "Imported " + data.imported.length + " requirement(s) as drafts. Review and approve each one."); return loadRequirements(); });
+    }).catch(function (err) { setText(el("req-status"), "Not imported: " + err.message + (err.data && err.data.errors ? " " + err.data.errors.join(" ") : "")); })
+      .finally(function () { el("req-import-file").value = ""; });
+  });
+
+  function contractPost(path, body) { return api("/api/profiles/" + encodeURIComponent(currentProfile().id) + "/contract/" + path, { method: "POST", body: JSON.stringify(body) }); }
+  function contractSelections() {
+    return Array.prototype.slice.call(document.querySelectorAll("#contract-ops .contract-op")).filter(function (row) { return row.querySelector("input[type=checkbox]").checked; }).map(function (row) {
+      var sel = { operation: row.getAttribute("data-operation"), pathParams: {}, queryParams: {} };
+      Array.prototype.slice.call(row.querySelectorAll("input[data-param]")).forEach(function (input) { if (input.value.trim()) sel[input.getAttribute("data-in") === "path" ? "pathParams" : "queryParams"][input.getAttribute("data-param")] = input.value.trim(); });
+      return sel;
+    });
+  }
+  el("contract-file").addEventListener("change", function () {
+    var file = el("contract-file").files[0];
+    el("contract-ops").innerHTML = ""; el("contract-drafts").innerHTML = ""; setText(el("contract-status"), "");
+    if (!file || !currentProfile()) return;
+    file.text().then(function (text) {
+      state.contract = { document: text, source: file.name.replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 120) || "contract.json" };
+      return contractPost("parse", { document: text });
+    }).then(function (data) {
+      if (!data) return;
+      var box = el("contract-ops");
+      var head = document.createElement("p"); setText(head, data.title + " " + data.version + " (OpenAPI " + data.openapi + ", sha256 " + data.sha256.slice(0, 12) + "). " + data.notes.join(" ")); box.appendChild(head);
+      data.operations.forEach(function (op) {
+        var row = document.createElement("div"); row.className = "suite-item-row contract-op"; row.setAttribute("data-operation", op.key);
+        var label = document.createElement("label"); var cb = document.createElement("input"); cb.type = "checkbox"; label.appendChild(cb);
+        label.appendChild(document.createTextNode(" " + op.key + (op.readOnly ? "" : " (not approvable: importing never authorizes a mutation)") + (op.summary ? " — " + op.summary : ""))); row.appendChild(label);
+        op.parameters.filter(function (p) { return p.supported; }).forEach(function (p) {
+          var pl = document.createElement("label"); setText(pl, p.in + " " + p.name + (p.required ? " (required test value, non-secret)" : " (optional)"));
+          var input = document.createElement("input"); input.type = "text"; input.setAttribute("data-param", p.name); input.setAttribute("data-in", p.in); input.maxLength = 100; input.autocomplete = "off";
+          row.appendChild(pl); row.appendChild(input);
+        });
+        if (op.notes.length) { var n = document.createElement("span"); n.className = "next-step"; setText(n, op.notes.join(" ")); row.appendChild(n); }
+        box.appendChild(row);
+      });
+      var preview = document.createElement("button"); preview.id = "contract-preview-btn"; setText(preview, "Review drafts for selected operations"); box.appendChild(preview);
+      preview.addEventListener("click", function () {
+        var selections = contractSelections();
+        if (!selections.length) { setText(el("contract-status"), "Select at least one operation."); return; }
+        contractPost("drafts", { document: state.contract.document, source: state.contract.source, selections: selections }).then(function (res) {
+          var out = el("contract-drafts"); out.innerHTML = "";
+          res.drafts.forEach(function (d) {
+            var card = document.createElement("div"); card.className = "card contract-draft"; card.setAttribute("data-executable", String(d.executable));
+            var t = document.createElement("h4"); setText(t, (d.check ? d.check.id + " — " : "") + d.operation + (d.executable ? "" : " (cannot be approved)")); card.appendChild(t);
+            if (d.check) { var info = document.createElement("p"); setText(info, "Request: GET " + d.check.pathname + (d.check.query ? "?" + Object.keys(d.check.query).map(function (k) { return k + "=" + d.check.query[k]; }).join("&") : "") + " on this application's origin only. Asserts status " + d.check.contract.status + (d.check.contract.contentType ? ", content type " + d.check.contract.contentType : "") + (d.check.contract.schema ? " and the response schema (types, required properties, enums, nullable)." : ".")); card.appendChild(info); }
+            if (d.problems.length) { var pr = document.createElement("p"); pr.className = "error-text"; setText(pr, d.problems.join(" ")); card.appendChild(pr); }
+            if (d.notes.length) { var nt = document.createElement("p"); nt.className = "next-step"; setText(nt, d.notes.join(" ")); card.appendChild(nt); }
+            out.appendChild(card);
+          });
+          var ok = res.drafts.every(function (d) { return d.executable; });
+          var approve = document.createElement("button"); approve.id = "contract-approve-btn"; approve.className = "primary"; setText(approve, "Approve these checks"); approve.disabled = !ok; out.appendChild(approve);
+          if (!ok) { var why = document.createElement("p"); why.className = "empty"; setText(why, "Every selected draft must be approvable; remove or fix the ones marked above."); out.appendChild(why); }
+          approve.addEventListener("click", function () {
+            var target = preparedTarget();
+            if (!target) { setText(el("contract-status"), "Wait until setup has been checked, then approve."); return; }
+            contractPost("approve", { document: state.contract.document, source: state.contract.source, selections: selections, expected: { fingerprint: target.fingerprint, origin: target.origin } })
+              .then(function (saved) {
+                out.innerHTML = "";
+                setText(el("contract-status"), "Saved " + saved.saved.join(", ") + "; refreshing…");
+                // Report approval only once suites and the requirement catalogue include the new checks.
+                return runCheckSetup().then(function () { return Promise.all([loadSuites(el("suite-select").value), loadRequirements()]); })
+                  .then(function () { setText(el("contract-status"), "Approved " + saved.saved.join(", ") + ". Add them to a suite (1e) to run them, and link their assertions to requirements."); });
+              })
+              .catch(function (err) { if (err.data && err.data.code === "TARGET_CHANGED") runCheckSetup(); setText(el("contract-status"), "Not approved: " + err.message); });
+          });
+        }).catch(function (err) { setText(el("contract-status"), "Drafts not created: " + err.message); });
+      });
+    }).catch(function (err) { setText(el("contract-status"), "Contract not accepted: " + err.message); })
+      .finally(function () { el("contract-file").value = ""; });
+  });
 
   // --- Regression suites (1e) ---------------------------------------------
   // The server validates and hashes every suite; nothing here can widen a
@@ -442,6 +638,8 @@
     updateAuthVisibility();
     updateLiveNotice();
     loadSuites("");
+    loadRequirements();
+    el("contract-ops").innerHTML = ""; el("contract-drafts").innerHTML = ""; state.contract = null;
     return runCheckSetup();
   }
   el("profile-select").addEventListener("change", onProfileChanged);
@@ -1243,6 +1441,51 @@
     }).catch(function () { /* Not a suite run. */ });
   }
 
+  // QA coverage report (src/reporting/coverage-report.ts): declared
+  // requirement coverage with its denominators and mapping rules, and every
+  // conclusion traced to run, requirement revision, assertion and evidence.
+  function renderCoverageReport(container, runId) {
+    var panel = document.createElement("div"); panel.id = "coverage-report"; panel.setAttribute("data-run", runId); container.appendChild(panel);
+    fetch("/api/artifacts/" + encodeURIComponent(runId) + "/coverage-report.json").then(function (r) { return r.ok ? r.json() : null; }).then(function (rep) {
+      if (!rep) return;
+      var add = function (tag, text, cls) { var n = document.createElement(tag); if (cls) n.className = cls; setText(n, text); panel.appendChild(n); return n; };
+      var list = function (title, items, render, id) {
+        var h = add("h4", title + " (" + items.length + ")"); if (id) h.setAttribute("data-section", id);
+        if (!items.length) { add("p", "None.", "empty"); return; }
+        var ul = document.createElement("ul"); if (id) ul.setAttribute("data-list", id);
+        items.forEach(function (x) { var li = document.createElement("li"); setText(li, render(x)); ul.appendChild(li); }); panel.appendChild(ul);
+      };
+      add("h3", "QA coverage report");
+      add("p", rep.statement, "next-step");
+      if (rep.requirementCoverage) {
+        var s = rep.requirementCoverage.summary;
+        add("p", rep.requirementCoverage.label);
+        var summary = add("p", "Requirements passed: " + s.requirementsPassed.numerator + " of " + s.requirementsPassed.denominator + " approved (" + (s.requirementsPassed.percent === null ? "n/a" : s.requirementsPassed.percent + "%") + ") · Required criteria with valid pass/fail evidence: " + s.requiredCriteriaAssessed.numerator + " of " + s.requiredCriteriaAssessed.denominator + " (" + (s.requiredCriteriaAssessed.percent === null ? "n/a" : s.requiredCriteriaAssessed.percent + "%") + ") · Drafts excluded: " + rep.requirementCoverage.draftsExcluded, "suite-decision");
+        summary.id = "coverage-summary";
+        var table = document.createElement("table"); table.className = "qa-assertions"; table.id = "coverage-table";
+        var head = document.createElement("tr"); ["Requirement (revision)", "Importance", "Status", "Criteria"].forEach(function (h) { var th = document.createElement("th"); th.scope = "col"; setText(th, h); head.appendChild(th); }); table.appendChild(head);
+        rep.requirementCoverage.requirements.forEach(function (r) {
+          var tr = document.createElement("tr"); tr.setAttribute("data-requirement", r.requirementId); tr.setAttribute("data-status", r.status);
+          [r.requirementId + " (rev " + r.revision + ") " + r.title, r.importance, r.status, r.criteria.map(function (c) { return c.identity + (c.required ? "" : " (optional)") + ": " + c.status + " — " + c.reason; }).join(" | ")].forEach(function (v) { var td = document.createElement("td"); setText(td, v); tr.appendChild(td); });
+          table.appendChild(tr);
+        });
+        panel.appendChild(table);
+        var rules = document.createElement("details"); var sum = document.createElement("summary"); setText(sum, "How coverage is counted"); rules.appendChild(sum);
+        var rl = document.createElement("ul"); rep.requirementCoverage.mappingRules.forEach(function (x) { var li = document.createElement("li"); setText(li, x); rl.appendChild(li); }); rules.appendChild(rl); panel.appendChild(rules);
+      } else add("p", "No approved requirements: define and approve requirements in 1f to see declared coverage.", "empty");
+      list("Newly failing criteria", rep.newlyFailingCriteria, function (e) { return e.identity + ": " + e.baseline + " → " + e.current; }, "newly-failing-criteria");
+      list("API contract mismatches", rep.contractMismatches, function (m) { return m.identity + ": expected " + m.expected + ", observed " + m.observed + (m.reasonCode === "malformed-response" ? " (malformed response)" : "") + " · evidence " + m.evidenceRefs.join(", "); }, "contract-mismatches");
+      list("Contract assertions not validated (never a pass)", rep.contractNotValidated, function (m) { return m.identity + ": " + m.verdict + " — " + m.observed; }, "contract-not-validated");
+      list("Security policy findings — declared policy not met, not a demonstrated vulnerability", rep.securityPolicyFindings, function (f) { return f.identity + ": expected " + f.expected + ", observed " + f.observed + " · confidence " + (f.confidence || "n/a") + " · " + (f.severityRationale || "") + " Limitations: " + (f.limitations || ""); }, "security-findings");
+      list("Security assertions not assessed", rep.securityNotAssessed, function (f) { return f.identity + ": " + f.observed + " — " + (f.limitations || ""); }, "security-not-assessed");
+      list("Execution and configuration failures", rep.executionFailures, function (f) { return f.identity + (f.required ? " [required]" : "") + ": " + f.status + " — " + f.reasonCode + " (" + f.reasonLabel + "): " + f.explanation; }, "execution-failures");
+      list("Unassessed areas", rep.unassessed, function (u) { return u.identity + (u.required ? " [required]" : "") + ": " + u.status + " — " + u.reason; }, "unassessed");
+      ["coverage-report.json", "coverage-report.md", "requirement-coverage.json"].forEach(function (file) {
+        var a = document.createElement("a"); a.href = "/api/artifacts/" + encodeURIComponent(runId) + "/" + file; a.target = "_blank"; a.rel = "noopener noreferrer"; a.setAttribute("download", runId + "-" + file); setText(a, "Download " + file + " "); panel.appendChild(a);
+      });
+    }).catch(function () { /* Not a suite run, or an older run without a coverage report. */ });
+  }
+
   // QA-lead summary (src/reporting/qa-summary.ts): derived only from this
   // run's artifacts. Application candidates, AutoQA/configuration failures
   // and unsupported capabilities are listed separately, and a run that
@@ -1400,6 +1643,7 @@
       setText(accounting, "Browser actions: " + summary.actionsPerformed + " · HTTP check requests: " + (checks && checks.usage ? checks.usage.requests : 0) + " · Model decisions: " + summary.modelCalls + " (provider: " + summary.provider + ") · External model requests: " + external + ".");
     });
     renderSuiteResult(container, runId);
+    renderCoverageReport(container, runId);
     renderQaSummary(container, runId);
     renderWorkflowResults(container, runId);
     renderCheckResults(container, runId);

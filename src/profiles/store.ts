@@ -33,7 +33,7 @@ export class ProfileStore {
       // whole profile list rather than skipping the manifest file. Every
       // sibling manifest type (.workflows.json, .checks.json) must be
       // excluded here, not just the one that existed first.
-      .filter((f) => f.endsWith(".json") && !f.endsWith(".workflows.json") && !f.endsWith(".checks.json") && !f.endsWith(".suites.json") && !f.endsWith(".baselines.json"))
+      .filter((f) => f.endsWith(".json") && !f.endsWith(".workflows.json") && !f.endsWith(".checks.json") && !f.endsWith(".suites.json") && !f.endsWith(".baselines.json") && !f.endsWith(".requirements.json"))
       .map((f) => this.load(f.replace(/\.json$/, "")));
   }
 

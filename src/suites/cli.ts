@@ -8,6 +8,7 @@ import { ProfileStore } from "../profiles/store.js";
 import { credentialSecrets, redactSecrets } from "../redact.js";
 import { PreflightFailedError, RunAlreadyActiveError, RunManager, SuiteInvalidError } from "../run-manager.js";
 import type { SuiteComparison } from "./compare.js";
+import type { CoverageComparison, RequirementCoverage } from "../requirements-coverage/coverage.js";
 import { readSuiteResult, type SuiteResult } from "./result.js";
 import { findSuite, SuiteError, validateSuite } from "./suite-manifest.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -60,10 +61,13 @@ export type CliJson = {
   counts: SuiteResult["counts"];
   comparison: { comparable: boolean; reason?: string; baselineRunId: string | null; counts: SuiteComparison["counts"] | null; newlyFailing: Array<{ identity: string; expected?: string; observed?: string; evidenceRefs: string[] }> };
   accounting: SuiteResult["accounting"];
+  /** Coverage of approved requirements (null when none are approved or the file is invalid). */
+  requirementCoverage: { requirementsPassed: { numerator: number; denominator: number }; requiredCriteriaAssessed: { numerator: number; denominator: number }; newlyFailingCriteria: string[] } | null;
+  reports: { json: string; markdown: string };
   artifacts: string;
 };
 
-export function toCliJson(result: SuiteResult, comparison: SuiteComparison | undefined, runDir: string): CliJson {
+export function toCliJson(result: SuiteResult, comparison: SuiteComparison | undefined, runDir: string, coverage?: { coverage?: RequirementCoverage; comparison?: CoverageComparison }): CliJson {
   return {
     schemaVersion: 1,
     runId: result.runId,
@@ -83,6 +87,12 @@ export function toCliJson(result: SuiteResult, comparison: SuiteComparison | und
       newlyFailing: (comparison?.entries ?? []).filter((e) => e.category === "newly-failing").map((e) => ({ identity: e.identity, ...(e.expected ? { expected: e.expected } : {}), ...(e.observed ? { observed: e.observed } : {}), evidenceRefs: e.evidenceRefs })),
     },
     accounting: result.accounting,
+    requirementCoverage: coverage?.coverage && coverage.coverage.summary.approvedRequirements > 0 ? {
+      requirementsPassed: { numerator: coverage.coverage.summary.requirementsPassed.numerator, denominator: coverage.coverage.summary.requirementsPassed.denominator },
+      requiredCriteriaAssessed: { numerator: coverage.coverage.summary.requiredCriteriaAssessed.numerator, denominator: coverage.coverage.summary.requiredCriteriaAssessed.denominator },
+      newlyFailingCriteria: (coverage.comparison?.entries ?? []).filter((e) => e.change === "newly-failing").map((e) => e.identity),
+    } : null,
+    reports: { json: join(runDir, "coverage-report.json"), markdown: join(runDir, "coverage-report.md") },
     artifacts: runDir,
   };
 }
@@ -91,9 +101,14 @@ function summaryLines(json: CliJson): string[] {
   const lines = [
     `Suite ${json.suite.name} (rev ${json.suite.revision}) on ${json.target.origin} [${json.target.environmentKind}] — run ${json.runId}`,
     `Decision: ${json.decision} — ${json.decisionReason}`,
-    `Items: ${json.counts.passed} passed, ${json.counts.failed} failed, ${json.counts.notExecuted} not executed, ${json.counts.unsupported} unsupported (${json.counts.required} required, ${json.counts.optional} optional).`,
+    `Items: ${json.counts.passed} passed, ${json.counts.failed} failed, ${json.counts.partiallyAssessed ?? 0} partially assessed, ${json.counts.notExecuted} not executed, ${json.counts.unsupported} unsupported (${json.counts.required} required, ${json.counts.optional} optional).`,
   ];
-  for (const gap of json.coverageGaps) lines.push(`  Coverage gap: ${gap.identity} (${gap.status}) — ${gap.reason}`);
+  for (const gap of json.coverageGaps) lines.push(`  Coverage gap: ${gap.identity} (${gap.status}, ${gap.reasonCode ?? "legacy-unknown"}) — ${gap.reason}`);
+  if (json.requirementCoverage) {
+    const r = json.requirementCoverage;
+    lines.push(`Declared requirements: ${r.requirementsPassed.numerator} of ${r.requirementsPassed.denominator} approved requirements passed; ${r.requiredCriteriaAssessed.numerator} of ${r.requiredCriteriaAssessed.denominator} required criteria have valid pass/fail evidence (declared requirements only, not the whole application).`);
+    for (const id of r.newlyFailingCriteria) lines.push(`  Newly failing criterion: ${id}`);
+  }
   if (json.comparison.comparable && json.comparison.counts) {
     const c = json.comparison.counts;
     lines.push(`Compared with baseline ${json.comparison.baselineRunId}: ${c["newly-failing"]} newly failing, ${c["still-failing"]} still failing, ${c.fixed} fixed, ${c["unchanged-passing"]} unchanged passing, ${c["not-executed"]} not executed, ${c.unsupported} unsupported, ${c.incomparable} incomparable, ${c.added} added, ${c.removed} removed.`);
@@ -103,6 +118,7 @@ function summaryLines(json: CliJson): string[] {
   }
   lines.push(`Usage: ${json.accounting.browserActions} browser actions · ${json.accounting.httpCheckRequests} HTTP check requests · ${json.accounting.modelDecisions} model decisions · ${json.accounting.externalModelRequests} external model requests.`);
   lines.push(json.scope);
+  lines.push(`Reports: ${json.reports.markdown} (human-readable), ${json.reports.json} (JSON).`);
   return lines;
 }
 
@@ -138,7 +154,9 @@ export async function runSuiteCli(argv: string[], io: CliIo): Promise<number> {
     if (!result) { io.err(`Run ${runId} finished without a suite result; see ${runDir}.`); return EXIT.ERROR; }
     const comparisonPath = join(runDir, "suite-comparison.json");
     const comparison = existsSync(comparisonPath) ? JSON.parse(readFileSync(comparisonPath, "utf-8")) as SuiteComparison : undefined;
-    const json = toCliJson(result, comparison, runDir);
+    const coveragePath = join(runDir, "requirement-coverage.json");
+    const coverage = existsSync(coveragePath) ? JSON.parse(readFileSync(coveragePath, "utf-8")) as { coverage?: RequirementCoverage; comparison?: CoverageComparison } : undefined;
+    const json = toCliJson(result, comparison, runDir, coverage);
     for (const line of summaryLines(json)) io.out(redactSecrets(line, secrets));
     if (parsed.values["json"]) writeFileSync(resolve(parsed.values["json"]), redactSecrets(JSON.stringify(json, null, 2), secrets), "utf-8");
     return result.decision === "PASS" ? EXIT.PASS : result.decision === "FAIL" ? EXIT.FAIL : EXIT.INCOMPLETE;

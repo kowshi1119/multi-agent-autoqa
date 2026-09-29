@@ -5,9 +5,10 @@ import { describe, expect, it } from "vitest";
 import { ProfileStore } from "../../src/profiles/store.js";
 import { approveBaseline, baselineEligibility, currentBaseline, loadBaselines, type Baseline } from "../../src/suites/baselines.js";
 import { compareToBaseline } from "../../src/suites/compare.js";
-import { buildSuiteResult, classifyNotRun, decideSuite, type SuiteItemResult, type SuiteResult, type SuiteRunSnapshot } from "../../src/suites/result.js";
+import { buildSuiteResult, decideSuite, type SuiteItemResult, type SuiteResult, type SuiteRunSnapshot } from "../../src/suites/result.js";
 import { canonicalJson, findSuite, loadSuites, saveSuite, SuiteError, suiteContentHash, validateSuite } from "../../src/suites/suite-manifest.js";
 import { suiteEnvironment } from "../helpers/suite-env.js";
+import { executionFor } from "../../src/outcomes/outcome.js";
 
 const ORIGIN = "http://localhost:4987";
 
@@ -73,11 +74,49 @@ describe("suite decision", () => {
     expect(decideSuite([item({ required: false })]).decision).toBe("INCOMPLETE");
   });
 
-  it("classifies checks that did not run as coverage gaps or capability limits", () => {
-    expect(classifyNotRun("Run was cancelled before this check ran.")).toBe("not-executed");
-    expect(classifyNotRun("API request budget exhausted.")).toBe("not-executed");
-    expect(classifyNotRun("The authenticated session expired earlier in this run")).toBe("not-executed");
-    expect(classifyNotRun("POST /x is a mutating request not present in apiChecks.allowedMutatingEndpoints.")).toBe("unsupported");
+  it("classifies checks that did not run by reason code only; rewording explanations never changes the decision", () => {
+    const dir = mkdtempSync(join(tmpdir(), "autoqa-suite-codes-"));
+    const snapshot: SuiteRunSnapshot = { schemaVersion: 1, runId: "RUN-C", profileId: "demo", suite: { id: "s", name: "S", revision: 1, contentHash: "c".repeat(64), items: [
+      { kind: "api-check", id: "A", required: true, definitionHash: "a".repeat(64) }, { kind: "api-check", id: "B", required: true, definitionHash: "b".repeat(64) }, { kind: "api-check", id: "C", required: false, definitionHash: "c".repeat(64) }] },
+      target: { origin: ORIGIN, environmentKind: "owned-sandbox", authMode: "none", runSessionAuth: "cookie" }, executionSettings: { limits: {}, effectiveLimits: { maxActions: 1, maxDurationMs: 1, maxApiRequests: 1 }, mode: "demo" }, recordedAt: "" };
+    writeFileSync(join(dir, "run-summary.json"), JSON.stringify({ status: "completed", actionsPerformed: 0, modelCalls: 0 }));
+    const ledger = (explain: (code: string) => string) => ({ schemaVersion: 2, entries: [
+      { checkId: "A", kind: "api", ran: true, classification: "passed", reasonCode: "ok", assertion: "a", observation: explain("ok"), evidenceRefs: [] },
+      { checkId: "B", kind: "api", ran: false, classification: "unsupported", reasonCode: "budget-exhausted", blockedReason: explain("budget-exhausted"), assertion: "b", observation: "Not run.", evidenceRefs: [] },
+      { checkId: "C", kind: "api", ran: false, classification: "unsupported", reasonCode: "not-authorized", blockedReason: explain("not-authorized"), assertion: "c", observation: "Not run.", evidenceRefs: [] },
+    ] });
+    writeFileSync(join(dir, "check-results.json"), JSON.stringify(ledger((c) => `Original wording for ${c}.`)));
+    const original = buildSuiteResult(dir, snapshot, false);
+    // Same codes, deliberately misleading new wording: nothing structural changes.
+    writeFileSync(join(dir, "check-results.json"), JSON.stringify(ledger(() => "Cancelled because the session expired and the budget ran out (all passed).")));
+    const reworded = buildSuiteResult(dir, snapshot, false);
+    const shape = (r: SuiteResult) => ({ decision: r.decision, items: r.items.map((i) => [i.itemId, i.status, i.reasonCode]), gaps: r.coverageGaps.map((g) => [g.identity, g.status, g.reasonCode]) });
+    expect(shape(reworded)).toEqual(shape(original));
+    expect(shape(original)).toEqual({ decision: "INCOMPLETE", items: [["A", "passed", "ok"], ["B", "not-executed", "budget-exhausted"], ["C", "unsupported", "not-authorized"]], gaps: [["api-check:B", "not-executed", "budget-exhausted"]] });
+    expect(executionFor("cancelled")).toBe("not-executed");
+    expect(executionFor("session-expired")).toBe("not-executed");
+    expect(executionFor("scope-rejected")).toBe("unsupported");
+  });
+
+  it("reads version 1 ledgers structurally: recorded passes and failures stay, anything else is an unknown gap, never a guess", () => {
+    const dir = mkdtempSync(join(tmpdir(), "autoqa-suite-legacy-"));
+    const snapshot: SuiteRunSnapshot = { schemaVersion: 1, runId: "RUN-L", profileId: "demo", suite: { id: "s", name: "S", revision: 1, contentHash: "c".repeat(64), items: [
+      { kind: "api-check", id: "P", required: true, definitionHash: "a".repeat(64) }, { kind: "api-check", id: "F", required: true, definitionHash: "b".repeat(64) }, { kind: "api-check", id: "N", required: true, definitionHash: "c".repeat(64) }, { kind: "security-check", id: "S", required: false, definitionHash: "d".repeat(64) }] },
+      target: { origin: ORIGIN, environmentKind: "owned-sandbox", authMode: "none", runSessionAuth: "cookie" }, executionSettings: { limits: {}, effectiveLimits: { maxActions: 1, maxDurationMs: 1, maxApiRequests: 1 }, mode: "demo" }, recordedAt: "" };
+    writeFileSync(join(dir, "run-summary.json"), JSON.stringify({ status: "completed", actionsPerformed: 0, modelCalls: 0 }));
+    const before = JSON.stringify({ schemaVersion: 1, entries: [
+      { checkId: "P", kind: "api", ran: true, classification: "passed", assertion: "p", observation: "ok", evidenceRefs: [] },
+      { checkId: "F", kind: "api", ran: true, classification: "needs_review", assertion: "f", observation: "mismatch", evidenceRefs: [] },
+      { checkId: "N", kind: "api", ran: false, classification: "unsupported", blockedReason: "API request budget exhausted.", assertion: "n", observation: "Not run.", evidenceRefs: [] },
+      { checkId: "S", kind: "security", ran: true, classification: "needs_review", assertion: "headers", observation: "Missing security header(s): x.", evidenceRefs: [] },
+    ] });
+    writeFileSync(join(dir, "check-results.json"), before);
+    const r = buildSuiteResult(dir, snapshot, false);
+    expect(r.items.map((i) => [i.itemId, i.status, i.reasonCode])).toEqual([["P", "passed", "ok"], ["F", "failed", "assertion-failed"], ["N", "not-executed", "legacy-unknown"], ["S", "failed", "assertion-failed"]]);
+    expect(r.items.find((i) => i.itemId === "S")?.assertionModel).toBe("aggregate-v1");
+    expect(r.decision).toBe("FAIL");
+    expect(r.coverageGaps).toEqual([expect.objectContaining({ identity: "api-check:N", reasonCode: "legacy-unknown" })]);
+    expect(readFileSync(join(dir, "check-results.json"), "utf-8")).toBe(before); // historical artifact untouched
   });
 
   it("a missing result is never a pass, and an auth failure marks everything not executed", () => {

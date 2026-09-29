@@ -1,5 +1,36 @@
 # AutoQA
 
+## Requirements coverage, API contracts and security evidence — 2026-09-29
+
+**Requirements (1f).**
+1. Write a requirement with acceptance criteria in your own words, mark each criterion required or optional, and link it to assertions of approved workflows or checks (or to "every assertion" of an item).
+2. Save, which creates a draft, then click **Approve revision N**.
+
+Only approved revisions count. Editing creates a new draft revision, and runs compare a changed revision as *incomparable*. Suggestions only restate existing assertions. Import/export is JSON, and imports arrive as drafts.
+
+**Coverage rules.** A criterion passes only when every linked assertion reported a valid pass; clicks and page visits are not evidence. A requirement passes only when all its required criteria pass. Unmapped criteria, items outside the suite and items not executed are *not assessed*. The report shows its denominators (requirements passed / approved; required criteria with pass-or-fail evidence / required criteria) and is coverage of **declared** requirements, not of the application.
+
+**API contracts (supported subset).**
+- Documents: JSON OpenAPI **3.0.x**, at most 1 MiB. Local `#/components/schemas` refs only; remote or file refs are refused and never fetched.
+- Schema keywords validated: `type` (string, number, integer, boolean, array, object), `properties`, `required`, `items`, `enum`, `nullable`. Annotations are ignored.
+- Anything else, including cycles and reference chains deeper than 16, is reported as **unsupported** and never passes.
+- `servers` are ignored: checks run only on the application's approved origin and paths, with explicit non-secret path/query values.
+- Only **GET** operations can be approved; importing a POST/PUT/PATCH/DELETE never authorizes it.
+- Assertion ids: `contract:status`, `contract:content-type`, `contract:json`, `contract:$.a.b:required|type|enum`, `contract:$.list[*]:type`. Observations never include response values.
+- Bounds: 2,000 schema nodes, 20,000 validation steps, the first 50 array elements, and the profile's response-size cap.
+
+**Security evidence.**
+- Each security check reports individual assertions: `header:<name>`, `cookie:<name>:<attr>`, `secret:*`, `cross-account:denied`. Each has its expected policy, sanitized observation, verdict, confidence, limitations and a severity rationale.
+- HSTS is not assessed over `http://` (RFC 6797 §7.2/§8.1), nor `Secure` cookies on non-localhost `http://` (MDN Set-Cookie).
+- A failed policy assertion is not a demonstrated vulnerability, and several failing assertions on one response are one finding.
+
+**Structured outcomes and migration.**
+- Every result carries a reason code (e.g. `auth-failed`, `session-expired`, `scope-rejected`, `cancelled`, `budget-exhausted`, `transport-error`, `malformed-response`, `unsupported-validation`). Decisions use codes and verdicts only, so rewording a message never changes a decision.
+- Older artifacts are read by version: v1 ledgers keep their recorded passes and failures, and anything else becomes `legacy-unknown` (a coverage gap). Older aggregate security results are incomparable with per-assertion ones.
+- Old files are never rewritten.
+
+**Reports.** Each suite run writes `coverage-report.json` and `coverage-report.md`, which are downloadable from Results and printed by the CLI. They contain decision, coverage, newly failing criteria, contract mismatches, security findings with limitations, execution/configuration failures and unassessed areas, each traced to run, requirement revision, assertion and evidence file. They contain no response bodies. A PASS never means "the application is secure" or "all business requirements are tested".
+
 ## Regression suites, baselines and release decisions — 2026-09-29
 
 1. **Choose application → 1e. Regression suites → New suite.** Tick saved workflows and declared checks, and mark each required or optional. Limits can only be lower than the profile's. Discovery drafts must be saved (1d) before they can be added.

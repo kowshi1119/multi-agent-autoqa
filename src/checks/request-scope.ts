@@ -66,17 +66,22 @@ export function sessionFields(profile: ProjectProfile, session: RunSession | und
 
 export function createCheckRequester(profile: ProjectProfile, origin: string, budget: CheckBudget, session?: RunSession) {
   const authenticated = profile.auth.mode !== "none";
-  return async (pathname: string, method: string, body: unknown, cap: number, signal?: AbortSignal, headers?: Record<string, string>): Promise<CheckHttpResponse | CheckHttpError> => {
-    if (authenticated && !profile.apiChecks.useRunSession) return { failed: true, reason: "Authenticated API checks are opt-in (apiChecks.useRunSession) and not enabled for this profile; no anonymous request was sent." };
-    if (authenticated && !session?.authenticated) return { failed: true, reason: "No authenticated session exists for this run (authentication did not succeed or the session is closed); no anonymous request was sent." };
-    if (authenticated && session?.mechanismMismatch) return { failed: true, unsupported: true, reason: session.mechanismMismatch };
-    if (authenticated && session?.expired) return { failed: true, sessionExpired: true, reason: "The authenticated session expired earlier in this run; no further authenticated requests were sent." };
+  return async (pathname: string, method: string, body: unknown, cap: number, signal?: AbortSignal, headers?: Record<string, string>, query?: Record<string, string>): Promise<CheckHttpResponse | CheckHttpError> => {
+    if (authenticated && !profile.apiChecks.useRunSession) return { failed: true, code: "missing-configuration", reason: "Authenticated API checks are opt-in (apiChecks.useRunSession) and not enabled for this profile; no anonymous request was sent." };
+    if (authenticated && !session?.authenticated) return { failed: true, code: "auth-failed", reason: "No authenticated session exists for this run (authentication did not succeed or the session is closed); no anonymous request was sent." };
+    if (authenticated && session?.mechanismMismatch) return { failed: true, code: "auth-unsupported", unsupported: true, reason: session.mechanismMismatch };
+    if (authenticated && session?.expired) return { failed: true, code: "session-expired", sessionExpired: true, reason: "The authenticated session expired earlier in this run; no further authenticated requests were sent." };
     const url = scopedCheckUrl(profile, origin, pathname);
-    if (!url) return { failed: true, reason: "Request is outside the approved origin or navigation.allowedPathPrefixes, or its path is non-canonical." };
-    if (method !== "GET" && !profile.apiChecks.allowedMutatingEndpoints.some(e => e.method === method && e.pathname === pathname)) return { failed: true, reason: "Mutation is not explicitly authorized." };
-    if (signal?.aborted || Date.now() >= budget.deadline) return { failed: true, reason: "Run cancelled or duration limit reached." };
-    if (budget.used >= budget.max) return { failed: true, reason: "API request budget exhausted." };
-    if (body !== undefined && Buffer.byteLength(JSON.stringify(body)) > 65536) return { failed: true, reason: "Request body exceeds the byte limit." };
+    if (url && query) {
+      // Only explicit, validated test values; never a way to change the origin or path.
+      for (const [k, v] of Object.entries(query)) { if (!/^[A-Za-z0-9._~-]{1,100}$/.test(k) || !/^[A-Za-z0-9._~-]{1,100}$/.test(v)) return { failed: true, code: "scope-rejected", reason: "Query parameters must be explicit, non-secret test values." }; url.searchParams.set(k, v); }
+    }
+    if (!url) return { failed: true, code: "scope-rejected", reason: "Request is outside the approved origin or navigation.allowedPathPrefixes, or its path is non-canonical." };
+    if (method !== "GET" && !profile.apiChecks.allowedMutatingEndpoints.some(e => e.method === method && e.pathname === pathname)) return { failed: true, code: "not-authorized", reason: "Mutation is not explicitly authorized." };
+    if (signal?.aborted) return { failed: true, code: "cancelled", reason: "Run cancelled." };
+    if (Date.now() >= budget.deadline) return { failed: true, code: "budget-exhausted", reason: "Duration limit reached." };
+    if (budget.used >= budget.max) return { failed: true, code: "budget-exhausted", reason: "API request budget exhausted." };
+    if (body !== undefined && Buffer.byteLength(JSON.stringify(body)) > 65536) return { failed: true, code: "bounds-exceeded", reason: "Request body exceeds the byte limit." };
     let requestHeaders = headers;
     if (authenticated) {
       // Resolved only after every scope/method/budget gate has passed, and
@@ -87,11 +92,11 @@ export function createCheckRequester(profile: ProjectProfile, origin: string, bu
       const observed = session!.describeAuth?.(url.href) ?? "no application API calls were observed";
       if (profile.apiChecks.runSessionAuth === "observed-authorization") {
         const authorization = session!.authorizationFor?.(url.href);
-        if (!authorization) return { failed: true, unsupported: true, reason: `No Bearer Authorization header sent by the application to this origin was observed during this run (${observed}); no anonymous request was sent.` };
+        if (!authorization) return { failed: true, code: "auth-unsupported", unsupported: true, reason: `No Bearer Authorization header sent by the application to this origin was observed during this run (${observed}); no anonymous request was sent.` };
         requestHeaders = { ...headers, authorization };
       } else {
         const cookie = await session!.cookieHeaderFor(url.href);
-        if (!cookie) return { failed: true, unsupported: true, reason: `No session cookie applies to this URL; ${observed}. Only cookie sessions are used unless apiChecks.runSessionAuth is "observed-authorization"; no anonymous request was sent.` };
+        if (!cookie) return { failed: true, code: "auth-unsupported", unsupported: true, reason: `No session cookie applies to this URL; ${observed}. Only cookie sessions are used unless apiChecks.runSessionAuth is "observed-authorization"; no anonymous request was sent.` };
         requestHeaders = { ...headers, cookie };
       }
     }
@@ -102,10 +107,10 @@ export function createCheckRequester(profile: ProjectProfile, origin: string, bu
       const schemes = session!.authSchemesFor?.(url.href) ?? [];
       if (profile.apiChecks.runSessionAuth === "cookie" && schemes.length) {
         session!.mechanismMismatch = `The target rejected the run's cookie session (HTTP ${response.status}) while the application's own API calls to this origin used an Authorization header (${schemes.join(", ")}): cookie-based checks are unsupported for this API. Set apiChecks.runSessionAuth to "observed-authorization" to reuse the application's own Bearer header; no further requests were sent.`;
-        return { failed: true, unsupported: true, reason: session!.mechanismMismatch };
+        return { failed: true, code: "auth-unsupported", unsupported: true, reason: session!.mechanismMismatch };
       }
       session!.expired = true;
-      return { failed: true, sessionExpired: true, reason: `The target rejected the authenticated session (HTTP ${response.status}${response.status >= 300 && response.status < 400 ? ", redirect to login" : ""}); the response was not evaluated.` };
+      return { failed: true, code: "session-expired", sessionExpired: true, reason: `The target rejected the authenticated session (HTTP ${response.status}${response.status >= 300 && response.status < 400 ? ", redirect to login" : ""}); the response was not evaluated.` };
     }
     return response;
   };

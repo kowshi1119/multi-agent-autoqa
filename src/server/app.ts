@@ -15,6 +15,8 @@ import { handleWorkflows } from "./routes/workflows.js";
 import { handleSaveTriage } from "./routes/triage.js";
 import { handleChecks } from "./routes/checks.js";
 import { handleApproveBaseline, handleListSuites, handleSaveSuite, handleSuiteRun } from "./routes/suites.js";
+import { handleContractApprove, handleContractDrafts, handleContractParse } from "./routes/contracts.js";
+import { handleApproveRequirement, handleExportRequirements, handleImportRequirements, handleListRequirements, handleRequirementSuggestions, handleSaveRequirement } from "./routes/requirements.js";
 import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -98,6 +100,27 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const saveWorkflowsMatch = /^\/api\/profiles\/([^/]+)\/workflows$/.exec(path);
     if (saveWorkflowsMatch && method === "POST") {
       await handleSaveWorkflows(req, res, profileStore, decodeURIComponent(saveWorkflowsMatch[1] as string), () => runManager.isBusy());
+      return;
+    }
+
+    const reqMatch = /^\/api\/profiles\/([^/]+)\/requirements(?:\/(suggestions|export|import)|\/([^/]+)\/approve)?$/.exec(path);
+    if (reqMatch) {
+      const id = decodeURIComponent(reqMatch[1] as string);
+      const sub = reqMatch[2];
+      if (!sub && !reqMatch[3] && method === "GET") { handleListRequirements(res, profileStore, id); return; }
+      if (!sub && !reqMatch[3] && method === "POST") { await handleSaveRequirement(req, res, profileStore, id); return; }
+      if (sub === "suggestions" && method === "GET") { handleRequirementSuggestions(res, profileStore, id); return; }
+      if (sub === "export" && method === "GET") { handleExportRequirements(res, profileStore, id); return; }
+      if (sub === "import" && method === "POST") { await handleImportRequirements(req, res, profileStore, id); return; }
+      if (reqMatch[3] && method === "POST") { await handleApproveRequirement(req, res, profileStore, id, decodeURIComponent(reqMatch[3])); return; }
+    }
+
+    const contractMatch = /^\/api\/profiles\/([^/]+)\/contract\/(parse|drafts|approve)$/.exec(path);
+    if (contractMatch && method === "POST") {
+      const id = decodeURIComponent(contractMatch[1] as string);
+      if (contractMatch[2] === "parse") await handleContractParse(req, res, profileStore, id);
+      else if (contractMatch[2] === "drafts") await handleContractDrafts(req, res, profileStore, id);
+      else await handleContractApprove(req, res, profileStore, id, () => runManager.isBusy());
       return;
     }
 

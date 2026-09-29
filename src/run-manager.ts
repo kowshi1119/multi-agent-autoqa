@@ -1,6 +1,6 @@
 import { loadWorkflowManifest, type WorkflowManifest } from "./pilot/workflow-manifest.js";
 import { snapshotManifest } from "./pilot/workflow-runtime.js";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { FormLoginBootstrap, NoAuthBootstrap, type TransientCredentials } from "./auth/session-bootstrap.js";
 import { BrowserLaunchError } from "./browser/browser.js";
@@ -13,7 +13,7 @@ import type { RunProgressEvent } from "./progress.js";
 import type { ProjectProfile } from "./profiles/schema.js";
 import type { ProfileStore } from "./profiles/store.js";
 import { profileToAppConfig } from "./profiles/to-app-config.js";
-import { credentialSecrets } from "./redact.js";
+import { credentialSecrets, redactSecrets } from "./redact.js";
 import { generateRunId, writeRunSummary, type RunSummary } from "./report.js";
 import { assembleReport } from "./reporting/assemble.js";
 import { runPipeline, type PipelineResult } from "./run-pipeline.js";
@@ -30,6 +30,10 @@ import { findSuite, suiteContentHash, validateSuite, type Suite } from "./suites
 import { buildSuiteResult, snapshotFor, writeJsonRedacted, type SuiteRunSnapshot } from "./suites/result.js";
 import { currentBaseline } from "./suites/baselines.js";
 import { compareToBaseline } from "./suites/compare.js";
+import { loadRequirements, type Requirement } from "./requirements-coverage/requirements.js";
+import { compareCoverage, computeRequirementCoverage, type RequirementCoverage } from "./requirements-coverage/coverage.js";
+import { buildCoverageReport, renderCoverageReportMarkdown } from "./reporting/coverage-report.js";
+import { resolveArtifactPath } from "./server/security.js";
 
 export class RunAlreadyActiveError extends Error {
   constructor(message = "A run is already active. Stop it before starting another.") {
@@ -119,7 +123,7 @@ export class SuiteInvalidError extends Error {
   }
 }
 
-type SuiteRunContext = { snapshot: SuiteRunSnapshot; checkIds: Set<string>; checksOnly: boolean; authRequired: boolean };
+type SuiteRunContext = { snapshot: SuiteRunSnapshot; checkIds: Set<string>; checksOnly: boolean; authRequired: boolean; requirements: Requirement[]; requirementsError?: string };
 
 /**
  * `lastEvent` (Phase 4 continuation) is the most recent RunProgressEvent
@@ -238,7 +242,11 @@ export class RunManager {
           checkIds: new Set(suite.items.filter((i) => i.kind !== "workflow").map((i) => i.id)),
           checksOnly: suiteWorkflowIds.length === 0,
           authRequired: profile.auth.mode !== "none",
+          requirements: [],
         };
+        // Approved requirements are captured when the run starts, so later edits never rewrite this run's coverage.
+        try { suiteRun.requirements = loadRequirements(this.profileStore.getDir(), profile.id).requirements; }
+        catch (error) { suiteRun.requirementsError = error instanceof Error ? error.message : String(error); }
       }
 
       if (input.mode === "live" && !limitsMatch(profile.limits, input.confirmedLimits)) {
@@ -349,7 +357,21 @@ export class RunManager {
         writeJsonRedacted(join(runDir, "suite-result.json"), result, extraSecrets);
         let baseline;
         try { baseline = currentBaseline(this.profileStore.getDir(), profile.id, suiteRun.snapshot.suite.id); } catch (error) { logger.warn({ error: String(error) }, "Suite baseline could not be read"); }
-        writeJsonRedacted(join(runDir, "suite-comparison.json"), compareToBaseline(result, baseline), extraSecrets);
+        const comparison = compareToBaseline(result, baseline);
+        writeJsonRedacted(join(runDir, "suite-comparison.json"), comparison, extraSecrets);
+        const coverage = suiteRun.requirementsError ? undefined : computeRequirementCoverage(suiteRun.requirements, result);
+        let baselineCoverage: RequirementCoverage | undefined;
+        if (baseline) {
+          const path = resolveArtifactPath(this.runsRootDir, baseline.runId, "requirement-coverage.json");
+          try { baselineCoverage = path ? (JSON.parse(readFileSync(path, "utf-8")) as { coverage?: RequirementCoverage }).coverage : undefined; } catch { baselineCoverage = undefined; }
+        }
+        const coverageComparison = coverage ? compareCoverage(coverage, baselineCoverage, baseline?.runId ?? null) : undefined;
+        writeJsonRedacted(join(runDir, "requirement-coverage.json"), coverage
+          ? { schemaVersion: 1, coverage, comparison: coverageComparison, requirementsSnapshot: suiteRun.requirements }
+          : { schemaVersion: 1, unavailable: suiteRun.requirementsError }, extraSecrets);
+        const report = buildCoverageReport({ result, comparison, ...(coverage ? { coverage } : {}), ...(coverageComparison ? { coverageComparison } : {}) });
+        writeJsonRedacted(join(runDir, "coverage-report.json"), report, extraSecrets);
+        writeFileSync(join(runDir, "coverage-report.md"), redactSecrets(renderCoverageReportMarkdown(report), extraSecrets), "utf-8");
       } catch (error) {
         logger.warn({ error: error instanceof Error ? error.message : String(error) }, "suite-result.json could not be written");
       }
