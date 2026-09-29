@@ -30,6 +30,21 @@ export type AuthFixtureOptions = {
   bugs?: FixtureBugs;
   /** "partial": API responses also carry X-Frame-Options (nosniff is always sent) but no CSP, so exactly one header policy fails. */
   securityHeaders?: "partial";
+  /**
+   * Mirrors the Ajeer sandbox (RUN-20260929-093659390Z-1d47 discovery): the home page repeats
+   * "Statements" in a shortcut panel (same destination) and "Help" (different destination).
+   */
+  duplicateLinks?: boolean;
+  /**
+   * Mirrors the Ajeer sandbox (client-rendered app): the home page's heading and menu are drawn
+   * by script shortly after the document loads, so a navigation back to /home briefly shows an
+   * empty page.
+   */
+  lateRender?: boolean;
+  /** The statements page's own script sends a background POST (like an analytics or token call), which the read-only policy blocks. */
+  backgroundPost?: boolean;
+  /** Mirrors Ajeer's /account page: a member's own name as the first heading (plus, on /profile, a related heading). */
+  personalHeading?: boolean;
 };
 
 /** Runtime-switchable variants: known application bugs, plus a page-view session limit for expiry-mid-workflow tests. */
@@ -237,7 +252,8 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
       const detailMatch = /^\/statements\/(st-\d{2})$/.exec(path);
       if (method === "GET" && (path === "/statements" || detailMatch)) {
         if (!current?.session || !pageViewAllowed({ sid: current.sid, session: current.session })) { res.writeHead(302, { Location: "/login" }); res.end(); return; }
-        const html = path === "/statements" ? statementsPage(requestUrl, bugs) : statementDetailPage(detailMatch![1] as string, bugs);
+        const rawHtml = path === "/statements" ? statementsPage(requestUrl, bugs) : statementDetailPage(detailMatch![1] as string, bugs);
+        const html = rawHtml && path === "/statements" && options.backgroundPost ? rawHtml.replace("</body>", `<script>fetch("/api/track", { method: "POST", body: "{}" }).catch(function () {});</script></body>`) : rawHtml;
         if (!html) { res.writeHead(404, { "Content-Type": "text/plain" }); res.end("Not found"); return; }
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);
@@ -254,7 +270,18 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
       if (method === "GET" && path in AUTH_PAGES) {
         if (!current?.session || !pageViewAllowed({ sid: current.sid, session: current.session })) { res.writeHead(302, { Location: "/login" }); res.end(); return; }
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(path === "/home" && options.apiAuth ? HOME_PAGE_WITH_API_CALL : AUTH_PAGES[path]);
+        const html = path === "/home" && options.apiAuth ? HOME_PAGE_WITH_API_CALL : AUTH_PAGES[path];
+        // duplicateLinks also exposes "Profile" as a menu item (role="menuitem"), which a role=link query cannot find.
+        if (options.personalHeading && (path === "/profile" || path === "/help")) {
+          res.end(page(path === "/profile" ? "Profile" : "Help", path === "/profile" ? `<h1>Demo A Person</h1><h2>Profile details</h2><a href="/home">Back to home</a>` : `<h1>Demo A Person</h1><a href="/home">Back to home</a>`));
+          return;
+        }
+        if (path === "/home" && options.lateRender) {
+          const body = /<body>([\s\S]*)<\/body>/.exec(html as string)?.[1] ?? "";
+          res.end((html as string).replace(body, `<div id="app"></div><script>setTimeout(function () { document.getElementById("app").innerHTML = ${JSON.stringify(body).replace(/</g, "\\u003c")}; }, 700);</script>`));
+          return;
+        }
+        res.end(path === "/home" && options.duplicateLinks ? (html as string).replace('<a href="/profile">Profile</a>', '<a href="/profile" role="menuitem">Profile</a>').replace('<a href="/help">Help</a>', '<a href="help">Help</a>').replace("</nav>", `</nav>\n<section aria-label="Shortcuts"><a href="/statements">Statements</a> <a href="/activity">Help</a></section>`) : html);
         return;
       }
 

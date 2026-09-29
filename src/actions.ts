@@ -13,7 +13,9 @@ export const elementTargetSchema = z
     label: z.string().optional(),
     text: z.string().optional(),
     testId: z.string().optional(),
+    pathname: z.string().regex(/^\/[A-Za-z0-9._~!$&()*+,;=:@%\/-]{0,300}$/).optional(),
   })
+  .refine((target) => !target.pathname || target.role === "link", { message: "pathname qualifies link targets only" })
   .refine(
     (target) =>
       Boolean(target.role || target.name || target.label || target.text || target.testId),
@@ -120,6 +122,24 @@ export function isOriginAllowed(url: string, allowedOrigins: string[]): boolean 
  */
 export function buildLocator(page: Page, target: ElementTarget): Locator {
   if (target.testId) return page.getByTestId(target.testId);
+  if (target.role === "link" && target.pathname) {
+    // Duplicate links with the same name *and* destination are equivalent; any of them performs the same navigation.
+    let origin = "";
+    try { origin = new URL(page.url()).origin; } catch { /* about:blank */ }
+    const p = target.pathname;
+    // Every usual way of writing the same destination in the href attribute: absolute path,
+    // full URL, and (for root-level pages) relative "x" / "./x"; each with an optional query or hash.
+    const forms = [p, `${origin}${p}`, ...(p.lastIndexOf("/") === 0 && p.length > 1 ? [p.slice(1), `.${p}`] : [])];
+    const hrefs = forms.flatMap((h) => [`a[href="${h}"]`, `a[href^="${h}?"]`, `a[href^="${h}#"]`]).join(", ");
+    // Identified by destination plus visible text (or aria-label), not by the computed ARIA role:
+    // real navigation menus often expose anchors as menu items or tabs (found on the Ajeer
+    // sandbox, 2026-09-29), which a role=link query does not match. Only a visible anchor is used.
+    const byHref = page.locator(hrefs);
+    if (!target.name) return byHref.filter({ visible: true }).first();
+    const exactText = new RegExp(`^\\s*${target.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
+    const labelled = byHref.and(page.locator(`[aria-label="${target.name.replace(/["\\]/g, "\\$&")}"]`));
+    return byHref.filter({ hasText: exactText }).or(labelled).filter({ visible: true }).first();
+  }
   if (target.role) {
     const options = target.name ? { name: target.name, exact: true } : undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

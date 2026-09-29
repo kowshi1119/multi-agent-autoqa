@@ -17,7 +17,7 @@ export type TransientCredentials = { username: string; password: string };
 
 export type AuthResult =
   | { status: "success" }
-  | { status: "failed"; reason: "invalid-credentials" | "missing-signal" | "success-url-mismatch" | "timeout" | "not-configured" | "cancelled" | "budget-exhausted" };
+  | { status: "failed"; reason: "invalid-credentials" | "stayed-on-login" | "missing-signal" | "success-url-mismatch" | "timeout" | "not-configured" | "cancelled" | "budget-exhausted" };
 
 export interface SessionBootstrap {
   establish(
@@ -144,6 +144,15 @@ export class FormLoginBootstrap implements SessionBootstrap {
       if (signal?.aborted) return cancelled();
 
       if (!urlMatched || !new RegExp(auth.successUrlPattern).test(page.url())) {
+        // Still on the login page after submitting: the application most likely rejected the
+        // credentials. Reported separately (and never retried) so a wrong password is not
+        // re-submitted to a real account and the person is told what to check.
+        let stayed = false;
+        try { stayed = new URL(page.url()).pathname === new URL(auth.loginUrl!).pathname; } catch { stayed = false; }
+        if (stayed) {
+          logger.warn({}, "AUTH_FAILED: still on the login page after submitting; credentials were probably rejected");
+          return { status: "failed", reason: "stayed-on-login" };
+        }
         logger.warn({}, "AUTH_FAILED: post-login URL never matched the profile's successUrlPattern");
         return { status: "failed", reason: "success-url-mismatch" };
       }

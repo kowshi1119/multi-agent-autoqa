@@ -135,8 +135,15 @@ async function chaseAndValidate(route: Route, resourcePolicy: ResourcePolicy, lo
     let response: Awaited<ReturnType<Route["fetch"]>>;
     try {
       response = await route.fetch({ url: currentUrl, method: currentMethod, maxRedirects: 0 });
-    } catch (error) {
-      deny("ACTION_POLICY_DENIED: request/redirect validation failed; transport unavailable or cancelled", currentUrl);
+    } catch {
+      // The request is still aborted -- nothing is ever let through
+      // unvalidated -- but a transport failure (the page cancelled an
+      // in-flight prefetch, navigated away, the connection dropped, or the
+      // browser is closing) is not a safety-policy decision. Recording it as
+      // ACTION_POLICY_DENIED made ordinary cancelled requests look like
+      // blocked ones (observed on the Ajeer sandbox, RUN-20260929-093659390Z-1d47).
+      logger.info({ url: currentUrl, method: currentMethod }, "REQUEST_TRANSPORT_ABORTED: request cancelled or failed in transit; aborted without a policy decision");
+      void route.abort().catch(() => {});
       return;
     }
     if (hop === 0) firstHopResponse = response;

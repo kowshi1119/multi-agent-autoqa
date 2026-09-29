@@ -112,7 +112,10 @@ describe("regression suites: seeded regressions are detected, fixes recognised, 
     const { env, approve } = await setup();
     const healthy = await runSuite(env, "smoke");
     approve(healthy.runId);
+    const loginsBefore = server!.hits.get("POST /session") ?? 0;
     const failedLogin = await runSuite(env, "smoke", { credentials: { username: "demo-a", password: "wrong-synthetic-password" } });
+    // The rejected password was submitted once, never retried (a retry could lock a real account).
+    expect((server!.hits.get("POST /session") ?? 0) - loginsBefore).toBe(1);
     expect(failedLogin.result.authentication).toBe("failed");
     expect(failedLogin.result.decision).toBe("INCOMPLETE");
     expect(failedLogin.result.coverageGaps.map((g) => g.identity).sort()).toEqual(["api-check:ME", "workflow:OPEN-STATEMENTS"]);

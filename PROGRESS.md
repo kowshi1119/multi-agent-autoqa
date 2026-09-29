@@ -1,5 +1,46 @@
 # AutoQA — Progress
 
+## Ajeer QA session: first real-application workflow evidence, and 9 AutoQA fixes — 2026-09-29
+
+The user entered credentials only in the local AutoQA UI. AutoQA never received them from chat: a password pasted into chat was refused and the user was asked to rotate it. Ajeer's origin, path scope and budgets are unchanged; no endpoint or permission was added.
+
+### Real-application results (Ajeer sandbox, mock providers, 0 external model requests)
+- **Authentication only** `RUN-20260929-093659390Z-1d47`: verified (post-login `/home` URL + visible signal), 4 actions.
+- **Discovery** (1d, several rounds while fixing the bugs below): final drafts NAV-RECIPIENTS (`/recipients`), NAV-BILL-PAYMENTS (`/bill-payments`), NAV-HISTORY ("Transactions" → `/history`, heading "Transaction History") and NAV-ACCOUNT (`/account`).
+  - The first three were saved and form the suite **"Ajeer read-only smoke"** (revision 1, all required).
+  - NAV-ACCOUNT was **not** saved: its only new heading was the member's name (personal data), and loading `/account` makes the app prefetch `GET /account/delete`, which the policy correctly blocks (never sent). Every run of it would be reported as blocked.
+- **Suite run** `RUN-20260929-111030051Z-576d`: **PASS**, 3 of 3 required workflows completed on the first attempt, URL and heading assertions all passing.
+  - 17 browser actions, 0 blocked, 0 safety events, 0 HTTP check requests, 0 external model requests.
+  - 9 in-transit cancellations of the app's own prefetches were correctly logged as transport aborts, not policy blocks.
+- **Ajeer API authentication, observed (not assumed):** of 107 own API calls, 106 carried the session cookie and **none** carried an Authorization header. This confirms the withdrawal of the old "client token" assumption: run-scoped cookie API checks are applicable to Ajeer once an endpoint, scope and expected result are approved.
+- **One exploration finding** (console error on `/home` after the Recipients click) was **rejected and suppressed**: it did not reproduce in 3 attempts. Known cosmetic limitation: the fixed console-error title says "after form submission" even for a link click. It is left unchanged because the same fixed title is part of the frozen benchmark and challenge-corpus data.
+- The suite's baseline was **not** approved automatically; approving is the user's explicit decision in the UI.
+
+### AutoQA bugs found on Ajeer and fixed (each with a regression test reproducing the Ajeer condition)
+1. **Start with empty credentials** showed a misleading "Choose an application and check setup" error. It now says which input is missing, or that Workflow IDs are not a file path, and sends nothing. (`tests/server/start-validation-ui.test.ts`)
+2. **In-transit request failures** (Next.js cancelling its own prefetches, teardown) were recorded as `ACTION_POLICY_DENIED` safety events, which would mark workflows "blocked by network policy". They are still aborted, but now logged as `REQUEST_TRANSPORT_ABORTED` with no safety event. (`tests/safety/transport-abort.test.ts`)
+3. **A rejected password looked like a URL mismatch** and was **retried**, submitting a wrong password twice to a real account. It is now `stayed-on-login`, never retried, with a plain explanation. A test asserts exactly one submission.
+4. **Client-rendered menus:** after returning to the start page, discovery judged links before the app had redrawn its menu, so only the first link was ever usable. It now waits for a link to that destination. The fixture reproduces the late render; without the wait only one link is found.
+5. **List-page probes** read a client-rendered page before it drew; they now wait for the page heading.
+6. **Link identification:** when a link text appears more than once, or the anchor is not exposed with the link role (e.g. a menu item), the step is pinned to its destination (`target.pathname`) and identified by visible text or aria-label plus destination, visible anchors only. Relative `href` forms are accepted. Validation rejects a pin that differs from the step's destination.
+7. **One blocked background request discarded the whole discovery.** Blocked requests are now recorded (method, path, reason; never sent) and shown in 1d. Only the affected probe is set aside, and navigation drafts note blocked background requests in their limitations.
+8. **Discovery could record personal data as an assertion** (the member's name as a page heading). Only a heading that shares a word with the link text is used; otherwise the page is skipped and the heading is never recorded.
+9. The skip messages were misleading ("more than one control" when none was found); they now state what was observed, including the anchors seen for that destination (menu markup only).
+
+### Verification
+- Focused suites were run after each fix (up to 120 tests per round).
+- Full verification on the frozen source: `npm run verify:local`, 2026-09-29: typecheck and build passed; **787 tests / 103 files passed, zero failures (497.57 s, two workers)** (780 + 7 new); challenge corpus VALID. The source hash was identical before and after the run (`09c8a3dcceca0d0c`); only the docs were edited afterwards.
+
+### Ajeer status
+| Capability | State |
+|---|---|
+| Authentication only | Verified against Ajeer (`RUN-20260923-075117245Z-df87`, `RUN-20260929-093659390Z-1d47`) |
+| Read-only navigation workflows (3) as a suite | **Verified against Ajeer**: `RUN-20260929-111030051Z-576d` PASS |
+| Suite baseline | Pending the user's explicit approval |
+| Stateful workflows (search/filter/pagination/detail) | Not found on the probed pages; none proposed |
+| API checks | Not yet declared; cookie session observed to be the mechanism |
+| Contract checks, requirements | Not yet defined for Ajeer |
+
 ## Phase 12: requirements coverage, API contract testing, reliable security evidence — 2026-09-29
 
 **Baseline confirmed before editing.** HEAD `6861639` = origin/main with a clean tree. The recorded 762 / 96 was not re-used as fresh evidence; the final count below is this phase's own run.

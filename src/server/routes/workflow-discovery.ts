@@ -43,7 +43,7 @@ export async function handleWorkflowDiscovery(req: IncomingMessage, res: ServerR
     const result = await runWorkflowDiscovery(profile, credentials, createLogger(undefined, credentialSecrets(credentials)), controller.signal);
     if (res.destroyed) return;
     if (result.status === "failed") { sendJson(res, 422, { error: result.reason }); return; }
-    sendJson(res, 200, { startPathname: result.startPathname, candidates: result.candidates, skipped: result.skipped, needsConfiguration: result.needsConfiguration });
+    sendJson(res, 200, { startPathname: result.startPathname, candidates: result.candidates, skipped: result.skipped, needsConfiguration: result.needsConfiguration, blockedRequests: result.blockedRequests });
   } catch (error) {
     if (res.destroyed) return;
     if (error instanceof ProfileError) { sendJson(res, 404, { error: error.message }); return; }

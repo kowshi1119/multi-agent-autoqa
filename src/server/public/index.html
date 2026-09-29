@@ -156,6 +156,7 @@
     <div id="wd-candidates"></div>
     <div id="wd-skipped" class="next-step"></div>
     <div id="wd-needs-config" class="next-step"></div>
+    <div id="wd-blocked" class="next-step"></div>
     <div style="margin-top:0.6em;"><button id="wd-save-btn" class="primary">Save selected workflows</button></div>
   </div>
   <div id="wd-status" class="error-text" role="status" style="margin-top:0.6em;"></div>
@@ -720,6 +721,8 @@
           card.appendChild(workflowField("Evidence", (w.evidenceRequired || []).join("; ")));
           list.appendChild(card);
         });
+        var blocked = data.blockedRequests || [];
+        setText(el("wd-blocked"), blocked.length ? "Requests the safety policy blocked (never sent; method and path only): " + blocked.map(function (b) { return b.method + " " + b.pathname + " — " + b.reason; }).join(" | ") : "");
         var needs = data.needsConfiguration || [];
         setText(el("wd-needs-config"), needs.length ? "Requires your configuration before it can be proposed (not submitted): " + needs.map(function (n) { return n.page + " " + n.kind + " — " + n.reason + " " + n.suggestion; }).join(" | ") : "");
         setText(el("wd-skipped"), data.skipped.length ? "Skipped (not opened or not assertable): " + data.skipped.map(function (s) { return s.name + " — " + s.reason; }).join(" | ") : "");
@@ -1123,10 +1126,25 @@
     var profile = currentProfile();
     var target = preparedTarget();
     if (!profile || !target || state.starting || state.currentRunId) return;
+    // Explain a missing or malformed input here, in plain words, instead of
+    // letting the server refuse it with a generic message. Nothing is sent.
+    var refuse = function (message) { setText(el("status-line"), message + " Nothing was sent."); el("status-line").className = "status-line error-text"; };
+    var suiteChoice = selectedSuite();
+    if (profile.authMode !== "none" && (!el("auth-username").value.trim() || !el("auth-password").value)) {
+      refuse("Enter the username and password under “2. Sign in for this run” first (they are used for this run only and not saved).");
+      el("auth-username").focus();
+      return;
+    }
+    var rawIds = el("workflow-ids").value.trim();
+    if (!suiteChoice && !el("auth-only").checked && rawIds && rawIds.split(",").some(function (id) { return !/^[A-Za-z0-9_-]+$/.test(id.trim()); })) {
+      refuse("Workflow IDs must be saved workflow names such as NAV-STATEMENTS, separated by commas — not a file path. Leave the box empty to run every saved workflow.");
+      el("workflow-ids").focus();
+      return;
+    }
     state.starting = true;
     updateStartAvailability();
     var mode = target.mode;
-    var suite = selectedSuite();
+    var suite = suiteChoice;
     var body = { profileId: target.profileId, mode: mode, expected: { fingerprint: target.fingerprint, origin: target.origin } };
     if (suite) {
       body.suiteId = suite.id;

@@ -1,5 +1,18 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Status — 2026-09-29 (QA session): first Ajeer workflow suite passed
+
+- Suite **"Ajeer read-only smoke"** (NAV-RECIPIENTS, NAV-BILL-PAYMENTS, NAV-HISTORY) passed on the sandbox: `RUN-20260929-111030051Z-576d`, 3/3 required, 0 blocked, 0 external model requests.
+- Ajeer's own API calls use the **session cookie** (106 of 107 observed; no Authorization header), so cookie-based run-session API checks are applicable once an endpoint, scope and expected result are approved.
+- NAV-ACCOUNT was not saved: its only new heading was personal data, and `/account` prefetches `GET /account/delete`, which is (correctly) blocked.
+- Scope and budgets are unchanged.
+
+**Next local steps (yours):**
+1. In the results for that run, click **Approve this run as the suite baseline**, if you agree it represents known-good behaviour.
+2. Re-run the suite whenever Ajeer changes; AutoQA reports newly failing, fixed and unchanged assertions against that baseline.
+
+Always type credentials into the local UI (or `QA_USERNAME`/`QA_PASSWORD` for `npm run suite`), never into chat.
+
 ## Status — 2026-09-29 (Phase 12): requirements, contracts and security evidence available; Ajeer still pending
 
 Nothing was run against Ajeer in Phase 12. Ajeer's scope (origin, path prefixes, no form endpoints) and budgets (25 actions, 5 pages, 180 s) are unchanged. No Ajeer contract, requirement, suite or baseline exists, and no Ajeer result is claimed.

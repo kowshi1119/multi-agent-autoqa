@@ -77,6 +77,7 @@ export function validateDiscoveredWorkflow(profile: ProjectProfile, raw: unknown
   for (const step of steps) {
     const target = "target" in step.action ? step.action.target : undefined;
     if (!target || !targetLabel(target)) return { ok: false, reason: "Every step must use one named, explicit control." };
+    if (target.pathname !== undefined && target.pathname !== step.resultingPathname) return { ok: false, reason: "A link pinned to a destination must lead to the step's declared destination." };
     if (looksStateChanging(targetLabel(target), step.resultingPathname ?? "")) return { ok: false, reason: "A control or destination looks state-changing and is outside read-only authorization." };
     if (step.action.type === "fill" && step.action.value.length > 100) return { ok: false, reason: "Search input is limited to 100 characters." };
   }
@@ -204,11 +205,13 @@ export async function discoverStatefulOnPage(ctx: StatefulContext, listPath: str
   const backToList = async (): Promise<boolean> => {
     if (!ctx.spendAction()) return false;
     await page.goto(listUrl, { waitUntil: "domcontentloaded", timeout: 15_000, signal });
-    return new URL(page.url()).pathname === listPath && await buildLocator(page, headingTarget).isVisible().catch(() => false);
+    // Wait for client-rendered content (the heading) rather than judging an empty, still-rendering page.
+    return new URL(page.url()).pathname === listPath && await buildLocator(page, headingTarget).waitFor({ state: "visible", timeout: 10_000, signal }).then(() => true, () => false);
   };
   const unique = async (target: ElementTarget) => (await buildLocator(page, target).count().catch(() => 0)) === 1;
   const clean = (name: string) => redactSecrets(name, ctx.secrets) === name && name.length <= 60;
 
+  await buildLocator(page, headingTarget).waitFor({ state: "visible", timeout: 10_000, signal }).catch(() => {});
   const structure = await readStructure(page, listPath);
   const within = structure.container;
   const rowRole = structure.rowRole;

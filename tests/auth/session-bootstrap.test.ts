@@ -140,12 +140,12 @@ describe("FormLoginBootstrap (real browser, synthetic login page)", () => {
 
     const result = await bootstrap.establish(context, page, profile, { username: "admin", password: "wrong-password" }, createLogger());
 
-    // Wrong credentials leave the login page in place -- the URL never
-    // matches successUrlPattern at all, which is the more precise failure
-    // reason (the old code never checked this and could only ever report
-    // "missing-signal" here).
+    // Wrong credentials leave the login page in place. Since 2026-09-29 this
+    // is reported as "stayed-on-login" (found on the Ajeer sandbox), which is
+    // never retried, rather than the generic "success-url-mismatch" that is
+    // kept for landing on an unexpected page (see the look-alike test below).
     expect(result.status).toBe("failed");
-    if (result.status === "failed") expect(result.reason).toBe("success-url-mismatch");
+    if (result.status === "failed") expect(result.reason).toBe("stayed-on-login");
     await context.close();
   });
 

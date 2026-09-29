@@ -9,12 +9,16 @@ import { ActionPolicy } from "../safety/action-policy.js";
 import { installRouteGuard } from "../safety/navigation-guard.js";
 import { completionPatternFor, discoverStatefulOnPage, inScope, looksStateChanging, type NeedsConfiguration, type SkippedCandidate } from "./stateful-discovery.js";
 import type { DeclaredWorkflow } from "./workflow-manifest.js";
+import pino from "pino";
+
+/** A request the policy denied during discovery: never sent; method, path and reason only. */
+export type BlockedRequest = { method: string; pathname: string; reason: string };
 
 export { completionPatternFor, escapeForPattern, validateDiscoveredWorkflow } from "./stateful-discovery.js";
 export type { NeedsConfiguration, SkippedCandidate } from "./stateful-discovery.js";
 
 export type WorkflowDiscoveryResult =
-  | { status: "observed"; startPathname: string; candidates: DeclaredWorkflow[]; skipped: SkippedCandidate[]; needsConfiguration: NeedsConfiguration[] }
+  | { status: "observed"; startPathname: string; candidates: DeclaredWorkflow[]; skipped: SkippedCandidate[]; needsConfiguration: NeedsConfiguration[]; blockedRequests: BlockedRequest[] }
   | { status: "failed"; reason: string };
 
 const MAX_CANDIDATES = 5;
@@ -62,8 +66,23 @@ export async function runWorkflowDiscovery(profile: ProjectProfile, credentials:
     const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
     const policy = new ActionPolicy(profile);
     let authenticating = true;
-    let policyBlocked = false;
-    await installRouteGuard(context, profile.navigation.allowedOrigins, quietLogger, () => { policyBlocked = true; },
+    // Every request the policy denies is aborted (never sent). It is recorded here as method,
+    // path and reason only, so the person can see what the application tried; a denial sets
+    // aside only the probe it happened in instead of discarding the whole discovery.
+    const blockedRequests: BlockedRequest[] = [];
+    let blockedCount = 0;
+    const guardLogger = pino({ level: "warn" }, { write: (line: string) => {
+      try {
+        const entry = JSON.parse(line) as { url?: string; method?: string; reason?: string };
+        if (!entry.url || !entry.method) return;
+        const pathname = new URL(entry.url).pathname.slice(0, 120);
+        const reason = String(entry.reason ?? "").replace(/^ACTION_POLICY_DENIED:\s*/, "").slice(0, 200);
+        if (!blockedRequests.some((b) => b.method === entry.method && b.pathname === pathname && b.reason === reason)) blockedRequests.push({ method: entry.method, pathname, reason });
+      } catch { /* not a denial record */ }
+    } });
+    const blockedSince = (count: number): boolean => blockedCount > count;
+    const describeBlocked = () => blockedRequests.slice(-3).map((b) => `${b.method} ${b.pathname} (${b.reason})`).join("; ");
+    await installRouteGuard(context, profile.navigation.allowedOrigins, guardLogger, () => { blockedCount++; },
       (method, pathname, origin, resourceType) => policy.classifyResourceRequest(method, pathname, origin, resourceType, authenticating));
     const page = await context.newPage();
     context.on("page", (popup) => { if (popup !== page) void popup.close().catch(() => {}); });
@@ -72,8 +91,8 @@ export async function runWorkflowDiscovery(profile: ProjectProfile, credentials:
     const result = await new FormLoginBootstrap().establish(context, page, profile, credentials, quietLogger, combined);
     authenticating = false;
     if (combined.aborted) return cancelled();
-    if (result.status !== "success") return fail(`Sign-in did not satisfy the profile's verified conditions (${result.reason}). Nothing was observed or saved.`);
-    if (policyBlocked) return fail("Sign-in was blocked by the request policy.");
+    if (result.status !== "success") return fail(signInFailureMessage(result.reason));
+    if (blockedCount > 0) return fail(`Sign-in was blocked by the request policy: ${describeBlocked()}.`);
 
     const start = new URL(page.url());
     const startPathname = start.pathname;
@@ -96,7 +115,8 @@ export async function runWorkflowDiscovery(profile: ProjectProfile, credentials:
       if (url.origin !== start.origin || !inScope(profile, url)) { skipped.push({ name: link.name, reason: "Outside the approved origin or path scope." }); continue; }
       if (url.pathname === startPathname || url.pathname === login.pathname) continue;
       if (looksStateChanging(link.name, url.pathname)) { skipped.push({ name: link.name, reason: "Wording or path suggests a state-changing or session-ending action; outside read-only authorization." }); continue; }
-      if (queued.some((q) => q.pathname === url.pathname || q.name === link.name)) continue;
+      // One draft per destination; the same link text may lead to several in-scope pages (each is pinned to its path below).
+      if (queued.some((q) => q.pathname === url.pathname)) continue;
       queued.push({ name: link.name, pathname: url.pathname });
     }
 
@@ -106,20 +126,52 @@ export async function runWorkflowDiscovery(profile: ProjectProfile, credentials:
       if (candidates.length >= MAX_CANDIDATES) { skipped.push({ name: link.name, reason: `Candidate limit (${MAX_CANDIDATES}) reached; not observed.` }); continue; }
       if (actionsUsed + 2 > profile.limits.maxActions) { skipped.push({ name: link.name, reason: "Action limit reached; not observed." }); continue; }
       if (combined.aborted) return cancelled();
-      const target = { role: "link", name: link.name };
-      const locator = buildLocator(page, target);
-      if (await locator.count() !== 1) { skipped.push({ name: link.name, reason: "More than one control has this name; the step would be ambiguous." }); continue; }
+      // Client-rendered apps (e.g. the Ajeer sandbox) draw their menu after the document loads:
+      // wait for a link to this destination before judging that it is missing or ambiguous.
+      await page.waitForFunction((pathname) => Array.from(document.querySelectorAll("a[href]")).some((a) => { try { return new URL((a as HTMLAnchorElement).href).pathname === pathname; } catch { return false; } }), link.pathname, { timeout: 10_000, polling: 200 }).catch(() => {});
+      if (combined.aborted) return cancelled();
+      let target: { role: string; name: string; pathname?: string } = { role: "link", name: link.name };
+      let locator = buildLocator(page, target);
+      const matches = await locator.count();
+      if (matches !== 1) {
+        // Either the text appears on several controls (sidebar, dashboard shortcut, mobile menu...)
+        // or the anchor is not exposed with the link role (e.g. a menu item). Text + exact
+        // destination identifies the anchor: the step can only click an anchor that goes to this
+        // page, and completion then asserts arrival there.
+        target = { role: "link", name: link.name, pathname: link.pathname };
+        locator = buildLocator(page, target);
+        if (await locator.count() < 1) {
+          // Record what was actually on the page for this destination (menu markup only: href, text, role, size).
+          const seen = await page.evaluate((pathname) => Array.from(document.querySelectorAll("a[href]")).filter((a) => { try { return new URL((a as HTMLAnchorElement).href).pathname === pathname; } catch { return false; } }).slice(0, 4).map((a) => {
+            const r = a.getBoundingClientRect();
+            return `href="${(a.getAttribute("href") ?? "").slice(0, 80)}" text="${(a.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40)}"${a.getAttribute("aria-label") ? ` aria-label="${a.getAttribute("aria-label")!.slice(0, 40)}"` : ""}${a.getAttribute("role") ? ` role=${a.getAttribute("role")}` : ""} size=${Math.round(r.width)}x${Math.round(r.height)}`;
+          }), link.pathname).catch(() => [] as string[]);
+          skipped.push({ name: link.name, reason: `${matches > 1 ? "More than one control has this name" : "No control is exposed as a link with this name"}, and no visible anchor with this text leads to ${link.pathname}; the step would be ambiguous. Observed anchors for that page: ${seen.join(" | ") || "none"}.` });
+          continue;
+        }
+      }
       actionsUsed++;
+      const blockedBefore = blockedCount;
       await locator.click({ timeout: 10_000, signal: combined });
       const reached = await page.waitForURL((u) => u.pathname === link.pathname, { timeout: 10_000, signal: combined }).then(() => true, () => false);
-      if (policyBlocked) return fail("A candidate navigation was blocked by the request policy; discovery stopped.");
       if (!reached) {
         skipped.push({ name: link.name, reason: "The click did not reach the linked page." });
       } else {
         await page.locator('h1,h2,[role="heading"]').first().waitFor({ state: "visible", timeout: 3_000, signal: combined }).catch(() => {});
-        const heading = (await discoverSignals(page, secrets)).find((s) => s.role === "heading" && !startHeadings.has(s.name));
-        if (!heading) skipped.push({ name: link.name, reason: "No unique visible heading on the destination, so completion could not be asserted." });
-        else candidates.push(draftWorkflow(start.origin, startPathname, link, heading.name, observedAt));
+        const headings = (await discoverSignals(page, secrets)).filter((s) => s.role === "heading" && !startHeadings.has(s.name));
+        // Only a heading that relates to the link text is used. On the Ajeer sandbox the first new
+        // heading on /account was the member's own name: account-specific personal data, and
+        // brittle for any other test account. An unrelated heading is never recorded or echoed.
+        const heading = headings.find((h) => relatesTo(h.name, link.name));
+        if (!headings.length) skipped.push({ name: link.name, reason: "No unique visible heading on the destination, so completion could not be asserted." });
+        else if (!heading) skipped.push({ name: link.name, reason: "No heading on the destination relates to the link text; the headings present may be account-specific (not recorded), so no stable completion could be asserted." });
+        else {
+          const draft = draftWorkflow(start.origin, startPathname, link, heading.name, observedAt, Boolean(target.pathname));
+          // The page loaded and showed its heading; background requests it made that the policy blocked
+          // (never sent) are stated, because a run will report them as network-policy blocks.
+          if (blockedSince(blockedBefore)) draft.limitations = `${draft.limitations} While this page loaded, the application also made request(s) the read-only policy blocked (never sent): ${describeBlocked()}. A run reports these as network-policy blocks.`;
+          candidates.push(draft);
+        }
       }
       actionsUsed++;
       await page.goto(start.href, { timeout: 15_000, waitUntil: "domcontentloaded", signal: combined });
@@ -135,21 +187,28 @@ export async function runWorkflowDiscovery(profile: ProjectProfile, credentials:
       const listPath = nav.execution!.steps[0]!.resultingPathname as string;
       const listHeading = nav.execution!.completion.visible.name as string;
       actionsUsed++;
+      const probeBlockedBefore = blockedCount;
       await page.goto(start.origin + listPath, { timeout: 15_000, waitUntil: "domcontentloaded", signal: combined });
       if (new URL(page.url()).pathname !== listPath) return fail("The session did not stay on an observed page (it may have expired); discovery stopped.");
       const found = await discoverStatefulOnPage({
         page, profile, origin: start.origin, secrets, signal: combined, observedAt,
         spendAction: () => { if (actionsUsed + 1 > profile.limits.maxActions) return false; actionsUsed++; return true; },
-        policyBlocked: () => policyBlocked,
+        policyBlocked: () => blockedSince(probeBlockedBefore),
       }, listPath, listHeading);
-      if (policyBlocked) return fail("A probe was blocked by the request policy; discovery stopped and nothing was saved.");
+      if (blockedSince(probeBlockedBefore)) {
+        // The drafts from this page are not trusted: something the probes did (or the page did meanwhile) was blocked.
+        skipped.push({ name: listPath, reason: `Search/filter/pagination probes on ${listPath} were set aside: the application made request(s) the policy blocked (${describeBlocked()}). Navigation drafts are unaffected.` });
+        skipped.push(...found.skipped);
+        needsConfiguration.push(...found.needsConfiguration);
+        continue;
+      }
       candidates.push(...found.candidates);
       skipped.push(...found.skipped);
       needsConfiguration.push(...found.needsConfiguration);
     }
 
     if (combined.aborted) return cancelled();
-    return { status: "observed", startPathname, candidates, skipped, needsConfiguration };
+    return { status: "observed", startPathname, candidates, skipped, needsConfiguration, blockedRequests };
   } catch {
     return combined.aborted ? cancelled() : fail("Workflow discovery could not complete. Nothing was saved.");
   } finally {
@@ -159,7 +218,7 @@ export async function runWorkflowDiscovery(profile: ProjectProfile, credentials:
   }
 }
 
-function draftWorkflow(origin: string, startPathname: string, link: { name: string; pathname: string }, heading: string, observedAt: string): DeclaredWorkflow {
+function draftWorkflow(origin: string, startPathname: string, link: { name: string; pathname: string }, heading: string, observedAt: string, pinned = false): DeclaredWorkflow {
   const id = workflowId(link.pathname);
   return {
     id,
@@ -167,13 +226,32 @@ function draftWorkflow(origin: string, startPathname: string, link: { name: stri
     kind: "navigate",
     description: `Open "${link.name}" from ${startPathname} (read-only navigation).`,
     preconditions: `Signed in through the profile's verified login; starting on ${startPathname}.`,
-    authorizedActions: `Click the link named "${link.name}" once. No form input and no other controls.`,
+    authorizedActions: `Click the link named "${link.name}"${pinned ? ` that leads to ${link.pathname} (the page shows this link text more than once; the step is pinned to this destination)` : ""} once. No form input and no other controls.`,
     expectedOutcome: `The URL path becomes ${link.pathname} and the heading "${heading}" is visible. Observed once during workflow discovery on ${observedAt} from the page's accessibility tree; not yet executed evidence.`,
     limitations: "Read-only navigation; no reset needed. Asserts the destination URL and one heading only -- it does not verify page data, content correctness or other controls.",
     evidenceRequired: [`workflows/${id}.json with the URL and visible-heading assertion results`],
     execution: {
-      steps: [{ pathname: startPathname, resultingPathname: link.pathname, action: { type: "click", target: { role: "link", name: link.name } } }],
+      steps: [{ pathname: startPathname, resultingPathname: link.pathname, action: { type: "click", target: { role: "link", name: link.name, ...(pinned ? { pathname: link.pathname } : {}) } } }],
       completion: { urlPattern: completionPatternFor(origin, link.pathname), visible: { role: "heading", name: heading } },
     },
   };
+}
+
+/** Plain-language sign-in failures for the person at the keyboard; the structured reason stays in brackets. */
+export function signInFailureMessage(reason: string): string {
+  const hint: Record<string, string> = {
+    "stayed-on-login": "The page stayed on the login screen after submitting, so the username or password was most likely rejected. Check both (if you recently changed the password, use the new one). AutoQA did not retry, to avoid locking the account.",
+    "success-url-mismatch": "After signing in, the application went to a different page than the one recorded as the signed-in page (for example a password-change, verification or consent screen). Complete that step in a normal browser, or re-run 1c to record the new signed-in page.",
+    "missing-signal": "The signed-in page opened, but the recorded heading was not visible. The page may have changed; re-run 1c to record a current signal.",
+    "timeout": "The login page or one of its controls did not respond in time.",
+    "invalid-credentials": "No username or password was supplied.",
+  };
+  return `Sign-in did not succeed (${reason}). ${hint[reason] ?? "The profile's verified sign-in conditions were not met."} Nothing was observed or saved.`;
+}
+
+/** True when the heading and the link text share a significant word (compared by their first five letters). */
+export function relatesTo(heading: string, linkText: string): boolean {
+  const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4).map((w) => w.slice(0, 5));
+  const linkWords = new Set(words(linkText));
+  return words(heading).some((w) => linkWords.has(w));
 }

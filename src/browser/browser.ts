@@ -228,7 +228,8 @@ export class BrowserManager {
       lastResult = await sessionBootstrap.establish(context, page, profile, credentials, this.logger, signal, this.budget);
       if (lastResult.status === "success") return;
       this.logger.warn({ attempt, of: MAX_LOGIN_ATTEMPTS, reason: lastResult.reason }, "AUTH_FAILED: login attempt did not succeed");
-      if (["not-configured", "invalid-credentials", "cancelled", "budget-exhausted"].includes(lastResult.reason)) break;
+      // A rejected sign-in is never retried: re-submitting a wrong password can lock a real account.
+      if (["not-configured", "invalid-credentials", "stayed-on-login", "cancelled", "budget-exhausted"].includes(lastResult.reason)) break;
     }
 
     throw new AuthenticationError(`AUTH_FAILED: could not establish an authenticated session after ${attemptsMade} attempt(s) (${lastResult.reason}).`, lastResult.reason);

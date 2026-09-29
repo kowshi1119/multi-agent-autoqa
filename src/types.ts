@@ -4,6 +4,14 @@ export type ElementTarget = {
   label?: string;
   text?: string;
   testId?: string;
+  /**
+   * Links only: the destination path. Real applications often render the same
+   * link twice (sidebar and dashboard, desktop and mobile menus); when every
+   * link with this name leads to the same path, the path identifies the
+   * control without ambiguity. Links with the same name but a different
+   * destination never match.
+   */
+  pathname?: string;
 };
 
 export type QaAction =
