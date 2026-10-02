@@ -14,6 +14,7 @@ import {
 import type { SafetyEvent } from "../types.js";
 import type { AuthResult, SessionBootstrap, TransientCredentials } from "../auth/session-bootstrap.js";
 import { AuthMechanismObserver } from "../auth/mechanism-observer.js";
+import { ApiObserver } from "../auth/api-observer.js";
 import { attachPageRecorders, createPageRecords, type PageRecords } from "./observation.js";
 
 export class BrowserLaunchError extends Error {
@@ -58,6 +59,8 @@ export type PageSession = {
   records: PageRecords;
   /** Present on authenticated sessions: sanitized record of how the application authenticates its own API calls. */
   authObserver?: AuthMechanismObserver;
+  /** Present on authenticated sessions: structure-only record of the application's own API responses. */
+  apiObserver?: ApiObserver;
 };
 
 export class BrowserManager {
@@ -134,6 +137,7 @@ export class BrowserManager {
     // landing page are seen, but the declared login exchange itself
     // (auth.allowedRequests, which may carry credentials) is never observed.
     let authObserver: AuthMechanismObserver | undefined;
+    let apiObserver: ApiObserver | undefined;
     if (authOptions) {
       const { profile } = authOptions;
       const loginExchange = profile.auth.allowedRequests ?? [];
@@ -147,12 +151,17 @@ export class BrowserManager {
         if (loginExchange.some((r) => r.origin === url.origin && r.method === request.method() && r.pathname === url.pathname)) return;
         void authObserver!.observe(request);
       });
+      // Listeners are registered now but observation starts only after
+      // sign-in succeeds (below), so the sign-in exchange is never recorded.
+      apiObserver = new ApiObserver(profile.resources.allowedApiOrigins, loginExchange, profile.apiObservation ?? {});
+      apiObserver.attach(page);
     }
 
     if (authOptions) {
       try {
         await this.ensureAuthenticated(context, page, authOptions, signal);
         authenticating = false;
+        apiObserver?.start();
       } catch (error) {
         // A session whose login never succeeded is not reusable -- close
         // it explicitly here rather than leaving it for the eventual
@@ -169,7 +178,7 @@ export class BrowserManager {
     // credential-entry sequence itself.
     attachPageRecorders(page, records, extraSecrets);
 
-    return { context, page, records, ...(authObserver ? { authObserver } : {}) };
+    return { context, page, records, ...(authObserver ? { authObserver } : {}), ...(apiObserver ? { apiObserver } : {}) };
   }
 
   /**
@@ -251,6 +260,8 @@ export class BrowserManager {
   }
 
   async closeSession(session: PageSession): Promise<void> {
+    // Freeze observation before the context goes away, so no late callback can change it.
+    await session.apiObserver?.stop();
     await session.context.close();
   }
 

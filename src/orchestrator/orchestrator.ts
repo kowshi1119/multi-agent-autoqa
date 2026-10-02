@@ -23,7 +23,7 @@ import type { QaHeuristic } from "../qa/heuristics.js";
 import { Planner } from "../qa/planner.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 import { phaseForState, reportableAndNeedsReviewCounts, type RunProgressEvent } from "../progress.js";
-import { buildFindingNarrative, buildFindingTitle, categoryForOracle, generateFindingId, writeFindingJson } from "../report.js";
+import { buildFindingNarrative, buildDisplayTitle, buildFindingTitle, categoryForOracle, generateFindingId, writeFindingJson } from "../report.js";
 import { dedupKeyForFinding, findExistingFinding } from "../reporting/dedup.js";
 import type { ActionPolicy } from "../safety/action-policy.js";
 import type { Finding, Observation, OracleResult, RecordedStep, RequirementRule, SafetyEvent, TestCandidate } from "../types.js";
@@ -141,6 +141,16 @@ export class Orchestrator {
   /** Sanitized auth-mechanism observations for the current authenticated session (see AuthMechanismObserver). */
   getAuthObserver(): PageSession["authObserver"] {
     return this.session?.authObserver;
+  }
+
+  /** Structure-only observations of the application's own API responses (see ApiObserver). */
+  getApiObserver(): PageSession["apiObserver"] {
+    return this.session?.apiObserver;
+  }
+
+  /** The run's own page while its authenticated session is open (used to re-observe a workflow page for UI-API consistency checks). */
+  getAuthenticatedPage(): PageSession["page"] | undefined {
+    return this.authenticated && this.session ? this.session.page : undefined;
   }
 
   private progress(ctx: RunContext, detail: string): void {
@@ -698,6 +708,7 @@ export class Orchestrator {
     const candidateFinding: Finding = {
       id: "PENDING",
       title: buildFindingTitle(suspicious.oracleId),
+      ...(buildDisplayTitle(suspicious.oracleId, candidate?.actions) ? { displayTitle: buildDisplayTitle(suspicious.oracleId, candidate?.actions)! } : {}),
       status: "suspected",
       category: categoryForOracle(suspicious.oracleId),
       pageId: pageNode?.id ?? "UNKNOWN",

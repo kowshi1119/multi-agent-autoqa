@@ -31,7 +31,7 @@ export class RequirementError extends Error {
 
 const idRe = /^[A-Za-z0-9_-]{1,64}$/;
 export const linkSchema = z.object({
-  kind: z.enum(["workflow", "api-check", "security-check"]),
+  kind: z.enum(["workflow", "api-check", "security-check", "consistency-check"]),
   itemId: z.string().regex(/^[A-Za-z0-9_-]+$/).max(100),
   /** A stable assertion id reported by that item, or "*" for every assertion the item reports. */
   assertionId: z.string().min(1).max(200),
@@ -100,6 +100,10 @@ export function assertionCatalog(profilesDir: string, profile: ProjectProfile): 
       kind: "security-check", itemId: c.id, description: c.description, definitionHash: checkDefinitionHash(c),
       assertionIds: c.kind === "security-headers" ? SECURITY_HEADERS.map((h) => `header:${h}`) : c.kind === "secret-leakage" ? ["secret:sensitive-field", "secret:key-shaped-value"] : c.kind === "session-boundary" ? ["cross-account:denied"] : [],
       ...(c.kind === "cookie-attributes" ? { dynamic: "Cookie assertions are named after the cookies observed at run time; link with \"*\"." } : {}),
+    })),
+    ...(checks?.consistencyChecks ?? []).map((c): CatalogItem => ({
+      kind: "consistency-check", itemId: c.id, description: c.description, definitionHash: checkDefinitionHash(c),
+      assertionIds: [`consistency:${c.relation === "count-equal" ? "count" : c.api.valueField}`],
     })),
   ];
 }

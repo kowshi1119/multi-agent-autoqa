@@ -178,8 +178,9 @@ export function buildQaSummary(runDir: string, context: QaSummaryContext): QaSum
         reproductionSteps: [`Re-run the declared ${entry.kind} check ${entry.checkId}`], expectedVsObserved: [entry.observation], evidenceRefs: entry.evidenceRefs,
       });
     }
+    if (executed && entry.kind === "consistency" && entry.classification === "informational") notAssessed.push(`UI–API comparison ${entry.checkId}: not assessed (${entry.reasonCode ?? "unknown"})`);
     if (!executed) {
-      findings.unsupported.push({ source: entry.kind === "api" ? "api-check" : "security-check", id: entry.checkId, reason: entry.blockedReason ?? entry.observation });
+      findings.unsupported.push({ source: entry.kind === "api" ? "api-check" : entry.kind === "consistency" ? "consistency-check" : "security-check", id: entry.checkId, reason: entry.blockedReason ?? entry.observation });
       notAssessed.push(`Check ${entry.checkId}: not run`);
     }
   }
@@ -190,7 +191,7 @@ export function buildQaSummary(runDir: string, context: QaSummaryContext): QaSum
       if (f.reportDisposition === "suppress" || f.status === "rejected") continue;
       const validated = f.status === "validated";
       findings.applicationCandidates.push({
-        source: "exploration", id: f.id, title: f.title, reproduced: validated ? f.reproduction.successes > 0 : null,
+        source: "exploration", id: f.id, title: f.displayTitle ?? f.title, reproduced: validated ? f.reproduction.successes > 0 : null,
         severity: validated && f.reportDisposition === "report" ? "medium (provisional)" : "unrated",
         severityRule: validated && f.reportDisposition === "report" ? "Deterministic oracle mismatch reproduced by replay; business impact not assessed." : "Needs human review before any severity is assigned.",
         reproductionSteps: [`Open ${f.pathname}`, ...f.steps.map((s) => describeAction(s.action))],

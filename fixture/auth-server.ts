@@ -45,6 +45,14 @@ export type AuthFixtureOptions = {
   backgroundPost?: boolean;
   /** Mirrors Ajeer's /account page: a member's own name as the first heading (plus, on /profile, a related heading). */
   personalHeading?: boolean;
+  /**
+   * "client": /statements draws its table rows from the page's own call to
+   * GET /api/statement-list?page=N&pageSize=5 (the response used to render the
+   * UI). Without it the rows are server-rendered; the API answers either way.
+   */
+  statementListApi?: "client";
+  /** Test hook: called (and awaited) on every GET /api/statement-list before it answers, e.g. to press Stop mid-comparison. */
+  onStatementList?: (call: number) => void | Promise<void>;
 };
 
 /** Runtime-switchable variants: known application bugs, plus a page-view session limit for expiry-mid-workflow tests. */
@@ -60,6 +68,14 @@ export type FixtureBugs = {
   contractBadEnum?: boolean;
   contractHtml?: boolean;
   contractMalformedJson?: boolean;
+  /** UI–API regressions on GET /api/statement-list (the UI table is unaffected): the API reports the opposite status for "Book Nook" on every call. */
+  apiStatusMismatch?: boolean;
+  /** The API status for "Book Nook" alternates on every call (data changing between observations). */
+  apiStatusFlapping?: boolean;
+  /** Items lack the status field. */
+  apiMissingField?: boolean;
+  /** UI regression with statementListApi "client": the page shows "paid" whatever status its own API response says. */
+  uiStatusAlwaysPaid?: boolean;
 };
 
 /** Synthetic account records for contract tests: nested object, nullable field, enum, array. Currency "XXX" is the ISO 4217 testing code. */
@@ -74,7 +90,10 @@ export const FIXTURE_STATEMENTS = ["Coffee House", "Book Nook", "Grocery Mart", 
 const PAGE_SIZE = 5;
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
-function statementsPage(url: URL, bugs: FixtureBugs): string {
+const statementRow = (s: (typeof FIXTURE_STATEMENTS)[number]): string => `<tr><td>${s.date}</td><td><a href="/statements/${s.id}">${s.merchant}</a></td><td>${s.amount}</td><td>${s.status}</td></tr>`;
+
+function statementsPage(url: URL, bugs: FixtureBugs, clientRendered = false): string {
+  const shownStatus = bugs.uiStatusAlwaysPaid ? '"paid"' : '(s.status || "")';
   const q = bugs.searchIgnoresQuery ? "" : (url.searchParams.get("q") ?? "").trim().toLowerCase();
   const status = bugs.filterIgnored ? "" : url.searchParams.get("status") ?? "";
   const pageNo = Math.max(1, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
@@ -92,9 +111,14 @@ function statementsPage(url: URL, bugs: FixtureBugs): string {
   <button type="submit">Search</button>
 </form>
 <nav aria-label="Status filter"><a href="/statements?status=paid">Paid only</a> <a href="/statements?status=pending">Pending only</a></nav>
-<table aria-label="Statement results"><thead><tr><th>Date</th><th>Merchant</th><th>Amount</th></tr></thead><tbody>
-${rows.map((s) => `<tr><td>${s.date}</td><td><a href="/statements/${s.id}">${s.merchant}</a></td><td>${s.amount}</td></tr>`).join("\n")}
-</tbody></table>
+<table aria-label="Statement results"><thead><tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+${clientRendered ? "" : rows.map(statementRow).join("\n")}
+</tbody></table>${clientRendered ? `<script>
+fetch("/api/statement-list?page=${pageNo}&pageSize=${PAGE_SIZE}").then(function (r) { return r.json(); }).then(function (d) {
+  document.querySelector("table tbody").innerHTML = d.items.map(function (s) { return "<tr><td>" + s.date + "</td><td><a href=\\"/statements/" + s.reference + "\\">" + s.merchant + "</a></td><td>" + s.amount + "</td><td>" + ${shownStatus} + "</td></tr>"; }).join("");
+  document.body.setAttribute("data-rendered", "yes");
+});
+</script>` : ""}
 ${rows.length ? `<p>Showing ${(pageNo - 1) * PAGE_SIZE + 1}–${(pageNo - 1) * PAGE_SIZE + rows.length} of ${matching.length}</p>` : `<p role="status">No statements match your search.</p>`}
 <nav aria-label="Pagination">${pageNo > 1 ? pageLink(pageNo - 1, "Previous") : ""} ${pageNo * PAGE_SIZE < matching.length ? pageLink(pageNo + 1, "Next") : ""}</nav>
 <a href="/home">Back to home</a>`);
@@ -115,6 +139,8 @@ export type AuthFixtureServer = {
   requestLog: string[];
   /** Bearer tokens issued this server lifetime -- lets tests prove no token value was persisted. */
   issuedTokens: string[];
+  /** Session cookie values issued this server lifetime -- lets tests prove no cookie value was persisted. */
+  issuedSessionIds: string[];
   /** Invalidates every live session (next request gets 401 / redirect to login). */
   expireAllSessions(): void;
   /** Switches known-bug variants on or off, e.g. after discovery and before execution. */
@@ -195,8 +221,10 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
   const hits = new Map<string, number>();
   const requestLog: string[] = [];
   const issuedTokens: string[] = [];
+  const issuedSessionIds: string[] = [];
   const slowBodyMs = options.slowBodyMs ?? 5_000;
   let bugs: FixtureBugs = { ...options.bugs };
+  let statementListCalls = 0;
 
   const sessionFor = (req: IncomingMessage) => {
     const sid = /(?:^|;\s*)sid=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
@@ -242,6 +270,7 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         const token = randomBytes(18).toString("hex");
         sessions.set(sid, { account, apiRequests: 0, pageViews: 0, token });
         issuedTokens.push(token);
+        issuedSessionIds.push(sid);
         res.writeHead(200, { "Content-Type": "application/json", "Set-Cookie": `sid=${sid}; HttpOnly; SameSite=Lax; Path=/` });
         res.end(JSON.stringify(options.apiAuth === "bearer" ? { ok: true, token } : { ok: true }));
         return;
@@ -252,7 +281,7 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
       const detailMatch = /^\/statements\/(st-\d{2})$/.exec(path);
       if (method === "GET" && (path === "/statements" || detailMatch)) {
         if (!current?.session || !pageViewAllowed({ sid: current.sid, session: current.session })) { res.writeHead(302, { Location: "/login" }); res.end(); return; }
-        const rawHtml = path === "/statements" ? statementsPage(requestUrl, bugs) : statementDetailPage(detailMatch![1] as string, bugs);
+        const rawHtml = path === "/statements" ? statementsPage(requestUrl, bugs, options.statementListApi === "client" && !requestUrl.search) : statementDetailPage(detailMatch![1] as string, bugs);
         const html = rawHtml && path === "/statements" && options.backgroundPost ? rawHtml.replace("</body>", `<script>fetch("/api/track", { method: "POST", body: "{}" }).catch(function () {});</script></body>`) : rawHtml;
         if (!html) { res.writeHead(404, { "Content-Type": "text/plain" }); res.end("Not found"); return; }
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -315,6 +344,19 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
           json(res, 200, body);
           return;
         }
+        if (method === "GET" && path === "/api/statement-list") {
+          const pageNo = Math.max(1, Number.parseInt(requestUrl.searchParams.get("page") ?? "1", 10) || 1);
+          const pageSize = Math.min(20, Math.max(1, Number.parseInt(requestUrl.searchParams.get("pageSize") ?? String(PAGE_SIZE), 10) || PAGE_SIZE));
+          statementListCalls++;
+          await options.onStatementList?.(statementListCalls);
+          const items = FIXTURE_STATEMENTS.slice((pageNo - 1) * pageSize, pageNo * pageSize).map((s) => {
+            const flip = (bugs.apiStatusMismatch || (bugs.apiStatusFlapping && statementListCalls % 2 === 1)) && s.merchant === "Book Nook";
+            const status = flip ? (s.status === "paid" ? "pending" : "paid") : s.status;
+            return { reference: s.id, merchant: s.merchant, date: s.date, amount: s.amount, ...(bugs.apiMissingField ? {} : { status }) };
+          });
+          json(res, 200, { items, page: pageNo, pageSize, total: FIXTURE_STATEMENTS.length });
+          return;
+        }
         if (method === "GET" && path === "/api/statements") { json(res, 200, { owner: session.account, count: 2, items: [{ id: "st-1", amount: 10 }, { id: "st-2", amount: 25 }] }); return; }
         if (method === "GET" && path === "/api/big") { json(res, 200, { owner: session.account, padding: "x".repeat(2_000_000) }); return; }
         if (method === "GET" && path === "/api/slow-body") {
@@ -352,6 +394,7 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         hits,
         requestLog,
         issuedTokens,
+        issuedSessionIds,
         expireAllSessions: () => sessions.clear(),
         setBugs: (next: FixtureBugs) => { bugs = { ...next }; },
         close: () => new Promise((done) => { server.closeAllConnections(); server.close(() => done()); }),

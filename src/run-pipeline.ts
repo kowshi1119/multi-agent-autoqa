@@ -1,6 +1,7 @@
 import type { WorkflowManifest } from "./pilot/workflow-manifest.js";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { redactSecrets } from "./redact.js";
 import type { SessionBootstrap, TransientCredentials } from "./auth/session-bootstrap.js";
 import { BrowserManager } from "./browser/browser.js";
 import { BudgetTracker } from "./budget.js";
@@ -225,7 +226,7 @@ export type PipelineOptions = {
    * authentication-only, failed or cancelled runs. `session` is present for
    * form-login profiles (authenticated:false if login did not succeed).
    */
-  onSessionReady?: (ready: { finalCtx: RunContext; origin: string; session?: RunSession }) => Promise<void>;
+  onSessionReady?: (ready: { finalCtx: RunContext; origin: string; session?: RunSession; page?: import("playwright").Page }) => Promise<void>;
 };
 
 /**
@@ -347,6 +348,13 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     if (authObserver && checksAllowed) {
       writeFileSync(join(runDir, "auth-mechanism.json"), JSON.stringify(authObserver.summary(), null, 2), "utf-8");
     }
+    const apiObserver = orchestrator.getApiObserver();
+    if (apiObserver && checksAllowed) {
+      // Observation covers the run's workflows only: it is stopped and frozen
+      // before any check or comparison runs on this session.
+      const observations = { runId, profileId: sessionAuth?.profile.id ?? null, ...(await apiObserver.stop()) };
+      writeFileSync(join(runDir, "api-observations.json"), redactSecrets(JSON.stringify(observations, null, 2), sessionAuth?.credentials ? [sessionAuth.credentials.username, sessionAuth.credentials.password] : []), "utf-8");
+    }
     if (options.onSessionReady && checksAllowed && !abortSignal?.aborted && finalCtx.state !== "FAILED" && finalCtx.state !== "CANCELLED") {
       const context = orchestrator.getAuthenticatedContext();
       const session: RunSession | undefined = sessionAuth
@@ -362,7 +370,8 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
             authSchemesFor: (url: string) => authObserver?.schemesFor(url) ?? [],
           }
         : undefined;
-      await options.onSessionReady({ finalCtx, origin: new URL(config.target.url).origin, ...(session ? { session } : {}) });
+      const page = orchestrator.getAuthenticatedPage();
+      await options.onSessionReady({ finalCtx, origin: new URL(config.target.url).origin, ...(session ? { session } : {}), ...(page ? { page } : {}) });
     }
     await orchestrator.closeSession();
 

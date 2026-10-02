@@ -168,6 +168,16 @@ export const projectProfileSchema = z.object({
    * credential guessing.
    */
   securityChecks: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
+  /**
+   * Optional names the passive API observer may record as-is
+   * (src/auth/api-observer.ts). Without them, only generic vocabulary is
+   * kept and every other field, query or path name is masked. Route
+   * templates use `{name}` placeholders for single path segments.
+   */
+  apiObservation: z.object({
+    knownFields: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).max(200).default([]),
+    routeTemplates: z.array(z.string().regex(/^(\/([A-Za-z0-9._~-]{1,64}|\{[A-Za-z][A-Za-z0-9_]{0,31}\}))+$/)).max(50).default([]),
+  }).strict().optional(),
 });
 
 export type ProjectProfile = z.infer<typeof projectProfileSchema>;

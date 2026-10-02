@@ -103,6 +103,20 @@ export function buildFindingTitle(oracleId: string): string {
   return FINDING_TITLES[oracleId] ?? `Anomaly detected by oracle "${oracleId}"`;
 }
 
+/**
+ * User-facing wording that names what actually triggered the finding. The
+ * stored `title` stays the fixed oracle title (benchmark and corpus data
+ * depend on it); this is display text only. Returns undefined when the
+ * fixed title already fits.
+ */
+export function buildDisplayTitle(oracleId: string, actions: ReadonlyArray<{ type: string; target?: { role?: string } }> | undefined): string | undefined {
+  if (oracleId !== "console-error" || !actions?.length) return undefined;
+  const last = actions[actions.length - 1]!;
+  if (last.type === "click" && last.target?.role === "link") return "New browser console error appears after a link click";
+  if (last.type === "fill" || last.type === "select" || (last.type === "click" && last.target?.role === "button") || last.type === "press") return undefined;
+  return "New browser console error appears after an interaction";
+}
+
 const FINDING_CATEGORIES: Record<string, FindingCategory> = {
   "console-error": "console",
   "page-error": "runtime",

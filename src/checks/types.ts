@@ -9,7 +9,7 @@ import type { AssertionVerdict, ReasonCode } from "../outcomes/outcome.js";
 
 export type CheckLedgerEntry = {
   checkId: string;
-  kind: "api" | "security";
+  kind: "api" | "security" | "consistency";
   ran: boolean;
   blockedReason?: string;
   classification: CheckClassification;

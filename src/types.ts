@@ -337,7 +337,10 @@ export type CriticArtifact = CriticDecision & {
 
 export type Finding = {
   id: string;
+  /** Fixed per oracle; benchmark matching and the challenge corpus depend on it. */
   title: string;
+  /** Optional display wording naming the actual trigger (see buildDisplayTitle); never used for matching. */
+  displayTitle?: string;
   status: FindingStatus;
   category: FindingCategory;
   pageId: string;

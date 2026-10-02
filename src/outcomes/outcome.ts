@@ -35,6 +35,12 @@ export const REASON_CODES = [
   "not-applicable",
   "internal-error",
   "legacy-unknown",
+  // UI–API comparisons (src/checks/consistency.ts): reasons a comparison could not be assessed.
+  "data-changed",
+  "not-reproduced",
+  "ambiguous-identity",
+  "scope-mismatch",
+  "missing-field",
 ] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];
 export const reasonCodeSchema = z.enum(REASON_CODES);
@@ -80,6 +86,11 @@ export const REASON_LABELS: Record<ReasonCode, string> = {
   "not-applicable": "Not applicable in this context",
   "internal-error": "Internal error",
   "legacy-unknown": "Recorded by an older version without a structured reason",
+  "data-changed": "Data changed between observations",
+  "not-reproduced": "Mismatch not reproduced on a second observation",
+  "ambiguous-identity": "Records could not be matched unambiguously",
+  "scope-mismatch": "The UI and API observations cover different scopes",
+  "missing-field": "A compared field was missing",
 };
 
 /** Workflow records already carry a structured `failureKind` (Phase 10+). */

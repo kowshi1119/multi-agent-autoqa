@@ -46,6 +46,19 @@ export const declaredApiCheckSchema = z.object({
     contentType: z.string().max(200).nullable(),
     schema: contractSchemaSchema.nullable(),
   }).strict().optional(),
+  /**
+   * "structure-only": evidence and findings record status, content type and
+   * the body's shape (names and types), never the body. Absent means full
+   * evidence, as before (kept optional so existing definition hashes are unchanged).
+   */
+  evidence: z.enum(["full", "structure-only"]).optional(),
+  /** Where an approved check came from, e.g. a passive observation in a named run. Informational; never widens scope. */
+  provenance: z.object({
+    kind: z.literal("observed"),
+    runId: z.string().regex(/^RUN-[A-Za-z0-9-]{1,80}$/),
+    observationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    pathTemplate: z.string().max(200),
+  }).strict().optional(),
   assertions: z.object({
     expectedStatus: z.number().int().optional(),
     expectedContentType: z.string().optional(),
@@ -75,16 +88,91 @@ export const declaredSecurityCheckSchema = z.object({
 });
 export type DeclaredSecurityCheck = z.infer<typeof declaredSecurityCheckSchema>;
 
+const columnSchema = z.string().min(1).max(80);
+const fieldSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/);
+
+/**
+ * One declarative UI–API comparison (src/checks/consistency.ts): a table on
+ * a saved workflow's destination page against an approved GET check. No
+ * expressions or code: only fixed relations, normalizations and field names.
+ */
+export const consistencyCheckSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+  description: z.string().min(1).max(300),
+  /** A saved workflow; the comparison reads the page that workflow reaches. */
+  workflowId: z.string().regex(/^[A-Za-z0-9_-]+$/).max(100),
+  ui: z.object({
+    /** Accessible name of the table (role "table"). */
+    table: z.string().min(1).max(100),
+    keyColumn: columnSchema,
+    /** Required for text-equal and status-equal. */
+    valueColumn: columnSchema.optional(),
+  }).strict(),
+  api: z.object({
+    /** An approved GET API check with structure-only evidence. */
+    checkId: z.string().regex(/^[A-Za-z0-9_-]+$/),
+    /** Dot-path to the array of records ("" for a top-level array). */
+    itemsPath: z.string().regex(/^([A-Za-z_][A-Za-z0-9_-]{0,63}(\.[A-Za-z_][A-Za-z0-9_-]{0,63})*)?$/),
+    keyField: fieldSchema,
+    valueField: fieldSchema.optional(),
+  }).strict(),
+  relation: z.enum(["text-equal", "status-equal", "count-equal"]),
+  normalize: z.array(z.enum(["trim", "collapse-whitespace", "case-insensitive"])).max(3).default(["trim", "collapse-whitespace"]),
+  /**
+   * Collection scope. The UI side is always the destination page's first,
+   * unfiltered page. pageParam / pageSizeParam name the approved check's
+   * query parameters that fix the same page; count-equal requires both.
+   */
+  scope: z.object({
+    pageParam: fieldSchema.optional(),
+    pageSizeParam: fieldSchema.optional(),
+    pageSize: z.number().int().min(1).max(50).optional(),
+  }).strict(),
+  /** "rendering-response": the response the page itself fetched while rendering; "separate-check": the approved check, sent separately. */
+  mode: z.enum(["rendering-response", "separate-check"]),
+  maxRecords: z.number().int().min(1).max(10).default(5),
+}).strict();
+export type ConsistencyCheck = z.infer<typeof consistencyCheckSchema>;
+
+const MONEY_OR_TIME_RE = /amount|balance|price|fee|total|sum|money|currency|cost|date|time/i;
+
+/** Problems that make a comparison unsound before anything runs; shared by manifest validation and the save route. */
+export function consistencyProblems(check: ConsistencyCheck, apiChecks: DeclaredApiCheck[]): string[] {
+  const problems: string[] = [];
+  const api = apiChecks.find((c) => c.id === check.api.checkId);
+  if (!api) problems.push(`API check ${check.api.checkId} is not an approved check of this application.`);
+  else {
+    if (api.method !== "GET") problems.push("The API side must be a GET check.");
+    if (api.evidence !== "structure-only") problems.push("The API check must use structure-only evidence so compared values are never stored.");
+    const query = api.query ?? {};
+    if (check.scope.pageParam && query[check.scope.pageParam] !== "1") problems.push(`The API check must request page 1 ("${check.scope.pageParam}=1") to match the UI's first page.`);
+    if (check.scope.pageSizeParam && (check.scope.pageSize === undefined || query[check.scope.pageSizeParam] !== String(check.scope.pageSize))) problems.push(`The API check must request the same page size as the UI ("${check.scope.pageSizeParam}=${check.scope.pageSize ?? "?"}").`);
+  }
+  if (check.relation === "count-equal") {
+    if (!check.scope.pageParam || !check.scope.pageSizeParam || check.scope.pageSize === undefined) problems.push("A count comparison needs the page and page-size parameters so both sides cover the same collection page; a page is never compared with an application-wide total.");
+  } else if (!check.ui.valueColumn || !check.api.valueField) {
+    problems.push("Text and status comparisons need both a UI value column and an API value field.");
+  }
+  for (const name of [check.ui.valueColumn, check.api.valueField]) {
+    if (name && MONEY_OR_TIME_RE.test(name)) problems.push(`"${name}" looks monetary or date/time; those comparisons need exact numeric or time semantics, which are not supported.`);
+  }
+  return problems;
+}
+
 export const checksManifestSchema = z.object({
   schemaVersion: z.literal(1),
   profileId: z.string().regex(/^[A-Za-z0-9_-]+$/),
   apiChecks: z.array(declaredApiCheckSchema).max(100).default([]),
   securityChecks: z.array(declaredSecurityCheckSchema).max(100).default([]),
+  consistencyChecks: z.array(consistencyCheckSchema).max(20).optional(),
 }).superRefine((manifest, ctx) => {
   const ids = new Set<string>();
-  for (const check of [...manifest.apiChecks, ...manifest.securityChecks]) {
-    if (ids.has(check.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check IDs must be unique across API and security checks." });
+  for (const check of [...manifest.apiChecks, ...manifest.securityChecks, ...(manifest.consistencyChecks ?? [])]) {
+    if (ids.has(check.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check IDs must be unique across API, security and UI–API checks." });
     ids.add(check.id);
+  }
+  for (const check of manifest.consistencyChecks ?? []) {
+    for (const message of consistencyProblems(check, manifest.apiChecks)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["consistencyChecks", check.id], message });
   }
 });
 export type ChecksManifest = z.infer<typeof checksManifestSchema>;
@@ -118,6 +206,17 @@ export function loadChecksManifest(profilesDir: string, profileId: string): Chec
  * Adds or replaces approved API checks (e.g. reviewed contract drafts) by id.
  * Validated as a whole before an atomic write; security checks are kept as they are.
  */
+/** Adds or replaces one approved UI–API comparison by id; validated with the whole manifest before an atomic write. */
+export function saveConsistencyCheck(profilesDir: string, profileId: string, check: ConsistencyCheck): ChecksManifest {
+  const existing = loadChecksManifest(profilesDir, profileId) ?? { schemaVersion: 1 as const, profileId, apiChecks: [], securityChecks: [] };
+  const next = checksManifestSchema.parse({ ...existing, consistencyChecks: [...(existing.consistencyChecks ?? []).filter((c) => c.id !== check.id), check] });
+  const path = manifestPath(profilesDir, profileId);
+  mkdirSync(profilesDir, { recursive: true });
+  writeFileSync(`${path}.tmp`, JSON.stringify(next, null, 2), "utf-8");
+  renameSync(`${path}.tmp`, path);
+  return next;
+}
+
 export function saveApiChecks(profilesDir: string, profileId: string, checks: DeclaredApiCheck[]): ChecksManifest {
   const existing = loadChecksManifest(profilesDir, profileId) ?? { schemaVersion: 1 as const, profileId, apiChecks: [], securityChecks: [] };
   const byId = new Map(existing.apiChecks.map((c) => [c.id, c]));

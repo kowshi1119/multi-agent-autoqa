@@ -1,5 +1,65 @@
 # AutoQA — Progress
 
+## Phase 13: trustworthy API observation and UI–API comparison — 2026-10-01
+
+Checklist: `docs/AJEER_PILOT_ACCEPTANCE.md`. Research decisions (Playwright 1.62.1, RFC 9110, OAS 3.0.4, OWASP logging): `docs/research/PHASE13_API_OBSERVATION.md`.
+
+### Observer defects fixed (found by reading the work-in-progress code and by its new tests)
+1. **Unbounded body acquisition.** `response.body()` buffered the whole decoded body before the size check, and Content-Length was trusted.
+   - Now `body()` is called only when the response is identity-coded, finished, and its received bytes are ≤ 256 KiB.
+   - Compressed or unknown-size responses are metadata only (`body-size-unknown-compressed`).
+   - A test proves `body()` is never called for them.
+2. **Undercount found by the tests:** Playwright's body-only size undercounted a chunked body. The bound uses headers + body received.
+3. **`finished()` never settles for a request that failed in transit.** Waits are now raced against `requestfailed` and a per-response timeout.
+4. **Unbounded work.** A wide object was walked fully. There are now limits on responses, concurrency, queue, traversal nodes, properties, array samples, depth, paths, endpoints, string length, artifact size and drain time, each with structured omission reasons.
+5. **Personal data in names.** Alphabetic keys and path segments were kept (e.g. `janeDoe`, `/users/jane-doe`).
+   - Names are now kept only from a generic vocabulary or the profile's `apiObservation` configuration; masking is positional, never a reversible hash.
+   - Page paths, query names and media types get the same treatment.
+6. **Endpoint identity ignored the origin, and templates could merge targets silently.** The key is now origin + method + template, with `ambiguous` and `mergedDistinctPaths`. Ambiguous or parameterised endpoints never produce executable drafts.
+7. **Lifecycle.**
+   - Observation started before sign-in and was never stopped. It now starts after sign-in succeeds and stops before any check runs: listeners are detached, the result drains for up to 2 s, then it is frozen; late callbacks change nothing.
+   - Pages are attributed at request time, with a flag when the page navigated in between.
+
+### New behaviour
+- **Observation → drafts** (`src/checks/observed-drafts.ts`, UI 1g, `POST /api/profiles/:id/api-drafts[/approve]`).
+  - Drafts keep observed facts, proposed expectations, your selection and `officialContract: null` apart.
+  - Approval re-derives drafts on the server and refuses stale or tampered observations (digest), other applications, changed targets, masked or parameterised paths, unobserved or credential-like query names, and non-facts.
+  - "Required" is opt-in only; no enums or values are proposed. Enabling API checks is a separate checkbox.
+- **Structure-only evidence** for checks approved from observations: status, media type and body shape only, in check and finding evidence.
+- **Defect fixed:** a failing check's confirmation request dropped its query parameters, so it requested a different resource. A regression test fails before and passes after.
+- **UI–API comparison** (`src/checks/consistency.ts`, suite item `consistency-check`).
+  - Supported: a declared table on a saved workflow's page against an approved structure-only GET check.
+  - Relations: normalized text, status, or row count of the same page.
+  - Modes: rendering-response (passive, same page load) or separate-check (stated as not an atomic snapshot).
+  - A failure requires one reproduction on both sides with unchanged data; otherwise the result is not assessed (`data-changed`, `not-reproduced`, `ambiguous-identity`, `scope-mismatch`, `missing-field`, auth, budget, cancellation). There is no retry to green.
+  - Money and date mappings are refused.
+  - Evidence keeps positions, types and verdicts, but never keys, values or value lengths. A length can reveal a short status; this was found while reviewing demo evidence and fixed.
+- **Integrations:** requirements catalogue, coverage report (UI–API section), comparison and the results panel include comparisons. A suite must include the workflow a comparison reads.
+- **Display titles:** a console error after a link click is now shown as such (`displayTitle`). The stored oracle title is unchanged, so benchmark matching is unaffected.
+- **Heuristic limit documented by a test:** heading/link word overlap is not a personal-data detector. A real person's name in an existing committed test was replaced with a synthetic one.
+
+### Synthetic demonstration (through the real local server API; IDs in local `runs/`)
+| Scenario | Run | Suite decision | UI–API comparison | Change vs baseline | Baseline eligibility |
+|---|---|---|---|---|---|
+| A. Observation run (workflow only) | `RUN-20261001-130355916Z-0b39` | PASS | — | — | eligible |
+| B. Matching UI and API | `RUN-20261001-130359990Z-6597` | PASS | passed | — | eligible |
+| C. API status differs (reproduced) | `RUN-20261001-130402616Z-5c0f` | FAIL | failed | newly-failing | not eligible: A required item failed in this run, so it can't be a passing baseline. |
+| D. Corrected | `RUN-20261001-130405758Z-5979` | PASS | passed | unchanged-passing | eligible |
+| E. Data changes between observations | `RUN-20261001-130408416Z-5187` | INCOMPLETE | not-executed (data-changed) | not-executed | not eligible: Required coverage is incomplete in this run (items not executed or unsupported), so it can't be a passing baseline. |
+| F. Missing API field | `RUN-20261001-130410916Z-c714` | INCOMPLETE | not-executed (missing-field) | not-executed | not eligible: Required coverage is incomplete in this run (items not executed or unsupported), so it can't be a passing baseline. |
+| G. Stop during the comparison | `RUN-20261001-130413350Z-43ac` | INCOMPLETE | not-executed (cancelled) | not-executed | not eligible: This run was cancelled, so it can't be a passing baseline. |
+| H. Next run after Stop | `RUN-20261001-130415794Z-db71` | FAIL | failed | newly-failing | not eligible: A required item failed in this run, so it can't be a passing baseline. |
+
+### Not done in this phase
+- **"Heading visible, text omitted" option for discovery drafts:** not implemented. The only affected workflow (Ajeer NAV-ACCOUNT) stays excluded because its page prefetches a blocked `GET /account/delete`.
+- **Second-stage shape proposals from an approved check's own structure-only evidence:** documented as the path for compressed APIs, but not implemented.
+
+### Verification
+VERIFY_PLACEHOLDER
+
+### Ajeer
+AJEER_PLACEHOLDER
+
 ## Ajeer QA session: first real-application workflow evidence, and 9 AutoQA fixes — 2026-09-29
 
 The user entered credentials only in the local AutoQA UI. AutoQA never received them from chat: a password pasted into chat was refused and the user was asked to rotate it. Ajeer's origin, path scope and budgets are unchanged; no endpoint or permission was added.

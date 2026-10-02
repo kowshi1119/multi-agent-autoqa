@@ -93,7 +93,7 @@ export function buildReportMarkdown(report: QaReport): string {
   } else {
     for (const finding of report.findings) {
       lines.push(`### ${finding.id}`, "");
-      lines.push(finding.title, "");
+      lines.push(finding.displayTitle ?? finding.title, "");
       lines.push(`Status: ${finding.status}`, "");
       lines.push(`Reproduction: ${finding.reproduction.successes}/${finding.reproduction.attempts}`, "");
       lines.push(`Oracle: ${finding.oracle.oracleId}`, "");

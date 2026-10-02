@@ -12,6 +12,8 @@ import type { CheckLedgerEntry } from "./types.js";
 import type { ReasonCode } from "../outcomes/outcome.js";
 import type { Finding } from "../types.js";
 import type { ProjectProfile } from "../profiles/schema.js";
+import { safeMediaType, walkShape } from "../auth/api-observer.js";
+import type { CheckHttpResponse, CheckHttpError } from "./http-client.js";
 
 export type ApiChecksResult = { findings: Finding[]; nextFindingIndex: number };
 
@@ -81,7 +83,7 @@ export async function runApiChecks(
       record(blockedEntry(check, "not-authorized", "Contract checks are executable only for GET operations; importing a contract never authorizes a mutation."));
       continue;
     }
-    const response = await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal, undefined, check.query);
+    const response = structureView(check, await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal, undefined, check.query));
 
     if ("failed" in response) {
       record({ ...blockedEntry(check, response.code, response.reason), ran: budget.used > beforeRequest, observation: response.reason });
@@ -92,7 +94,7 @@ export async function runApiChecks(
     const failures = failureList(check, response, results);
     const gaps = results.filter((r) => r.verdict === "unsupported" || r.verdict === "not-assessed");
     const requestSnapshot = { method: check.method, url, body: check.requestBody, sessionHeadersOmitted: profile.auth.mode !== "none" };
-    const responseSnapshot = { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
+    const responseSnapshot = responseEvidence(check, profile, response);
 
     if (failures.length === 0) {
       // No Finding for a passing check: its evidence lives under checks/,
@@ -120,9 +122,10 @@ export async function runApiChecks(
     // declared check. A declared mutation is authorized once, never repeated.
     const beforeConfirm = budget.used;
     const confirm = check.method === "GET"
-      ? await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal)
+      ? structureView(check, await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal, undefined, check.query))
       : { failed: true as const, reason: "Automatic mutation replay is unsupported." };
     const confirmFailures = "failed" in confirm ? [] : failureList(check, confirm, evaluateCheck(check, confirm));
+    const confirmSnapshot = "failed" in confirm ? confirm : responseEvidence(check, profile, confirm);
     const reproduced = confirmFailures.some(c => failures.some(f => f.assertion === c.assertion && f.detail === c.detail));
     const classification = reproduced ? "confirmed" : "needs_review";
     const findingId = generateFindingId(findingIndex++);
@@ -134,7 +137,7 @@ export async function runApiChecks(
     const evidenceFilenames = [
       writeCheckEvidence(evidenceDir, "request.json", requestSnapshot, extraSecrets),
       writeCheckEvidence(evidenceDir, "response.json", responseSnapshot, extraSecrets),
-      writeCheckEvidence(evidenceDir, "confirmation.json", confirm, extraSecrets),
+      writeCheckEvidence(evidenceDir, "confirmation.json", confirmSnapshot, extraSecrets),
     ];
     const finding: Finding = {
       id: findingId,
@@ -180,6 +183,32 @@ export async function runApiChecks(
   }
 
   return { findings, nextFindingIndex: findingIndex };
+}
+
+/**
+ * What a check's evidence keeps of a response. "structure-only" checks
+ * (e.g. approved from a passive observation) keep status, media type and
+ * the body's shape -- names the check asserts or the profile configures,
+ * other names masked, types only -- and never the body or other headers.
+ */
+/** Structure-only checks compare and report the media type only, so header parameters never reach findings or the ledger. */
+function structureView<T extends CheckHttpResponse | CheckHttpError | { failed: true; reason: string }>(check: DeclaredApiCheck, response: T): T {
+  if ("failed" in response || check.evidence !== "structure-only") return response;
+  return { ...response, contentType: safeMediaType((response as CheckHttpResponse).contentType) || undefined };
+}
+
+function responseEvidence(check: DeclaredApiCheck, profile: ProjectProfile, response: CheckHttpResponse | (CheckHttpError & Record<string, unknown>)) {
+  if ("failed" in response) return response;
+  if (check.evidence !== "structure-only") return { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
+  const known = new Set([...(profile.apiObservation?.knownFields ?? []), ...Object.keys(check.assertions.shape ?? {}).flatMap((p) => p.split(".")), ...(check.assertions.requiredFields ?? []).flatMap((p) => p.split("."))]);
+  const walk = typeof response.body === "object" && response.body !== null && !response.jsonParseFailed ? walkShape(response.body, known) : undefined;
+  return {
+    evidence: "structure-only",
+    status: response.status,
+    contentType: safeMediaType(response.contentType),
+    bodyRecorded: false,
+    ...(walk ? { bodyShape: Object.fromEntries([...walk.paths].map(([p, t]) => [p, [...t].sort()])), shapeOmissions: [...walk.omissions] } : { bodyShape: null, note: response.jsonParseFailed ? "Body did not parse as JSON." : "Body is not a JSON object or array." }),
+  };
 }
 
 function blockedEntry(check: DeclaredApiCheck, reasonCode: ReasonCode, reason: string): CheckLedgerEntry {

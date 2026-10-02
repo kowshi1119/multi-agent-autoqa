@@ -206,6 +206,33 @@
   <div id="contract-ops"></div>
   <div id="contract-drafts"></div>
   <div id="contract-status" class="error-text" role="status"></div>
+  <h3>1g. API observation → checks → UI–API comparison</h3>
+  <p class="empty">Signed-in runs passively record the <em>structure</em> of the application's own API responses (names and types from samples, never values) — an observation, not an API contract. Stages: <strong>Observed</strong> (seen in a run) → <strong>Drafted</strong> (proposed here, nothing saved) → <strong>Approved</strong> (you saved it) → <strong>Executed</strong> (a suite ran it) → <strong>Verified</strong> (its assertions passed in that run). Observed traffic never authorizes a request by itself, and a GET seen from the app is not thereby shown to be free of side effects.</p>
+  <label for="obs-run-select">Run with an API observation</label><select id="obs-run-select"><option value="">— Choose a run —</option></select>
+  <button id="obs-load-btn">Show observation</button>
+  <div id="obs-summary"></div>
+  <div id="obs-drafts"></div>
+  <div id="obs-status" class="error-text" role="status"></div>
+  <details id="cmp-details" style="margin-top:0.6em;"><summary>Declare a UI–API comparison</summary>
+    <p class="empty">Supported: a table on the page a saved workflow reaches, compared with an approved GET check that uses structure-only evidence. Relations: normalized text equality, status equality, or row count of the same page. Money and dates are not supported. "Rendering response" compares the table with the response the page itself fetched while rendering; "Separate check" sends the approved check after reading the page (not an atomic snapshot). A mismatch fails only when a second observation of both sides reproduces it with unchanged data.</p>
+    <label for="cmp-id">Comparison ID</label><input id="cmp-id" type="text" maxlength="80" autocomplete="off">
+    <label for="cmp-description">Description</label><input id="cmp-description" type="text" maxlength="300" autocomplete="off">
+    <label for="cmp-workflow">Workflow (its destination page is read)</label><select id="cmp-workflow"></select>
+    <label for="cmp-table">Table name (accessible name)</label><input id="cmp-table" type="text" maxlength="100" autocomplete="off">
+    <label for="cmp-key-column">Key column header</label><input id="cmp-key-column" type="text" maxlength="80" autocomplete="off">
+    <label for="cmp-value-column">Value column header (not for counts)</label><input id="cmp-value-column" type="text" maxlength="80" autocomplete="off">
+    <label for="cmp-check">Approved API check</label><select id="cmp-check"></select>
+    <label for="cmp-items-path">Items path in the response (e.g. items; empty for a top-level array)</label><input id="cmp-items-path" type="text" maxlength="200" autocomplete="off">
+    <label for="cmp-key-field">API key field</label><input id="cmp-key-field" type="text" maxlength="64" autocomplete="off">
+    <label for="cmp-value-field">API value field (not for counts)</label><input id="cmp-value-field" type="text" maxlength="64" autocomplete="off">
+    <label for="cmp-relation">Relation</label><select id="cmp-relation"><option value="status-equal">Status equality</option><option value="text-equal">Normalized text equality</option><option value="count-equal">Row count of the same page</option></select>
+    <label for="cmp-mode">Mode</label><select id="cmp-mode"><option value="separate-check">Separate check</option><option value="rendering-response">Rendering response</option></select>
+    <label for="cmp-page-param">API page parameter (optional)</label><input id="cmp-page-param" type="text" maxlength="64" autocomplete="off">
+    <label for="cmp-page-size-param">API page-size parameter (optional)</label><input id="cmp-page-size-param" type="text" maxlength="64" autocomplete="off">
+    <label for="cmp-page-size">UI page size (optional)</label><input id="cmp-page-size" type="number" min="1" max="50">
+    <div style="margin-top:0.4em;"><button id="cmp-save-btn" class="primary">Save comparison</button></div>
+    <div id="cmp-status" class="error-text" role="status"></div>
+  </details>
 </section>
 
 <section id="auth-section" hidden>
@@ -402,6 +429,7 @@
       if (!currentProfile() || currentProfile().id !== profile.id) return;
       state.requirements = data.requirements; state.catalog = data.catalog;
       renderRequirements();
+      return loadObservationRuns();
     }).catch(function (err) { setText(el("req-status"), "Requirements could not be loaded: " + err.message); });
   }
   el("req-new-btn").addEventListener("click", function () { openRequirementEditor(null); });
@@ -506,6 +534,130 @@
       });
     }).catch(function (err) { setText(el("contract-status"), "Contract not accepted: " + err.message); })
       .finally(function () { el("contract-file").value = ""; });
+  });
+
+
+  // --- API observation → drafts → comparison (1g) ---------------------------
+  // Everything shown comes from the server's sanitized observation; drafts are
+  // re-derived by the server on approval, which also re-checks the target.
+  function profilePath(suffix) { return "/api/profiles/" + encodeURIComponent(currentProfile().id) + suffix; }
+  function loadObservationRuns() {
+    var profile = currentProfile(); if (!profile) return Promise.resolve();
+    var select = el("obs-run-select");
+    return api(profilePath("/api-observations")).then(function (data) {
+      if (!currentProfile() || currentProfile().id !== profile.id) return;
+      select.innerHTML = "";
+      var first = document.createElement("option"); first.value = ""; setText(first, data.runs.length ? "— Choose a run —" : "No signed-in run has recorded an observation yet"); select.appendChild(first);
+      data.runs.forEach(function (r) { var o = document.createElement("option"); o.value = r.runId; setText(o, r.runId + " — " + r.endpoints + " endpoint(s)" + (r.drain === "drained" ? "" : " (observation " + r.drain + ")")); select.appendChild(o); });
+      fillComparisonSelects();
+    }).catch(function (err) { setText(el("obs-status"), "Observations could not be listed: " + err.message); });
+  }
+  function fillComparisonSelects() {
+    var wf = el("cmp-workflow"), ck = el("cmp-check");
+    wf.innerHTML = ""; ck.innerHTML = "";
+    (state.catalog || []).forEach(function (item) {
+      if (item.kind !== "workflow" && item.kind !== "api-check") return;
+      var o = document.createElement("option"); o.value = item.itemId; setText(o, item.itemId + " — " + item.description);
+      (item.kind === "workflow" ? wf : ck).appendChild(o);
+    });
+  }
+  el("obs-load-btn").addEventListener("click", function () {
+    var runId = el("obs-run-select").value;
+    el("obs-summary").innerHTML = ""; el("obs-drafts").innerHTML = ""; setText(el("obs-status"), "");
+    if (!currentProfile()) return;
+    if (!runId) { setText(el("obs-status"), "Choose a run first. Observations are recorded by signed-in runs that reach their workflows."); return; }
+    api(profilePath("/runs/" + encodeURIComponent(runId) + "/api-observations")).then(function (data) {
+      var o = data.observation, box = el("obs-summary");
+      var head = document.createElement("p"); setText(head, "Observed in " + o.runId + ": " + o.responsesConsidered + " response(s) considered, observation " + o.drain + (o.artifactTruncated ? ", artifact truncated to its size limit" : "") + ". " + o.label); box.appendChild(head);
+      var lim = document.createElement("ul"); o.limitations.forEach(function (l) { var li = document.createElement("li"); setText(li, l); lim.appendChild(li); }); box.appendChild(lim);
+      o.endpoints.forEach(function (e, index) {
+        var row = document.createElement("div"); row.className = "card obs-endpoint"; row.setAttribute("data-index", String(index));
+        var draftable = !e.ambiguous && !/\{[^}]*\}/.test(e.pathTemplate) && e.queryNames.every(function (q) { return q.charAt(0) !== "<"; });
+        var title = document.createElement("label"); var cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "obs-pick"; cb.disabled = !draftable; title.appendChild(cb);
+        title.appendChild(document.createTextNode(" [Observed] " + e.method + " " + e.pathTemplate + " on " + e.origin + " — status " + e.statuses.join("/") + ", " + (e.contentTypes.join(", ") || "no type") + ", " + e.samplesWithBody + " body sample(s) of " + e.observations + (draftable ? "" : " — cannot be drafted (masked or unrecorded path or parameter)")));
+        row.appendChild(title);
+        if (e.omissions.length || e.emptyArrays.length) { var om = document.createElement("p"); om.className = "next-step"; setText(om, "Not captured: " + e.omissions.map(function (x) { return x.reason + " ×" + x.count; }).join(", ") + (e.emptyArrays.length ? (e.omissions.length ? "; " : "") + "arrays seen only empty: " + e.emptyArrays.join(", ") : "")); row.appendChild(om); }
+        e.queryNames.forEach(function (q) {
+          if (q.charAt(0) === "<") return;
+          var l = document.createElement("label"); setText(l, "Test value for query parameter " + q + " (non-secret; the observed value was never recorded)");
+          var input = document.createElement("input"); input.type = "text"; input.maxLength = 100; input.autocomplete = "off"; input.setAttribute("data-query", q);
+          row.appendChild(l); row.appendChild(input);
+        });
+        e.proposedAssertions.forEach(function (p) {
+          var l = document.createElement("label"); var c = document.createElement("input"); c.type = "checkbox"; c.setAttribute("data-assertion", p.id); l.appendChild(c);
+          l.appendChild(document.createTextNode(" Propose " + p.id + " = " + p.expected + " (" + p.provenance + ")" + (p.kind === "required" ? " — opt-in only" : "")));
+          row.appendChild(l);
+        });
+        row._endpoint = e;
+        box.appendChild(row);
+      });
+      var review = document.createElement("button"); review.id = "obs-review-btn"; setText(review, "Review drafts for selected endpoints"); box.appendChild(review);
+      review.addEventListener("click", function () { reviewObservedDrafts(o.runId); });
+    }).catch(function (err) { setText(el("obs-status"), "Observation not shown: " + err.message); });
+  });
+  function observedSelections() {
+    return Array.prototype.slice.call(document.querySelectorAll("#obs-summary .obs-endpoint")).filter(function (row) { return row.querySelector(".obs-pick").checked; }).map(function (row) {
+      var e = row._endpoint, query = {}, assertions = { status: false, contentType: false, shape: [], required: [] };
+      Array.prototype.slice.call(row.querySelectorAll("input[data-query]")).forEach(function (i) { if (i.value.trim()) query[i.getAttribute("data-query")] = i.value.trim(); });
+      Array.prototype.slice.call(row.querySelectorAll("input[data-assertion]")).forEach(function (c) {
+        if (!c.checked) return;
+        var id = c.getAttribute("data-assertion");
+        if (id === "status") assertions.status = true; else if (id === "content-type") assertions.contentType = true;
+        else if (id.indexOf("shape:") === 0) assertions.shape.push(id.slice(6)); else if (id.indexOf("field:") === 0) assertions.required.push(id.slice(6));
+      });
+      return { origin: e.origin, method: e.method, pathTemplate: e.pathTemplate, query: query, assertions: assertions };
+    });
+  }
+  function reviewObservedDrafts(runId) {
+    var selections = observedSelections(), out = el("obs-drafts");
+    out.innerHTML = "";
+    if (!selections.length) { setText(el("obs-status"), "Select at least one endpoint that can be drafted."); return; }
+    api(profilePath("/api-drafts"), { method: "POST", body: JSON.stringify({ runId: runId, selections: selections }) }).then(function (res) {
+      res.drafts.forEach(function (d) {
+        var card = document.createElement("div"); card.className = "card obs-draft"; card.setAttribute("data-executable", String(d.executable));
+        var t = document.createElement("h4"); setText(t, "[Drafted] " + (d.check ? d.check.id + " — " : "") + "GET " + d.pathTemplate + (d.executable ? "" : " (cannot be approved)")); card.appendChild(t);
+        var facts = document.createElement("p"); setText(facts, "Observed facts: " + d.completeness + " Source " + d.source.runId + ", observation sha256 " + d.source.observationSha256.slice(0, 12) + ". Authentication: this run's own session. Evidence: structure only. Official contract: none."); card.appendChild(facts);
+        if (d.check) { var a = d.check.assertions, parts = []; if (a.expectedStatus !== undefined) parts.push("status " + a.expectedStatus); if (a.expectedContentType) parts.push("content type " + a.expectedContentType); Object.keys(a.shape || {}).forEach(function (k) { parts.push(k + " is " + a.shape[k]); }); (a.requiredFields || []).forEach(function (k) { parts.push(k + " present (opt-in)"); });
+          var exp = document.createElement("p"); setText(exp, "Expectations you would approve: " + parts.join("; ") + "."); card.appendChild(exp); }
+        if (d.problems.length) { var pr = document.createElement("p"); pr.className = "error-text"; setText(pr, d.problems.join(" ")); card.appendChild(pr); }
+        var lim = document.createElement("p"); lim.className = "next-step"; setText(lim, d.limitations.join(" ")); card.appendChild(lim);
+        out.appendChild(card);
+      });
+      var ok = res.drafts.every(function (d) { return d.executable; });
+      var enable = document.createElement("label"); var enableBox = document.createElement("input"); enableBox.type = "checkbox"; enableBox.id = "obs-enable-api"; enable.appendChild(enableBox);
+      enable.appendChild(document.createTextNode(" Also enable API checks for this application, sent with each run's own signed-in session (changes the profile)")); out.appendChild(enable);
+      var approve = document.createElement("button"); approve.id = "obs-approve-btn"; approve.className = "primary"; setText(approve, "Approve these checks"); approve.disabled = !ok; out.appendChild(approve);
+      if (!ok) { var why = document.createElement("p"); why.className = "empty"; setText(why, "Every selected draft must be approvable; fix or deselect the ones marked above."); out.appendChild(why); }
+      approve.addEventListener("click", function () {
+        var target = preparedTarget();
+        if (!target) { setText(el("obs-status"), "Wait until setup has been checked, then approve."); return; }
+        api(profilePath("/api-drafts/approve"), { method: "POST", body: JSON.stringify({ runId: runId, selections: selections, observationSha256: res.observationSha256, expected: { fingerprint: target.fingerprint, origin: target.origin }, enableApiChecks: enableBox.checked }) })
+          .then(function (saved) {
+            out.innerHTML = "";
+            setText(el("obs-status"), "Saved " + saved.saved.join(", ") + "; refreshing…");
+            return runCheckSetup().then(function () { return Promise.all([loadSuites(el("suite-select").value), loadRequirements()]); })
+              .then(function () { setText(el("obs-status"), "[Approved] " + saved.saved.join(", ") + (saved.apiChecksEnabled ? ". API checks are enabled for this application." : ". API checks are NOT enabled for this application yet, so a suite cannot run them.") + " Add them to a suite (1e); they become Executed when a suite runs them and Verified when their assertions pass."); });
+          })
+          .catch(function (err) { if (err.data && err.data.code === "TARGET_CHANGED") runCheckSetup(); setText(el("obs-status"), "Not approved: " + err.message); });
+      });
+    }).catch(function (err) { setText(el("obs-status"), "Drafts not created: " + err.message); });
+  }
+  el("cmp-save-btn").addEventListener("click", function () {
+    if (!currentProfile()) return;
+    var target = preparedTarget();
+    if (!target) { setText(el("cmp-status"), "Wait until setup has been checked, then save."); return; }
+    function opt(id) { var v = el(id).value.trim(); return v ? v : undefined; }
+    var scope = {}; if (opt("cmp-page-param")) scope.pageParam = opt("cmp-page-param"); if (opt("cmp-page-size-param")) scope.pageSizeParam = opt("cmp-page-size-param"); if (opt("cmp-page-size")) scope.pageSize = Number(opt("cmp-page-size"));
+    var ui = { table: el("cmp-table").value.trim(), keyColumn: el("cmp-key-column").value.trim() }; if (opt("cmp-value-column")) ui.valueColumn = opt("cmp-value-column");
+    var apiSide = { checkId: el("cmp-check").value, itemsPath: el("cmp-items-path").value.trim(), keyField: el("cmp-key-field").value.trim() }; if (opt("cmp-value-field")) apiSide.valueField = opt("cmp-value-field");
+    var check = { id: el("cmp-id").value.trim(), description: el("cmp-description").value.trim(), workflowId: el("cmp-workflow").value, ui: ui, api: apiSide, relation: el("cmp-relation").value, scope: scope, mode: el("cmp-mode").value };
+    api(profilePath("/consistency"), { method: "POST", body: JSON.stringify({ check: check, expected: { fingerprint: target.fingerprint, origin: target.origin } }) })
+      .then(function (saved) {
+        setText(el("cmp-status"), "Saved " + saved.saved + "; refreshing…");
+        return runCheckSetup().then(function () { return Promise.all([loadSuites(el("suite-select").value), loadRequirements()]); })
+          .then(function () { setText(el("cmp-status"), "[Approved] comparison " + saved.saved + ". Add it and workflow " + check.workflowId + " to a suite (1e) to run it."); });
+      })
+      .catch(function (err) { if (err.data && err.data.code === "TARGET_CHANGED") runCheckSetup(); setText(el("cmp-status"), "Not saved: " + err.message + (err.data && err.data.problems ? " " + err.data.problems.join(" ") : err.data && err.data.issues ? " Fill every required field with letters, digits, - or _." : "")); });
   });
 
   // --- Regression suites (1e) ---------------------------------------------
@@ -1268,6 +1420,7 @@
         updateStartAvailability();
         loadReport(runId);
         loadPriorRuns();
+        if (currentProfile()) loadObservationRuns(); // a signed-in run may have recorded a new observation
       }).catch(function () {
         state.finishingRunId = null;
         setText(el("status-line"), "Could not read the final result. Refresh to reconnect to the run.");
@@ -1492,6 +1645,7 @@
         var rl = document.createElement("ul"); rep.requirementCoverage.mappingRules.forEach(function (x) { var li = document.createElement("li"); setText(li, x); rl.appendChild(li); }); rules.appendChild(rl); panel.appendChild(rules);
       } else add("p", "No approved requirements: define and approve requirements in 1f to see declared coverage.", "empty");
       list("Newly failing criteria", rep.newlyFailingCriteria, function (e) { return e.identity + ": " + e.baseline + " → " + e.current; }, "newly-failing-criteria");
+      list("UI–API comparisons", rep.uiApiComparisons || [], function (m) { return m.identity + ": " + m.verdict + (m.reasonCode && m.reasonCode !== "ok" && m.reasonCode !== "assertion-failed" ? " (" + m.reasonCode + ")" : "") + " — " + m.observed + (m.limitations ? " Assumption: " + m.limitations : "") + " · evidence " + m.evidenceRefs.join(", "); }, "ui-api-comparisons");
       list("API contract mismatches", rep.contractMismatches, function (m) { return m.identity + ": expected " + m.expected + ", observed " + m.observed + (m.reasonCode === "malformed-response" ? " (malformed response)" : "") + " · evidence " + m.evidenceRefs.join(", "); }, "contract-mismatches");
       list("Contract assertions not validated (never a pass)", rep.contractNotValidated, function (m) { return m.identity + ": " + m.verdict + " — " + m.observed; }, "contract-not-validated");
       list("Security policy findings — declared policy not met, not a demonstrated vulnerability", rep.securityPolicyFindings, function (f) { return f.identity + ": expected " + f.expected + ", observed " + f.observed + " · confidence " + (f.confidence || "n/a") + " · " + (f.severityRationale || "") + " Limitations: " + (f.limitations || ""); }, "security-findings");
@@ -1612,6 +1766,7 @@
         panel.appendChild(expiredNote);
       }
       var classificationLabel = function (entry) {
+        if (entry.kind === "consistency") return entry.classification === "passed" ? "UI and API agreed" : entry.classification === "needs_review" ? "declared relation failed on two observations of both sides — review before calling it a defect" : "not assessed (" + (entry.reasonCode || "unknown") + ")";
         if (entry.classification === "passed") return "passed";
         if (entry.classification === "unsupported") return "not assessed (unsupported)";
         if (entry.classification === "informational") return "informational";
@@ -1622,7 +1777,7 @@
       entries.forEach(function (entry) {
         var card = document.createElement("div"); card.className = "card";
         var title = document.createElement("h4");
-        setText(title, "[" + (entry.kind === "api" ? "API" : "Security") + "] " + entry.checkId + " — " + classificationLabel(entry));
+        setText(title, "[" + (entry.kind === "api" ? "API" : entry.kind === "consistency" ? "UI–API" : "Security") + "] " + entry.checkId + " — " + classificationLabel(entry));
         card.appendChild(title);
         // A check that was never sent used no session, whatever the run had.
         if (entry.session && (entry.ran || entry.session !== "run-session")) { var sess = document.createElement("p"); sess.className = "next-step"; setText(sess, "Session: " + (sessionLabel[entry.session] || entry.session)); card.appendChild(sess); }
@@ -1706,7 +1861,7 @@
         var card = document.createElement("div");
         card.className = "card";
         var h3 = document.createElement("h3");
-        setText(h3, f.id + ": " + f.title);
+        setText(h3, f.id + ": " + (f.displayTitle || f.title));
         card.appendChild(h3);
         [
           "Expected: " + f.expected,

@@ -1417,3 +1417,24 @@ Both new capabilities are opt-in per profile (`apiChecks.enabled`/`securityCheck
 **Demo profile**: `profiles/checks-demo.json` + `profiles/checks-demo.checks.json` (both tracked, no secrets, synthetic-fixture-only) exercise all of the above against `fixture/server.ts`'s three additive new routes (`GET /api/users/:id`, `POST /api/login-demo` + `GET /api/session-check` issuing a deliberately weak cookie, `GET /api/account/:id/resource` deliberately vulnerable to cross-account access) — none of which touch the 6 seeded ground-truth defects. Live-verified through the real UI this pass (run `RUN-20260923-104736271Z-588e`): a passing API check, a genuinely-failing API check producing a `confirmed`/`report` Finding, a mutating check correctly blocked with reason, two `needs_review` security findings (weak cookie, missing headers), a passing secret-leakage check, and a `confirmed`/`report` session-boundary finding — with the persisted evidence files independently confirmed to show `"<REDACTED>"` in place of the real cookie/secret values, not just asserted by the UI. See `PROGRESS.md`'s matching entry for full details, including two real bugs this live walkthrough caught that no unit test had (a `.checks.json` manifest file breaking `ProfileStore.list()`, and a `local-fixture` profile's checks needing their own fixture-server instance since `runPipeline()` already closes its own before returning).
 
 Deferred: wiring either slice against live Ajeer (only after further verification, and even then strictly passive/read-only); a general shape/invariant rule engine beyond the 5-invariant cap; any new dependency.
+
+## Phase 13 — passive API observation and UI–API comparison — 2026-10-01
+
+Signed-in runs record `api-observations.json`: the structure of the application's **own** API responses (origin, method, sanitized route, query-parameter names, statuses, media types, and names and types with `seenIn k/n samples`). It is an observation, not an API contract, and it never sends, replays or alters a request.
+
+- **Bounded:**
+  - A body is read only when it is uncompressed, finished and at most 256 KiB received; compressed responses are metadata only.
+  - Responses, concurrency, queue, traversal work, depth, properties, array samples, paths, endpoints and artifact size are all limited.
+  - Every omission is recorded.
+- **Private by default:**
+  - Values, query values, headers, cookies and bodies are never kept.
+  - Names are kept only from a generic vocabulary or `apiObservation.knownFields` / `routeTemplates` in the profile; others are masked by position.
+  - This is heuristic. See `docs/research/PHASE13_API_OBSERVATION.md` for the limits.
+- **Drafts (UI 1g):** pick an observed endpoint, give explicit non-secret test values for its query parameters, and tick observed facts (status, media type, top-level field types). The server re-derives the draft on approval and refuses stale, tampered, cross-application, masked or parameterised drafts. Approved checks keep structure-only evidence.
+- **UI–API comparison:** a table on a saved workflow's page against an approved structure-only GET check.
+  - Matching is by a key column/field.
+  - Relations: normalized text equality, status equality, or row count of the same page.
+  - Modes: `rendering-response` (the response the page itself rendered from) or `separate-check` (not an atomic snapshot).
+  - Money and dates are not supported.
+  - A failure needs one reproduction on both sides with unchanged data; changed data, ambiguity, scope differences, missing fields, budget and cancellation are reported as not assessed.
+  - A failed comparison is an assertion failure, not by itself a confirmed defect.

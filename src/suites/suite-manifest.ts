@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { loadChecksManifest, type DeclaredApiCheck, type DeclaredSecurityCheck } from "../checks/checks-manifest.js";
+import { loadChecksManifest, type ConsistencyCheck, type DeclaredApiCheck, type DeclaredSecurityCheck } from "../checks/checks-manifest.js";
 import { loadWorkflowManifest, type DeclaredWorkflow } from "../pilot/workflow-manifest.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 import type { ProfileStore } from "../profiles/store.js";
@@ -31,7 +31,7 @@ export const SUITE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const itemIdSchema = z.string().regex(/^[A-Za-z0-9_-]+$/).max(100);
 
 export const suiteItemSchema = z.object({
-  kind: z.enum(["workflow", "api-check", "security-check"]),
+  kind: z.enum(["workflow", "api-check", "security-check", "consistency-check"]),
   id: itemIdSchema,
   required: z.boolean(),
   definitionHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -97,7 +97,7 @@ export const sha256 = (text: string): string => createHash("sha256").update(text
 export function workflowDefinitionHash(w: DeclaredWorkflow): string {
   return sha256(canonicalJson({ id: w.id, kind: w.kind, page: w.page, execution: w.execution, reset: w.reset }));
 }
-export function checkDefinitionHash(c: DeclaredApiCheck | DeclaredSecurityCheck): string {
+export function checkDefinitionHash(c: DeclaredApiCheck | DeclaredSecurityCheck | ConsistencyCheck): string {
   return sha256(canonicalJson(c));
 }
 export function suiteContentHash(suite: Suite): string {
@@ -125,6 +125,7 @@ export function availableItems(profilesDir: string, profile: ProjectProfile): Av
       ...(c.method !== "GET" && !allowedMutations.some((m) => m.method === c.method && m.pathname === c.pathname) ? { note: `${c.method} is not authorized by the profile; it will be reported as unsupported and never sent.` } : {}),
     })),
     ...(checks?.securityChecks ?? []).map((c) => ({ kind: "security-check" as const, id: c.id, description: c.description, definitionHash: checkDefinitionHash(c) })),
+    ...(checks?.consistencyChecks ?? []).map((c) => ({ kind: "consistency-check" as const, id: c.id, description: c.description, definitionHash: checkDefinitionHash(c), note: `Reads the page reached by workflow ${c.workflowId}; include that workflow in the suite.` })),
   ];
 }
 
@@ -184,6 +185,14 @@ export function validateSuite(store: ProfileStore, profileId: string, suite: Sui
   const checkKinds = suite.items.filter((i) => i.kind !== "workflow");
   if (checkKinds.some((i) => i.kind === "api-check") && !profile.apiChecks.enabled) errors.push("API checks are disabled in this profile.");
   if (checkKinds.some((i) => i.kind === "security-check") && !profile.securityChecks.enabled) errors.push("Security checks are disabled in this profile.");
+  if (checkKinds.some((i) => i.kind === "consistency-check")) {
+    if (!profile.apiChecks.enabled) errors.push("UI–API comparisons need API checks to be enabled in this profile.");
+    const comparisons = loadChecksManifest(store.getDir(), profileId)?.consistencyChecks ?? [];
+    for (const item of checkKinds.filter((i) => i.kind === "consistency-check")) {
+      const declared = comparisons.find((c) => c.id === item.id);
+      if (declared && !suite.items.some((i) => i.kind === "workflow" && i.id === declared.workflowId)) errors.push(`Comparison ${item.id} reads the page reached by workflow ${declared.workflowId}; add that workflow to the suite.`);
+    }
+  }
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 

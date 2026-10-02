@@ -26,6 +26,7 @@ import { checkBudget, sessionModeFor, type CheckBudget, type RunSession } from "
 import { writeCheckEvidence } from "./checks/evidence.js";
 import { runApiChecks } from "./checks/run-api-checks.js";
 import { runSecurityChecks } from "./checks/run-security-checks.js";
+import { completedWorkflows, runConsistencyChecks } from "./checks/consistency.js";
 import { findSuite, suiteContentHash, validateSuite, type Suite } from "./suites/suite-manifest.js";
 import { buildSuiteResult, snapshotFor, writeJsonRedacted, type SuiteRunSnapshot } from "./suites/result.js";
 import { currentBaseline } from "./suites/baselines.js";
@@ -404,10 +405,10 @@ export class RunManager {
       : undefined;
     // A suite runs only the checks it selected.
     const checksManifest = loadedChecks && suiteRun
-      ? { ...loadedChecks, apiChecks: loadedChecks.apiChecks.filter((c) => suiteRun.checkIds.has(c.id)), securityChecks: loadedChecks.securityChecks.filter((c) => suiteRun.checkIds.has(c.id)) }
+      ? { ...loadedChecks, apiChecks: loadedChecks.apiChecks.filter((c) => suiteRun.checkIds.has(c.id)), securityChecks: loadedChecks.securityChecks.filter((c) => suiteRun.checkIds.has(c.id)), consistencyChecks: (loadedChecks.consistencyChecks ?? []).filter((c) => suiteRun.checkIds.has(c.id)) }
       : loadedChecks;
     let checkUsage: CheckBudget | undefined;
-    const runChecks = async ({ finalCtx, origin, session }: { finalCtx: PipelineResult["finalCtx"]; origin: string; session?: RunSession }): Promise<void> => {
+    const runChecks = async ({ finalCtx, origin, session, page }: { finalCtx: PipelineResult["finalCtx"]; origin: string; session?: RunSession; page?: import("playwright").Page }): Promise<void> => {
       if (!checksManifest) return;
       const usage = checkBudget(profile);
       usage.deadline = startedAt.getTime() + profile.limits.maxDurationMs;
@@ -423,6 +424,14 @@ export class RunManager {
         if (profile.securityChecks.enabled && checksManifest.securityChecks.length > 0) {
           const securityResult = await runSecurityChecks(profile, checksManifest.securityChecks, runDir, nextFindingIndex, origin, extraSecrets, controller.signal, usage, session);
           finalCtx.findings.push(...securityResult.findings);
+        }
+        const comparisons = checksManifest.consistencyChecks ?? [];
+        if (profile.apiChecks.enabled && comparisons.length > 0) {
+          // Uses loadedChecks (not the suite-filtered list): a comparison may reference an approved check the suite does not select itself.
+          await runConsistencyChecks(comparisons, {
+            profile, apiChecks: loadedChecks?.apiChecks ?? [], workflows: completedWorkflows(runDir, workflowManifest), page, runDir, origin, budget: usage, extraSecrets, abortSignal: controller.signal,
+            ...(session ? { session } : {}),
+          });
         }
       } finally {
         writeCheckEvidence(runDir, "check-usage.json", { requests: usage.used, maxRequests: usage.max, includesConfirmationAndSessionRequests: true, sessionMode: sessionModeFor(profile, session) }, extraSecrets);

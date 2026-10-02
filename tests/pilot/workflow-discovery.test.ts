@@ -124,7 +124,10 @@ describe("read-only workflow discovery", () => {
     expect(result.skipped.find((s) => s.name === "Help")?.reason).toContain("relates to the link text");
     expect(JSON.stringify(result)).not.toContain("Demo A Person");
     expect(relatesTo("Transaction History", "Transactions")).toBe(true);
-    expect(relatesTo("Kowshi Mathi", "My Account")).toBe(false);
+    expect(relatesTo("Jane Example", "My Account")).toBe(false);
+    // Known limitation: the rule checks word overlap, it is not a personal-data detector.
+    // A heading that contains a link word AND a name still passes, so its text would be recorded.
+    expect(relatesTo("Account holder Jane Example", "My Account")).toBe(true);
   }, 120_000);
 
   it("refuses to run before the login conditions are verified, and fails cleanly on rejected credentials", async () => {

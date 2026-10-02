@@ -1,5 +1,16 @@
 # Ajeer sandbox pilot setup — Phases 5–6
 
+## Status — 2026-10-01 (Phase 13): API observation and UI–API comparison ready; Ajeer evidence pending
+
+The checklist is in `docs/AJEER_PILOT_ACCEPTANCE.md`. Ajeer's origin, path prefixes, budgets and permissions are unchanged. No Ajeer endpoint has been approved and no baseline is approved.
+
+Your local steps:
+1. **1f:** decide on `REQ-AJEER-HISTORY-PAGE` (still a draft). RECIPIENTS and BILLPAY-PAGE are approved.
+2. **Run A:** sign in in the local UI and run the suite "Ajeer read-only smoke". It records Ajeer's own API structure with the Phase 13 limits.
+3. **Review proposals:** review the exact read-only check proposals prepared from run A (1g). Approve only the ones you agree with.
+4. **Runs B and C:** run the suite with the approved checks (B), then again as a separate repeat (C). Press Stop once during a run, then run again.
+5. **Baseline:** approve a baseline only if you agree the run represents known-good behaviour.
+
 ## Status — 2026-09-29 (QA session): first Ajeer workflow suite passed
 
 - Suite **"Ajeer read-only smoke"** (NAV-RECIPIENTS, NAV-BILL-PAYMENTS, NAV-HISTORY) passed on the sandbox: `RUN-20260929-111030051Z-576d`, 3/3 required, 0 blocked, 0 external model requests.

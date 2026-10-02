@@ -207,8 +207,9 @@ export function normalizeSchema(doc: Record<string, unknown>, schema: unknown): 
 
 // --- Drafts ------------------------------------------------------------------------------------------
 
-const PARAM_VALUE_RE = /^[A-Za-z0-9._~-]{1,100}$/;
-const SECRET_PARAM_RE = /token|password|passwd|secret|api[-_]?key|auth|session|cookie|signature|credential/i;
+/** Shared with observation drafts (src/checks/observed-drafts.ts): explicit, non-secret test values only. */
+export const PARAM_VALUE_RE = /^[A-Za-z0-9._~-]{1,100}$/;
+export const SECRET_PARAM_RE = /token|password|passwd|secret|api[-_]?key|auth|session|cookie|signature|credential/i;
 
 export const contractSelectionSchema = z.object({
   operation: z.string().min(3).max(300),

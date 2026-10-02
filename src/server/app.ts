@@ -16,6 +16,8 @@ import { handleSaveTriage } from "./routes/triage.js";
 import { handleChecks } from "./routes/checks.js";
 import { handleApproveBaseline, handleListSuites, handleSaveSuite, handleSuiteRun } from "./routes/suites.js";
 import { handleContractApprove, handleContractDrafts, handleContractParse } from "./routes/contracts.js";
+import { handleApproveObservedDrafts, handleGetObservations, handleListObservationRuns, handleObservedDrafts, handleSaveConsistency } from "./routes/api-drafts.js";
+import { loadWorkflowManifest } from "../pilot/workflow-manifest.js";
 import { handleApproveRequirement, handleExportRequirements, handleImportRequirements, handleListRequirements, handleRequirementSuggestions, handleSaveRequirement } from "./routes/requirements.js";
 import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
 
@@ -121,6 +123,29 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
       if (contractMatch[2] === "parse") await handleContractParse(req, res, profileStore, id);
       else if (contractMatch[2] === "drafts") await handleContractDrafts(req, res, profileStore, id);
       else await handleContractApprove(req, res, profileStore, id, () => runManager.isBusy());
+      return;
+    }
+
+    const observationMatch = /^\/api\/profiles\/([^/]+)\/runs\/([^/]+)\/api-observations$/.exec(path);
+    if (observationMatch && method === "GET") {
+      handleGetObservations(res, profileStore, runsRootDir, decodeURIComponent(observationMatch[1] as string), decodeURIComponent(observationMatch[2] as string));
+      return;
+    }
+    const observationRunsMatch = /^\/api\/profiles\/([^/]+)\/api-observations$/.exec(path);
+    if (observationRunsMatch && method === "GET") {
+      handleListObservationRuns(res, profileStore, runsRootDir, decodeURIComponent(observationRunsMatch[1] as string));
+      return;
+    }
+    const consistencyMatch = /^\/api\/profiles\/([^/]+)\/consistency$/.exec(path);
+    if (consistencyMatch && method === "POST") {
+      await handleSaveConsistency(req, res, profileStore, decodeURIComponent(consistencyMatch[1] as string), () => runManager.isBusy(), (id) => (loadWorkflowManifest(profileStore.getDir(), id)?.workflows ?? []).map((w) => w.id));
+      return;
+    }
+    const apiDraftMatch = /^\/api\/profiles\/([^/]+)\/api-drafts(\/approve)?$/.exec(path);
+    if (apiDraftMatch && method === "POST") {
+      const id = decodeURIComponent(apiDraftMatch[1] as string);
+      if (apiDraftMatch[2]) await handleApproveObservedDrafts(req, res, profileStore, runsRootDir, id, () => runManager.isBusy());
+      else await handleObservedDrafts(req, res, profileStore, runsRootDir, id);
       return;
     }
 
