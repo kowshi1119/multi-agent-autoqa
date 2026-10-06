@@ -1,5 +1,31 @@
 # AutoQA — Progress
 
+## Phase 13.1: verified release, compressed-API workflow, Ajeer pilot closure — 2026-10-06
+
+Status: **Engineering verified** (`VER-20261006-105641629Z-79b5`) · **Synthetic acceptance verified** · **Ajeer acceptance pending**. Evidence: `docs/release/PHASE13_1_EVIDENCE.md`.
+
+- **Verification recovered.**
+  - On unchanged `b9360fd`, typecheck, build and tests passed (110 files, 819 tests). Its corpus-stage failure was caused by a file written during the run; corpus validation alone was VALID. The earlier exit-code-4 run remains unexplained because its log was lost.
+  - `npm run verify:local` now writes `verification/<ID>/summary.json` and per-stage logs; this directory is git-ignored. The summary records the source commit, changed file names, toolchain versions, each stage's command, state, times, exit code, signal or launch error, and test counts.
+  - The first failure stops the run; later stages are `not-run`, and the stage's exit code is propagated. On a timeout or signal, only the child's own process tree is killed. A source change during the run blocks "verified".
+  - The runner is tested with controlled subprocesses.
+- **Release record corrected:** the PROGRESS placeholders are now factual; the checklist keeps three statuses; the accidentally committed shortcut is untracked (local file kept) and ignored.
+- **Observer audit.** Playwright 1.62.1 reports a negative body size for a cache hit and 0 for a 304 revalidation. Both stay metadata-only. In addition, a declared Content-Length that differs from the received bytes now blocks body acquisition. New tests cover caches, listener detach and failed sign-in.
+- **Stage B of the compressed-API workflow.**
+  - Structure-only evidence now records profile, origin, check, definition hash and empty arrays. The ledger records evidence digests.
+  - Proposals come from an executed check's evidence, with no request.
+  - Refused: stale definitions, tampered evidence, other applications and traversal.
+  - Approval adds shape assertions to the check, which makes suites selecting it stale until you re-save them.
+  - UI 1g has a panel for it.
+- **Comparison semantics.** `not-reproduced` was unreachable in Phase 13. It now means the differing record could not be matched again; `data-changed` means the same records with a changed value. The first mismatch is always kept. New integration tests cover ambiguous identity, page-scope mismatch, and an independent required-field check failing while the comparison is not assessed.
+- **Fixture:** the gzip option, and an explicit flapping parity reset by `setBugs`.
+- **Demo:** fixture state is now explicit per scenario. Previously, the run after Stop kept its seeded defect.
+- **Benchmark** `RUN-20261006-110606660Z-213a`: unchanged.
+  - raw 0.667 / 1.000 / 0.800;
+  - final 0.75 / 1.00 / 0.86;
+  - grouped 1.0.
+- **Known limitation, tracked separately:** the Phase 1 application map stores visible control and link names of visited pages in local `report.json`.
+
 ## Phase 13: trustworthy API observation and UI–API comparison — 2026-10-01
 
 Checklist: `docs/AJEER_PILOT_ACCEPTANCE.md`. Research decisions (Playwright 1.62.1, RFC 9110, OAS 3.0.4, OWASP logging): `docs/research/PHASE13_API_OBSERVATION.md`.
@@ -38,7 +64,8 @@ Checklist: `docs/AJEER_PILOT_ACCEPTANCE.md`. Research decisions (Playwright 1.62
 - **Display titles:** a console error after a link click is now shown as such (`displayTitle`). The stored oracle title is unchanged, so benchmark matching is unaffected.
 - **Heuristic limit documented by a test:** heading/link word overlap is not a personal-data detector. A real person's name in an existing committed test was replaced with a synthetic one.
 
-### Synthetic demonstration (through the real local server API; IDs in local `runs/`)
+### Synthetic demonstration, 2026-10-01 (through the real local server API; IDs in local `runs/`)
+Superseded by the Phase 13.1 demonstration (see the Phase 13.1 entry). In this earlier run, scenario H was left with the seeded defect on, so its FAIL shows the defect, not a broken recovery.
 | Scenario | Run | Suite decision | UI–API comparison | Change vs baseline | Baseline eligibility |
 |---|---|---|---|---|---|
 | A. Observation run (workflow only) | `RUN-20261001-130355916Z-0b39` | PASS | — | — | eligible |
@@ -55,10 +82,15 @@ Checklist: `docs/AJEER_PILOT_ACCEPTANCE.md`. Research decisions (Playwright 1.62
 - **Second-stage shape proposals from an approved check's own structure-only evidence:** documented as the path for compressed APIs, but not implemented.
 
 ### Verification
-VERIFY_PLACEHOLDER
+- **Not verified when committed** (`b9360fd`). The full `npm run verify:local` started before that commit ended with exit code 4. Its log was deleted, so the stage that produced the code is **unknown**. It was not reproduced later.
+- **Re-run on 2026-10-06 against unchanged `b9360fd`:**
+  - typecheck, build and the full test suite (110 files, 819 tests) passed.
+  - The corpus stage failed (exit 2) only because a new, unrelated source file was written into the working tree while the run was in progress; its `tsc` step compiled it.
+  - Corpus validation run alone on the clean `b9360fd` tree: VALID (20 cases).
+- These were not one uninterrupted run, so they are recorded as evidence, not as a single verified release. Phase 13.1 adds per-stage records and source-change detection so this cannot be misread again. Final verification is in the Phase 13.1 entry.
 
 ### Ajeer
-AJEER_PLACEHOLDER
+No Ajeer run used the Phase 13 additions. The last Ajeer run is still `RUN-20260929-111030051Z-576d` (navigation suite PASS 3/3, before Phase 13). No Ajeer API check or comparison exists, and no baseline is approved. Ajeer acceptance of Phase 13 is **pending**.
 
 ## Ajeer QA session: first real-application workflow evidence, and 9 AutoQA fixes — 2026-09-29
 

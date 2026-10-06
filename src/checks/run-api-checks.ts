@@ -14,6 +14,9 @@ import type { Finding } from "../types.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 import { safeMediaType, walkShape } from "../auth/api-observer.js";
 import type { CheckHttpResponse, CheckHttpError } from "./http-client.js";
+import { checkDefinitionHash } from "../suites/suite-manifest.js";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 export type ApiChecksResult = { findings: Finding[]; nextFindingIndex: number };
 
@@ -94,7 +97,7 @@ export async function runApiChecks(
     const failures = failureList(check, response, results);
     const gaps = results.filter((r) => r.verdict === "unsupported" || r.verdict === "not-assessed");
     const requestSnapshot = { method: check.method, url, body: check.requestBody, sessionHeadersOmitted: profile.auth.mode !== "none" };
-    const responseSnapshot = responseEvidence(check, profile, response);
+    const responseSnapshot = responseEvidence(check, profile, origin, response);
 
     if (failures.length === 0) {
       // No Finding for a passing check: its evidence lives under checks/,
@@ -114,6 +117,7 @@ export async function runApiChecks(
         observation: gaps.length ? `status ${response.status}; no assertion failed, but ${gaps.length} could not be validated (${gaps.map((g) => g.id).slice(0, 5).join(", ")}${gaps.length > 5 ? ", …" : ""}) — not a pass` : `status ${response.status}, all declared assertions satisfied`,
         assertionResults: results.map(toLedgerAssertion),
         evidenceRefs: evidenceRefs.map((f) => `checks/${check.id}/${f}`),
+        evidenceDigests: digests(runDir, evidenceRefs.map((f) => `checks/${check.id}/${f}`)),
       });
       continue;
     }
@@ -125,7 +129,7 @@ export async function runApiChecks(
       ? structureView(check, await request(check.pathname, check.method, check.requestBody, profile.apiChecks.responseSizeCapBytes, abortSignal, undefined, check.query))
       : { failed: true as const, reason: "Automatic mutation replay is unsupported." };
     const confirmFailures = "failed" in confirm ? [] : failureList(check, confirm, evaluateCheck(check, confirm));
-    const confirmSnapshot = "failed" in confirm ? confirm : responseEvidence(check, profile, confirm);
+    const confirmSnapshot = "failed" in confirm ? confirm : responseEvidence(check, profile, origin, confirm);
     const reproduced = confirmFailures.some(c => failures.some(f => f.assertion === c.assertion && f.detail === c.detail));
     const classification = reproduced ? "confirmed" : "needs_review";
     const findingId = generateFindingId(findingIndex++);
@@ -174,6 +178,7 @@ export async function runApiChecks(
       assertion: check.description,
       observation: `${failures.length} assertion(s) failed: ${failures.map((f) => `${f.assertion} (${f.detail})`).join("; ")}.${confirmNote}`,
       evidenceRefs: evidenceFilenames.map((f) => `findings/${findingId}/${f}`),
+      evidenceDigests: digests(runDir, evidenceFilenames.map((f) => `findings/${findingId}/${f}`)),
       findingId,
       findingFingerprint: dedupKeyForFinding(finding),
       reasonCode: results.some((r) => r.reasonCode === "malformed-response" && r.verdict === "fail") ? "malformed-response" : "assertion-failed",
@@ -197,17 +202,28 @@ function structureView<T extends CheckHttpResponse | CheckHttpError | { failed: 
   return { ...response, contentType: safeMediaType((response as CheckHttpResponse).contentType) || undefined };
 }
 
-function responseEvidence(check: DeclaredApiCheck, profile: ProjectProfile, response: CheckHttpResponse | (CheckHttpError & Record<string, unknown>)) {
+/** sha256 of each written evidence file (run-relative path → digest), recorded in the ledger. */
+function digests(runDir: string, refs: string[]): Record<string, string> {
+  return Object.fromEntries(refs.map((ref) => [ref, createHash("sha256").update(readFileSync(join(runDir, ref))).digest("hex")]));
+}
+
+function responseEvidence(check: DeclaredApiCheck, profile: ProjectProfile, origin: string, response: CheckHttpResponse | (CheckHttpError & Record<string, unknown>)) {
   if ("failed" in response) return response;
   if (check.evidence !== "structure-only") return { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
   const known = new Set([...(profile.apiObservation?.knownFields ?? []), ...Object.keys(check.assertions.shape ?? {}).flatMap((p) => p.split(".")), ...(check.assertions.requiredFields ?? []).flatMap((p) => p.split("."))]);
   const walk = typeof response.body === "object" && response.body !== null && !response.jsonParseFailed ? walkShape(response.body, known) : undefined;
+  const bodyShape = walk ? Object.fromEntries([...walk.paths].map(([p, t]) => [p, [...t].sort()])) : null;
+  // Identity of the source, so this evidence can later support reviewed proposals (src/checks/evidence-drafts.ts).
+  const identity = { profileId: profile.id, origin, checkId: check.id, checkDefinitionHash: checkDefinitionHash(check) };
   return {
     evidence: "structure-only",
+    ...identity,
     status: response.status,
     contentType: safeMediaType(response.contentType),
     bodyRecorded: false,
-    ...(walk ? { bodyShape: Object.fromEntries([...walk.paths].map(([p, t]) => [p, [...t].sort()])), shapeOmissions: [...walk.omissions] } : { bodyShape: null, note: response.jsonParseFailed ? "Body did not parse as JSON." : "Body is not a JSON object or array." }),
+    ...(walk && bodyShape
+      ? { bodyShape, shapeOmissions: [...walk.omissions], emptyArrays: Object.keys(bodyShape).filter((p) => bodyShape[p]!.includes("array") && !(`${p}[*]` in bodyShape)) }
+      : { bodyShape: null, note: response.jsonParseFailed ? "Body did not parse as JSON." : "Body is not a JSON object or array." }),
   };
 }
 

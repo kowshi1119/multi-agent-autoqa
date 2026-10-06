@@ -23,3 +23,8 @@ playwright-report/
 test-results/
 .env
 .profile-preview/
+
+# Local verification records (logs and summaries; never committed)
+verification/
+# A Windows shortcut committed by accident in b9360fd; kept locally only
+src/mapping/src - Shortcut.lnk

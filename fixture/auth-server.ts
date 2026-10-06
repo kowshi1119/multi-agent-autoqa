@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 
 /**
  * Synthetic cookie-session target for run-scoped authenticated checks and
@@ -51,6 +52,8 @@ export type AuthFixtureOptions = {
    * UI). Without it the rows are server-rendered; the API answers either way.
    */
   statementListApi?: "client";
+  /** GET /api/statement-list is gzip-compressed whenever the client accepts gzip (like most production APIs). */
+  compressApi?: boolean;
   /** Test hook: called (and awaited) on every GET /api/statement-list before it answers, e.g. to press Stop mid-comparison. */
   onStatementList?: (call: number) => void | Promise<void>;
 };
@@ -70,8 +73,11 @@ export type FixtureBugs = {
   contractMalformedJson?: boolean;
   /** UI–API regressions on GET /api/statement-list (the UI table is unaffected): the API reports the opposite status for "Book Nook" on every call. */
   apiStatusMismatch?: boolean;
-  /** The API status for "Book Nook" alternates on every call (data changing between observations). */
-  apiStatusFlapping?: boolean;
+  /**
+   * The API status for "Book Nook" alternates on every call (data changing between observations).
+   * `true` flips on odd calls, `{ flipOn: "even" }` on even calls; calls are counted from the last setBugs().
+   */
+  apiStatusFlapping?: boolean | { flipOn: "odd" | "even" };
   /** Items lack the status field. */
   apiMissingField?: boolean;
   /** UI regression with statementListApi "client": the page shows "paid" whatever status its own API response says. */
@@ -350,11 +356,20 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
           statementListCalls++;
           await options.onStatementList?.(statementListCalls);
           const items = FIXTURE_STATEMENTS.slice((pageNo - 1) * pageSize, pageNo * pageSize).map((s) => {
-            const flip = (bugs.apiStatusMismatch || (bugs.apiStatusFlapping && statementListCalls % 2 === 1)) && s.merchant === "Book Nook";
+            const flipOn = typeof bugs.apiStatusFlapping === "object" ? bugs.apiStatusFlapping.flipOn : "odd";
+            const flapping = Boolean(bugs.apiStatusFlapping) && statementListCalls % 2 === (flipOn === "odd" ? 1 : 0);
+            const flip = (bugs.apiStatusMismatch || flapping) && s.merchant === "Book Nook";
             const status = flip ? (s.status === "paid" ? "pending" : "paid") : s.status;
             return { reference: s.id, merchant: s.merchant, date: s.date, amount: s.amount, ...(bugs.apiMissingField ? {} : { status }) };
           });
-          json(res, 200, { items, page: pageNo, pageSize, total: FIXTURE_STATEMENTS.length });
+          const listBody = { items, page: pageNo, pageSize, total: FIXTURE_STATEMENTS.length };
+          if (options.compressApi && /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""))) {
+            const zipped = gzipSync(JSON.stringify(listBody));
+            res.writeHead(200, { "Content-Type": "application/json", "Content-Encoding": "gzip", "Content-Length": String(zipped.length), "X-Content-Type-Options": "nosniff", ...extraHeaders });
+            res.end(zipped);
+            return;
+          }
+          json(res, 200, listBody);
           return;
         }
         if (method === "GET" && path === "/api/statements") { json(res, 200, { owner: session.account, count: 2, items: [{ id: "st-1", amount: 10 }, { id: "st-2", amount: 25 }] }); return; }
@@ -396,7 +411,8 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         issuedTokens,
         issuedSessionIds,
         expireAllSessions: () => sessions.clear(),
-        setBugs: (next: FixtureBugs) => { bugs = { ...next }; },
+        // A scenario's state is explicit: changing the bugs also restarts the call count the flapping variant depends on.
+        setBugs: (next: FixtureBugs) => { bugs = { ...next }; statementListCalls = 0; },
         close: () => new Promise((done) => { server.closeAllConnections(); server.close(() => done()); }),
       });
     });

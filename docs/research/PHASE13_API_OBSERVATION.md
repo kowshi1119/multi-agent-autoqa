@@ -105,3 +105,34 @@ Scope: only the decisions this phase needed. Each entry lists the source, whethe
   - There is never a retry until green. A failed comparison is an assertion failure, not by itself a confirmed defect.
   - Keys and values stay in memory; evidence keeps record positions, API value types, verdicts and reasons. Value lengths are not kept: for a short enumeration such as a status, the length alone can reveal the value (found while reviewing the demo evidence: "pending" vs "paid").
 - **Verified by:** `tests/checks/consistency.test.ts` and `tests/server/api-observation-ui.test.ts`.
+
+## D9. Cache hits and revalidation (Phase 13.1, observed in the installed version)
+
+- **Source:** probes against Playwright 1.62.1 / Chromium 151.0.7922.34 on this machine (2026-10-06).
+  - A memory-cache hit (`Cache-Control: max-age`) reported `responseBodySize: -135`, which is the header estimate subtracted from zero bytes received.
+  - A 304 revalidation surfaced to the page as status 200 with `responseBodySize: 0`, `Content-Length: 5027`, and a 5 027-byte body from the cache.
+- **Decision:** received bytes bound the body only when bytes were actually received for it.
+  - A non-positive body size is `body-size-unknown`.
+  - A declared Content-Length that differs from the bytes received is `body-size-mismatch`.
+  - Both are metadata only, and `body()` is never called.
+- **Limitation:** other browser paths (prefetch caches, back/forward cache, partial content) were not probed. Any of them that reports a positive received size equal to its declared length would be trusted, and the post-acquisition length check is the last guard.
+- **Verified by:** "never reads a cached or revalidated body".
+
+## D10. Re-observation outcomes (Phase 13.1)
+
+- **Finding:** in Phase 13, `not-reproduced` was unreachable. A changed value was always classified first as `data-changed`, and identical values always reproduce the same verdict.
+- **Decision (`classifyReproduction`):**
+  - `not-reproduced`: a record that differed the first time is not matched in the second observation.
+  - `data-changed`: the same records are matched, but a value changed on either side.
+  - `fail`: the same records and values, still different.
+  - In every case the first observation's mismatch stays in the attempts and is never rewritten as a pass.
+- **Verified by:** "classifies a re-observation as reproduced, changed data, or not reproduced".
+
+## D11. Stage B: proposals from an executed check
+
+- **Decision:**
+  - A structure-only check's evidence records `profileId`, `origin`, `checkId`, the check's definition hash, the body shape (names and types), `emptyArrays` and omissions.
+  - The ledger records the sha256 of each evidence file as written.
+  - Proposals are built from that file only after its digest, profile, origin and current definition hash all match. No request is sent.
+  - Only named top-level fields with one type are proposed, from one response ("1/1").
+- **Verified by:** `evidence-drafts.test.ts`.

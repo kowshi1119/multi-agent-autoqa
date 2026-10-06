@@ -258,7 +258,14 @@ export async function acquireBoundedJson(response: Response, limits: ObserverLim
   const sizes = await withTimeout(response.request().sizes().catch(() => undefined), limits.responseTimeoutMs);
   if (sizes === "timeout") return { ok: false, reason: "timeout" };
   const received = sizes ? sizes.responseBodySize + sizes.responseHeadersSize : 0;
+  // Cache hits report a non-positive body size (observed in 1.62.1: -135 for a
+  // memory-cache hit, 0 for a 304 revalidation whose cached body was 5 027 bytes),
+  // so nothing received over the network bounds what body() would return.
   if (!sizes || !(sizes.responseBodySize > 0)) return { ok: false, reason: "body-size-unknown" };
+  // Two independent figures must agree: a declared Content-Length that differs
+  // from the bytes received means the received count does not describe the body.
+  const declared = headers["content-length"];
+  if (declared !== undefined && Number(declared) !== sizes.responseBodySize) return { ok: false, reason: "body-size-mismatch" };
   if (received > limits.maxBodyBytes) return { ok: false, reason: "body-too-large" };
   if (cancelled()) return { ok: false, reason: "interrupted" };
   const body = await withTimeout(response.body().catch(() => undefined), limits.responseTimeoutMs);

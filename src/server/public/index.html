@@ -213,6 +213,12 @@
   <div id="obs-summary"></div>
   <div id="obs-drafts"></div>
   <div id="obs-status" class="error-text" role="status"></div>
+  <h4>Propose assertions from an executed check</h4>
+  <p class="empty">For compressed APIs, a passive observation records metadata only. After a suite has run an approved structure-only check, its recorded structure (names and types of one response, never values) can support further proposals. No request is sent to make them. Approving changes the check, so suites that select it must be saved again.</p>
+  <label for="ev-source-select">Executed check</label><select id="ev-source-select"><option value="">— Choose a run and check —</option></select>
+  <button id="ev-load-btn">Show proposals</button>
+  <div id="ev-drafts"></div>
+  <div id="ev-status" class="error-text" role="status"></div>
   <details id="cmp-details" style="margin-top:0.6em;"><summary>Declare a UI–API comparison</summary>
     <p class="empty">Supported: a table on the page a saved workflow reaches, compared with an approved GET check that uses structure-only evidence. Relations: normalized text equality, status equality, or row count of the same page. Money and dates are not supported. "Rendering response" compares the table with the response the page itself fetched while rendering; "Separate check" sends the approved check after reading the page (not an atomic snapshot). A mismatch fails only when a second observation of both sides reproduces it with unchanged data.</p>
     <label for="cmp-id">Comparison ID</label><input id="cmp-id" type="text" maxlength="80" autocomplete="off">
@@ -550,6 +556,7 @@
       var first = document.createElement("option"); first.value = ""; setText(first, data.runs.length ? "— Choose a run —" : "No signed-in run has recorded an observation yet"); select.appendChild(first);
       data.runs.forEach(function (r) { var o = document.createElement("option"); o.value = r.runId; setText(o, r.runId + " — " + r.endpoints + " endpoint(s)" + (r.drain === "drained" ? "" : " (observation " + r.drain + ")")); select.appendChild(o); });
       fillComparisonSelects();
+      return loadCheckEvidence();
     }).catch(function (err) { setText(el("obs-status"), "Observations could not be listed: " + err.message); });
   }
   function fillComparisonSelects() {
@@ -642,6 +649,51 @@
       });
     }).catch(function (err) { setText(el("obs-status"), "Drafts not created: " + err.message); });
   }
+
+  // Stage B: proposals from an executed, approved structure-only check (no request is sent).
+  function loadCheckEvidence() {
+    var profile = currentProfile(); if (!profile) return Promise.resolve();
+    var select = el("ev-source-select");
+    return api(profilePath("/check-evidence")).then(function (data) {
+      if (!currentProfile() || currentProfile().id !== profile.id) return;
+      select.innerHTML = "";
+      var first = document.createElement("option"); first.value = ""; setText(first, data.runs.length ? "— Choose a run and check —" : "No run has executed an approved structure-only check yet"); select.appendChild(first);
+      data.runs.forEach(function (r) { r.checkIds.forEach(function (c) { var o = document.createElement("option"); o.value = r.runId + "|" + c; setText(o, "[Executed] " + c + " in " + r.runId); select.appendChild(o); }); });
+    }).catch(function (err) { setText(el("ev-status"), "Executed checks could not be listed: " + err.message); });
+  }
+  el("ev-load-btn").addEventListener("click", function () {
+    var value = el("ev-source-select").value, out = el("ev-drafts");
+    out.innerHTML = ""; setText(el("ev-status"), "");
+    if (!currentProfile()) return;
+    if (!value) { setText(el("ev-status"), "Choose an executed check first. A suite must have run an approved structure-only check."); return; }
+    var parts = value.split("|"), runId = parts[0], checkId = parts[1];
+    api(profilePath("/check-evidence-drafts"), { method: "POST", body: JSON.stringify({ runId: runId, checkId: checkId }) }).then(function (res) {
+      var d = res.drafts;
+      var facts = document.createElement("p"); setText(facts, "Executed facts: status " + d.observedFacts.status + ", " + d.observedFacts.contentType + ", one response (" + d.source.runId + ", evidence sha256 " + d.source.evidenceSha256.slice(0, 12) + ")." + (d.observedFacts.emptyArrays.length ? " Arrays seen only empty: " + d.observedFacts.emptyArrays.join(", ") + "." : "") + (d.observedFacts.omissions.length ? " Shape cut short: " + d.observedFacts.omissions.join(", ") + "." : "")); out.appendChild(facts);
+      if (!d.proposals.length) { var none = document.createElement("p"); none.className = "empty"; setText(none, "No new proposals: every named top-level field is already asserted, masked, or of mixed type."); out.appendChild(none); }
+      d.proposals.forEach(function (p) {
+        var l = document.createElement("label"); l.className = "ev-proposal"; var c = document.createElement("input"); c.type = "checkbox"; c.setAttribute("data-field", p.field); l.appendChild(c);
+        l.appendChild(document.createTextNode(" [Drafted] " + p.id + " = " + p.expected + " (" + p.provenance + ")")); out.appendChild(l);
+      });
+      var lim = document.createElement("p"); lim.className = "next-step"; setText(lim, d.limitations.join(" ")); out.appendChild(lim);
+      if (!d.proposals.length) return;
+      var approve = document.createElement("button"); approve.id = "ev-approve-btn"; approve.className = "primary"; setText(approve, "Add selected assertions to " + checkId); out.appendChild(approve);
+      approve.addEventListener("click", function () {
+        var fields = Array.prototype.slice.call(out.querySelectorAll("input[data-field]")).filter(function (c) { return c.checked; }).map(function (c) { return c.getAttribute("data-field"); });
+        if (!fields.length) { setText(el("ev-status"), "Select at least one proposed assertion."); return; }
+        var target = preparedTarget();
+        if (!target) { setText(el("ev-status"), "Wait until setup has been checked, then approve."); return; }
+        api(profilePath("/check-evidence-drafts/approve"), { method: "POST", body: JSON.stringify({ runId: runId, checkId: checkId, evidenceSha256: d.source.evidenceSha256, fields: fields, expected: { fingerprint: target.fingerprint, origin: target.origin } }) })
+          .then(function (saved) {
+            out.innerHTML = "";
+            setText(el("ev-status"), "Saved; refreshing…");
+            return runCheckSetup().then(function () { return Promise.all([loadSuites(el("suite-select").value), loadRequirements()]); })
+              .then(function () { setText(el("ev-status"), "[Approved] " + saved.added.join(", ") + " added to " + saved.saved + ". " + saved.note); });
+          })
+          .catch(function (err) { if (err.data && err.data.code === "TARGET_CHANGED") runCheckSetup(); setText(el("ev-status"), "Not approved: " + err.message); });
+      });
+    }).catch(function (err) { setText(el("ev-status"), "Proposals not created: " + err.message); });
+  });
   el("cmp-save-btn").addEventListener("click", function () {
     if (!currentProfile()) return;
     var target = preparedTarget();

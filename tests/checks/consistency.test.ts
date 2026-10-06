@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startAuthFixtureServer, type AuthFixtureOptions, type AuthFixtureServer, type FixtureBugs } from "../../fixture/auth-server.js";
 import { consistencyCheckSchema, consistencyProblems, type ConsistencyCheck, type DeclaredApiCheck } from "../../src/checks/checks-manifest.js";
-import { compareObservations, dataChanged, type Observation } from "../../src/checks/consistency.js";
+import { classifyReproduction, compareObservations, dataChanged, type Observation } from "../../src/checks/consistency.js";
 import { approveBaseline } from "../../src/suites/baselines.js";
 import { findSuite, saveSuite, suiteContentHash } from "../../src/suites/suite-manifest.js";
 import { runSuite, suiteEnvironment } from "../helpers/suite-env.js";
@@ -19,11 +19,11 @@ const declaration = (patch: Partial<ConsistencyCheck> = {}): ConsistencyCheck =>
   relation: "status-equal", scope: { pageParam: "page", pageSizeParam: "pageSize", pageSize: 5 }, mode: "separate-check", ...patch,
 });
 
-async function environment(options: AuthFixtureOptions = {}, comparison: ConsistencyCheck = declaration(), limits: Record<string, number> = {}) {
+async function environment(options: AuthFixtureOptions = {}, comparison: ConsistencyCheck = declaration(), limits: Record<string, number> = {}, extraChecks: DeclaredApiCheck[] = []) {
   server = await startAuthFixtureServer(options);
   const env = suiteEnvironment(server.origin, { limits });
-  writeFileSync(join(env.profilesDir, "demo.checks.json"), JSON.stringify({ schemaVersion: 1, profileId: "demo", apiChecks: [LIST], securityChecks: [], consistencyChecks: [comparison] }));
-  saveSuite(env.store, "demo", { id: "ui-api", name: "UI–API", description: "", items: [{ kind: "workflow", id: "OPEN-STATEMENTS", required: true }, { kind: "consistency-check", id: comparison.id, required: true }], limits: {} });
+  writeFileSync(join(env.profilesDir, "demo.checks.json"), JSON.stringify({ schemaVersion: 1, profileId: "demo", apiChecks: [LIST, ...extraChecks], securityChecks: [], consistencyChecks: [comparison] }));
+  saveSuite(env.store, "demo", { id: "ui-api", name: "UI–API", description: "", items: [{ kind: "workflow", id: "OPEN-STATEMENTS", required: true }, { kind: "consistency-check", id: comparison.id, required: true }, ...extraChecks.map((c) => ({ kind: "api-check" as const, id: c.id, required: true }))], limits: {} });
   return env;
 }
 
@@ -61,6 +61,17 @@ describe("UI–API comparison: pure rules", () => {
     const changed = compareObservations(check, obs([["A", "paid"]]), obs([["A", "paid"]]));
     expect(dataChanged(a, same)).toBe(false);
     expect(dataChanged(a, changed)).toBe(true);
+  });
+
+  it("classifies a re-observation as reproduced, changed data, or not reproduced", () => {
+    const first = compareObservations(check, obs([["A", "paid"], ["B", "paid"]]), obs([["A", "pending"], ["B", "paid"]]));
+    expect(first.verdict).toBe("mismatch");
+    // Same records and values: reproduced.
+    expect(classifyReproduction(first, compareObservations(check, obs([["A", "paid"], ["B", "paid"]]), obs([["A", "pending"], ["B", "paid"]])))).toEqual({ verdict: "fail", reasonCode: "assertion-failed" });
+    // Same records, a value changed (here the API side now agrees): data changed, never a pass.
+    expect(classifyReproduction(first, compareObservations(check, obs([["A", "paid"], ["B", "paid"]]), obs([["A", "paid"], ["B", "paid"]])))).toEqual({ verdict: "not-assessed", reasonCode: "data-changed" });
+    // The record that differed is gone from the second observation: not reproduced.
+    expect(classifyReproduction(first, compareObservations(check, obs([["B", "paid"], ["C", "paid"]]), obs([["B", "paid"], ["C", "paid"]])))).toEqual({ verdict: "not-assessed", reasonCode: "not-reproduced" });
   });
 
   it("refuses unsound declarations before anything runs", () => {
@@ -111,10 +122,30 @@ describe("UI–API comparison in a suite run (synthetic fixture)", () => {
     expect(run.result.decision).toBe("INCOMPLETE");
   }, 120_000);
 
-  it("reports a missing API field as not assessed", async () => {
-    const env = await environment({ bugs: { apiMissingField: true } });
+  it("reports a missing API field as not assessed, while an independently declared required-field check still fails", async () => {
+    const required: DeclaredApiCheck = { id: "LIST-STATUS-PRESENT", method: "GET", pathname: "/api/statement-list", description: "Each listed statement has a status", query: { page: "1", pageSize: "5" }, evidence: "structure-only", assertions: { requiredFields: ["items.0.status"], invariants: [] } };
+    const env = await environment({ bugs: { apiMissingField: true } }, declaration(), {}, [required]);
     const run = await runSuite(env, "ui-api");
     expect(item(run)).toMatchObject({ status: "not-executed", reasonCode: "missing-field" });
+    expect(run.result.items.find((i) => i.itemId === "LIST-STATUS-PRESENT")).toMatchObject({ status: "failed", assertions: [expect.objectContaining({ id: "field:items.0.status", verdict: "fail" })] });
+    expect(run.result.decision).toBe("FAIL");
+  }, 120_000);
+
+  it("is not assessed when record identity is ambiguous (the key column repeats)", async () => {
+    const env = await environment({}, declaration({ relation: "text-equal", ui: { table: "Statement results", keyColumn: "Status", valueColumn: "Merchant" }, api: { checkId: "LIST", itemsPath: "items", keyField: "status", valueField: "merchant" } }));
+    const run = await runSuite(env, "ui-api");
+    expect(item(run)).toMatchObject({ status: "not-executed", reasonCode: "ambiguous-identity" });
+  }, 120_000);
+
+  it("is not assessed when the UI page is wider than the declared API page (count of the same page only)", async () => {
+    server = await startAuthFixtureServer();
+    const env = suiteEnvironment(server.origin);
+    const three: DeclaredApiCheck = { ...LIST, id: "LIST3", query: { page: "1", pageSize: "3" } };
+    const count = declaration({ id: "UI-API-STATUS", relation: "count-equal", ui: { table: "Statement results", keyColumn: "Merchant" }, api: { checkId: "LIST3", itemsPath: "items", keyField: "merchant" }, scope: { pageParam: "page", pageSizeParam: "pageSize", pageSize: 3 } });
+    writeFileSync(join(env.profilesDir, "demo.checks.json"), JSON.stringify({ schemaVersion: 1, profileId: "demo", apiChecks: [three], securityChecks: [], consistencyChecks: [count] }));
+    saveSuite(env.store, "demo", { id: "ui-api", name: "UI–API", description: "", items: [{ kind: "workflow", id: "OPEN-STATEMENTS", required: true }, { kind: "consistency-check", id: "UI-API-STATUS", required: true }], limits: {} });
+    const run = await runSuite(env, "ui-api");
+    expect(item(run)).toMatchObject({ status: "not-executed", reasonCode: "scope-mismatch" });
   }, 120_000);
 
   it("rendering-response mode compares the table with the response the page rendered it from, with no extra request", async () => {

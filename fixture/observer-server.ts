@@ -77,6 +77,21 @@ p.then(function () { document.title = "done"; });
 </script></body></html>`);
       return;
     }
+    if (path === "/cache-page") {
+      // Each endpoint twice: the second answer comes from the HTTP cache (max-age) or a 304 revalidation (ETag).
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><html><head><title>loading</title></head><body><script>
+var get = function (u) { return fetch(u).then(function (r) { return r.text(); }); };
+get("/api/v1/cached").then(function () { return get("/api/v1/cached"); }).then(function () { return get("/api/v1/revalidated"); }).then(function () { return get("/api/v1/revalidated"); }).then(function () { document.title = "done"; });
+</script></body></html>`);
+      return;
+    }
+    if (path === "/api/v1/cached") { json(res, 200, { status: "CANARYVALUE7f3a", total: 1 }, { "Cache-Control": "max-age=60" }); return; }
+    if (path === "/api/v1/revalidated") {
+      if (req.headers["if-none-match"] === '"v1"') { res.writeHead(304, { ETag: '"v1"', "Cache-Control": "no-cache", ...cors }); res.end(); return; }
+      json(res, 200, { status: "CANARYVALUE7f3a", padding: "p".repeat(5_000) }, { "Cache-Control": "no-cache", ETag: '"v1"' });
+      return;
+    }
     if (path === "/sw-page") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(`<!doctype html><html><head><title>loading</title></head><body><script>

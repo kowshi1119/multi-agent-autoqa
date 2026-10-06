@@ -16,7 +16,7 @@ import { handleSaveTriage } from "./routes/triage.js";
 import { handleChecks } from "./routes/checks.js";
 import { handleApproveBaseline, handleListSuites, handleSaveSuite, handleSuiteRun } from "./routes/suites.js";
 import { handleContractApprove, handleContractDrafts, handleContractParse } from "./routes/contracts.js";
-import { handleApproveObservedDrafts, handleGetObservations, handleListObservationRuns, handleObservedDrafts, handleSaveConsistency } from "./routes/api-drafts.js";
+import { handleApproveCheckEvidenceDrafts, handleApproveObservedDrafts, handleCheckEvidenceDrafts, handleGetObservations, handleListCheckEvidence, handleListObservationRuns, handleObservedDrafts, handleSaveConsistency } from "./routes/api-drafts.js";
 import { loadWorkflowManifest } from "../pilot/workflow-manifest.js";
 import { handleApproveRequirement, handleExportRequirements, handleImportRequirements, handleListRequirements, handleRequirementSuggestions, handleSaveRequirement } from "./routes/requirements.js";
 import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
@@ -134,6 +134,18 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const observationRunsMatch = /^\/api\/profiles\/([^/]+)\/api-observations$/.exec(path);
     if (observationRunsMatch && method === "GET") {
       handleListObservationRuns(res, profileStore, runsRootDir, decodeURIComponent(observationRunsMatch[1] as string));
+      return;
+    }
+    const evidenceListMatch = /^\/api\/profiles\/([^/]+)\/check-evidence$/.exec(path);
+    if (evidenceListMatch && method === "GET") {
+      handleListCheckEvidence(res, profileStore, runsRootDir, decodeURIComponent(evidenceListMatch[1] as string));
+      return;
+    }
+    const evidenceDraftMatch = /^\/api\/profiles\/([^/]+)\/check-evidence-drafts(\/approve)?$/.exec(path);
+    if (evidenceDraftMatch && method === "POST") {
+      const id = decodeURIComponent(evidenceDraftMatch[1] as string);
+      if (evidenceDraftMatch[2]) await handleApproveCheckEvidenceDrafts(req, res, profileStore, runsRootDir, id, () => runManager.isBusy());
+      else await handleCheckEvidenceDrafts(req, res, profileStore, runsRootDir, id);
       return;
     }
     const consistencyMatch = /^\/api\/profiles\/([^/]+)\/consistency$/.exec(path);

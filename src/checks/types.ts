@@ -29,6 +29,8 @@ export type CheckLedgerEntry = {
   assertionModel?: "aggregate-v1" | "per-assertion-v2";
   /** Observed attempts for a failing check (first request plus the confirmation, when one was sent). */
   attempts?: { total: number; failed: number };
+  /** sha256 of evidence files as written, keyed by run-relative path; lets later steps detect an altered file. */
+  evidenceDigests?: Record<string, string>;
   /** The finding's dedup key (src/reporting/dedup.ts), so a later run can recognise the same finding. */
   findingFingerprint?: string;
 };

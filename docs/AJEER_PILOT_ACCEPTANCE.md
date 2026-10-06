@@ -1,71 +1,82 @@
-# Phase 13 acceptance checklist: trustworthy API observation and the UI–API pilot
+# Phase 13 / 13.1 acceptance checklist: trustworthy API observation and the UI–API pilot
 
-Updated 2026-10-01. Cells contain real evidence (test file, run ID) or `pending: <exact dependency>`. Historical test counts are not fresh verification; fresh results are in PROGRESS.md.
-Synthetic run IDs are in this machine's git-ignored `runs/` folder (demo: `node dist/tests/demo/phase13-demo.js`).
+Updated 2026-10-06. Cells contain real evidence (test file, run ID, verification ID) or `pending: <exact dependency>`. A commit or a push is not verification. Historical test counts are not fresh verification.
+Synthetic run IDs are in this machine's git-ignored `runs/` folder (demo: `npm run build && node dist/tests/demo/phase13-demo.js`). Verification records are in the git-ignored `verification/<ID>/` folder.
 
-## Status at a glance
+## Status at a glance (three independent statuses)
 
-| Gate | State |
+| Status | State |
 |---|---|
-| A. Observer reliability | Met on synthetic fixtures (see section A) |
-| B. Generic product flow | Met on synthetic fixtures (see section B) |
-| C. Integration | Met; full suite result in PROGRESS.md |
-| D. Ajeer acceptance | **Pending:** needs fresh local sign-ins and your approvals (see section D) |
+| Engineering verification | See section C: a full `npm run verify:local` on the frozen source, with its verification ID |
+| Synthetic end-to-end acceptance | **Verified** on synthetic fixtures (sections A, B; Phase 13.1 demo below) |
+| Real Ajeer acceptance | **Pending:** no Ajeer run has used Phase 13; needs your local sign-in and approvals (section D) |
 
 ## A. Observer reliability
 
-| Criterion | Before this phase | Engineering this phase | Synthetic acceptance |
+| Criterion | Before Phase 13 | Engineering | Synthetic evidence |
 |---|---|---|---|
-| Body acquired only when the decoded size is known ≤ 256 KiB before `body()` | Implemented, but buffered first and trusted Content-Length (**defect**) | Fixed: identity coding + finished + received-bytes bound; compressed → metadata only | `api-observer-bounds.test.ts` ("never acquires…": `body()` never called for compressed/oversized/non-2xx) |
-| Bounded responses, concurrency, queue, traversal nodes, properties, array samples, depth, paths, endpoints, string lengths, artifact size, drain | Partly (depth/paths only; wide objects unbounded) | Added (`OBSERVER_LIMITS`), with structured omissions | Bounds test (wide 2 000 keys → 51 nodes; node limit; queue-full ×2; artifact ≤ 6 000 B with `artifactTruncated`) |
-| Privacy of names, segments, page paths, query names, media types | Alphabetic keys/segments kept (**defect**) | Allow-list vocabulary + profile `apiObservation`; positional masking; `{seg}`/`{id}` | Canary sweep (values, keys, segments, query values, page path, service-worker body); run-dir sweep for password/email/cookie (`api-observer.test.ts`) |
-| Endpoint identity: origin + method + safe template; collisions | Keyed by method + path (**defect**) | Origin-aware key; `ambiguous`; `mergedDistinctPaths` | Two origins, same path → two observations; jane/john paths merge → ambiguous |
-| Completeness: samples, empty arrays, omissions | No sampling record | `seenIn k/n`, `emptyArrays`, omissions | Bounds test (empty, long, deep, wide) |
-| Lifecycle: after sign-in, detach, drain, freeze, page attribution | Attached before sign-in; no stop | `attach/start/stop`; frozen result; request-time page; navigation flag | Stop/drain test; attribution test (pushState during request) |
-| Zero additional requests | Asserted loosely | — | Observer on vs off: identical request logs on two origins |
+| Body read only when its decoded size is known to be ≤ 256 KiB **before** `body()` | Buffered first, trusted Content-Length (**defect**) | Identity coding + finished + received-bytes bound + (13.1) declared length must equal received bytes; compressed → metadata only | `api-observer-bounds.test.ts`: `body()` is never called for compressed, oversized or non-2xx responses |
+| Cache and revalidation (13.1) | — | A cache hit reports a negative body size (-135 observed) and a 304 revalidation reports 0 bytes received (with a 5 027-byte cached body), both in Playwright 1.62.1 → metadata only | "never reads a cached or revalidated body": `body()` called once each, for the network response only |
+| Bounded work | Depth/paths only | Responses, concurrency, queue, traversal nodes, properties, array samples, depth, paths, endpoints, strings, artifact size, drain | Bounds tests (wide 2 000 keys → 51 nodes; node limit; queue-full ×2; artifact ≤ 6 000 B) |
+| Privacy of names, segments, page paths, query names, media types | Alphabetic names kept (**defect**) | Vocabulary or profile allow-list; positional masking | Canary sweeps (observation; run directory for password, email and cookie) |
+| Origin-aware identity; ambiguous templates never executable | Method + path only (**defect**) | Origin key; `ambiguous`; `mergedDistinctPaths` | Two origins → two observations; masked path → no executable draft |
+| Sign-in exclusion | — | Starts only after sign-in succeeds | `/session` never observed; (13.1) failed sign-in → no observation file, no API call |
+| Lifecycle: detach, drain, freeze, page attribution | No stop | `attach/start/stop` | Stop/drain/freeze test; (13.1) listener counts back to their previous values after `stop()`; attribution test |
+| Zero additional requests | Loose | — | Observer on vs off: identical request logs |
 
 ## B. Generic product flow
 
-| Criterion | Synthetic acceptance |
+| Criterion | Synthetic evidence |
 |---|---|
-| Observation → reviewable drafts; facts, proposals, approval and official contract kept separate | `observed-drafts.test.ts` (pure); route test |
-| Approval re-derived on the server; stale, tampered, cross-application, target-changed and non-fact drafts refused; no request while drafting | Route test (409/422; request log unchanged). Demo: stale digest → HTTP 409 |
-| Structure-only evidence (no body in check or finding evidence) | `structure-only-evidence.test.ts`; observed-drafts route test |
-| Failing check's confirmation keeps its query (**defect fixed**) | `structure-only-evidence.test.ts` (fails before the fix, passes after) |
-| UI–API comparison: match / reproduced mismatch / corrected / data changed / missing field / ambiguity / scope / money refused / budget / auth / Stop then a usable next run | `consistency.test.ts` (13 tests); demo runs below |
+| Observation → reviewable drafts; facts, proposals, approval and official contract kept apart; server re-derivation; stale/tampered/cross-application refused | `observed-drafts.test.ts` |
+| **Stage B (13.1):** an executed, approved structure-only check → proposals from its digest-protected evidence, with no request; stale definition, tampered evidence, another application and traversal refused; approval makes suites selecting the check stale until re-saved | `evidence-drafts.test.ts`; demo steps 3–4 |
+| Structure-only evidence; confirmation keeps its query (**defect fixed**, regression test) | `structure-only-evidence.test.ts` |
+| UI–API comparison: pass; reproduced mismatch; data changed; not reproduced (13.1: now reachable and tested); ambiguous identity; page-scope mismatch; missing field with an independent required-field check failing; money refused; budget; auth; Stop then a usable next run | `consistency.test.ts` (16 tests) |
 | UI flow: observed → drafted → approved → comparison → suite → baseline | `tests/server/api-observation-ui.test.ts` |
 
-Demo runs (2026-10-01; synthetic fixture and synthetic credentials, through the real local server API):
+Phase 13.1 demo (2026-10-06, real local server API, synthetic fixture with **gzip-compressed** `GET /api/statement-list`, fixture state set explicitly per scenario):
 
-| Scenario | Run | Suite | UI–API comparison | vs baseline |
-|---|---|---|---|---|
-| Observation run | `RUN-20261001-130355916Z-0b39` | PASS | — | — |
-| Matching (approved as baseline, explicitly) | `RUN-20261001-130359990Z-6597` | PASS | passed | — |
-| API status differs, reproduced | `RUN-20261001-130402616Z-5c0f` | FAIL | failed | newly-failing |
-| Corrected | `RUN-20261001-130405758Z-5979` | PASS | passed | unchanged-passing |
-| Data changes between observations | `RUN-20261001-130408416Z-5187` | INCOMPLETE | not assessed (data-changed) | not-executed |
-| Missing API field | `RUN-20261001-130410916Z-c714` | INCOMPLETE | not assessed (missing-field) | not-executed |
-| Stop during the comparison | `RUN-20261001-130413350Z-43ac` | INCOMPLETE | not assessed (cancelled), first mismatch kept | not-executed |
-| Next run after Stop | `RUN-20261001-130415794Z-db71` | FAIL | failed | newly-failing |
+- Observation of the compressed endpoint: 0 body samples, omission `body-size-unknown-compressed`.
+- Stage A: stale digest refused (HTTP 409). Status and content-type check approved.
+- Stage B: proposals `items:array, page:number, pageSize:number, total:number`, with **0 requests** to the application while drafting. `items` and `total` approved.
+- Suite "api" became invalid ("changed since suite revision 1") and was re-saved explicitly as revision 2.
+- Money comparison refused (HTTP 422).
+- Baseline approved explicitly for scenario 6.
+- Canary sweep over all 8 runs: no synthetic password; no compared record values in check, comparison, suite, coverage, summary or log files.
 
-## C. Integration
+| Scenario | Fixture state | Run | Suite | UI–API comparison | vs baseline | HTTP check requests |
+|---|---|---|---|---|---|---|
+| 1. Observation run (workflow only) | {} | `RUN-20261006-104411522Z-3b51` | PASS | — | — | 0 |
+| 3. Approved check executed | {} | `RUN-20261006-104414509Z-d3df` | PASS | — | — | 1 |
+| 6. Matching UI and API | {} | `RUN-20261006-104416718Z-b5cc` | PASS | passed | — | 3 |
+| 7. Seeded API status mismatch | apiStatusMismatch | `RUN-20261006-104418942Z-fb04` | FAIL | failed (reproduced) | newly-failing | 5 |
+| 8. Corrected application | {} | `RUN-20261006-104421393Z-d2f2` | PASS | passed | unchanged-passing | 3 |
+| 9. Data changes between observations | apiStatusFlapping (even calls) | `RUN-20261006-104423662Z-7d34` | INCOMPLETE | not assessed (data-changed) | not-executed | 5 |
+| 10. Stop during the comparison | apiStatusMismatch | `RUN-20261006-104425842Z-29e5` | INCOMPLETE | not assessed (cancelled), first mismatch kept | not-executed | 5 |
+| 11. Next run after Stop | {} (reset) | `RUN-20261006-104428177Z-ac87` | PASS | passed | unchanged-passing | 3 |
+
+## C. Engineering verification
 
 | Criterion | Evidence |
 |---|---|
-| Requirements, suites, baselines, comparison, coverage report, CLI keep their semantics; new kind `consistency-check` | Full suite on frozen source (PROGRESS.md); suite/requirement/coverage tests unchanged and passing |
-| Existing check definition hashes unchanged (new fields optional) | Existing suites still validate (suite tests) |
-| Canonical benchmark labels and scoring unchanged | `npm run verify:local` (PROGRESS.md) |
+| Full `npm run verify:local` (typecheck, build, full test suite, corpus validation) on one unchanged source | See `docs/release/PHASE13_1_EVIDENCE.md` (verification ID, per-stage results, test counts) |
+| Canonical benchmark as a **separate** run (corpus validation is not the benchmark) | See `docs/release/PHASE13_1_EVIDENCE.md` |
+| Existing check definition hashes unchanged (new fields optional) | Existing suite tests pass |
 
 ## D. Ajeer acceptance (real application)
 
-| Criterion | Real-app acceptance | Your action |
+| Criterion | Real-app evidence | Your action |
 |---|---|---|
-| Three navigation workflows still pass | Last evidence `RUN-20260929-111030051Z-576d` (PASS 3/3); fresh run pending | Sign in locally and run the suite (run A) |
-| Requirements approved | RECIPIENTS and BILLPAY-PAGE approved by you (2026-09-29); HISTORY-PAGE still draft | Decide on REQ-AJEER-HISTORY-PAGE in 1f |
-| Hardened observation of Ajeer's own API | pending: run A | Run A |
-| Approved read-only API checks | pending: proposals from run A, then your approval | Approve or decline the exact proposals |
-| One valid UI–API comparison | pending: only if Transaction History shows a table whose key column maps to an observed field with the same page scope; otherwise unsupported | — |
-| Separate repeat run | pending | Run C |
-| Stop, then a usable next run | pending | Press Stop once during a run, then run again |
-| Baseline | Not approved. The previous run is eligible; approval is your click | Your decision |
+| Navigation suite still passes | Last evidence `RUN-20260929-111030051Z-576d` (PASS 3/3, before Phase 13); fresh run **pending** | Sign in locally and run the suite (run A) |
+| Requirements approved | All three approved by you (RECIPIENTS and BILLPAY-PAGE 2026-09-29, HISTORY-PAGE 2026-10-01) | — |
+| Observation of Ajeer's own API | **pending:** run A | Run A |
+| Approved read-only API checks | **pending:** exact proposals from run A, then your decision | Approve or decline them |
+| UI–API comparison | **pending:** only if Transaction History shows a table whose key column maps to an observed field with the same page scope; otherwise unsupported | — |
+| Separate repeat; Stop then a usable next run | **pending** | Runs B and C; one Stop |
+| Baseline | Not approved; it is your decision | Your click |
 | Account workflow | Excluded: `/account` prefetches `GET /account/delete`, which stays blocked | — |
+
+## Known limitations
+
+- The Phase 1 application map in `report.json` / `application-map.json` records the visible names of controls and links on visited pages, including list rows. These files are local and git-ignored. Tracked as a separate task.
+- Stage B proposes only named top-level field types from one executed response; masked names and array contents are never proposed.

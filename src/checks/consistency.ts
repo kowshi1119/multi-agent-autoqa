@@ -85,6 +85,23 @@ export function dataChanged(first: Comparison, second: Comparison): boolean {
   return first.pairs.some((p, i) => p.key !== second.pairs[i]!.key || p.ui !== second.pairs[i]!.ui || p.api !== second.pairs[i]!.api);
 }
 
+/**
+ * The outcome after a first mismatch and one re-observation of both sides
+ * (pure; keys and values stay in memory):
+ * - not-reproduced: a record that differed the first time is not among the
+ *   records matched the second time, so the mismatch could not be re-observed;
+ * - data-changed: the same records were matched but a compared value on
+ *   either side changed, so the mismatch cannot be attributed to an inconsistency;
+ * - fail: the same records and values, and they still differ.
+ */
+export function classifyReproduction(first: Comparison, second: Comparison): { verdict: "fail" | "not-assessed"; reasonCode: ReasonCode } {
+  const secondKeys = new Set(second.pairs.map((p) => p.key));
+  const differed = first.pairs.filter((_, i) => first.sanitized[i]?.equal === false).map((p) => p.key);
+  if (differed.some((key) => !secondKeys.has(key))) return { verdict: "not-assessed", reasonCode: "not-reproduced" };
+  if (dataChanged(first, second)) return { verdict: "not-assessed", reasonCode: "data-changed" };
+  return second.verdict === "mismatch" ? { verdict: "fail", reasonCode: "assertion-failed" } : { verdict: "not-assessed", reasonCode: "not-reproduced" };
+}
+
 function apiObservation(check: ConsistencyCheck, body: unknown): Observation | { reasonCode: ReasonCode; detail: string } {
   const items = check.api.itemsPath ? getByPath(body, check.api.itemsPath) : body;
   if (!Array.isArray(items)) return { reasonCode: "missing-field", detail: `The API response has no array at "${check.api.itemsPath || "(root)"}".` };
@@ -215,9 +232,11 @@ async function runOne(check: ConsistencyCheck, ctx: ConsistencyContext, requeste
     return { verdict: "not-assessed", reasonCode: second.reasonCode, detail: `A mismatch was observed once, but it could not be re-observed (${second.detail}); not confirmed.` };
   }
   attempts.push({ attempt: 2, mode: check.mode, verdict: second.comparison.verdict, reasonCode: second.comparison.reasonCode, detail: second.comparison.detail, uiReadAt: second.uiReadAt!, apiReadAt: second.apiReadAt!, records: second.comparison.sanitized });
-  if (dataChanged(first.comparison, second.comparison)) return { verdict: "not-assessed", reasonCode: "data-changed", detail: "A compared value changed between the two observations, so the mismatch cannot be attributed to an inconsistency." };
-  if (second.comparison.verdict === "mismatch") return { verdict: "fail", reasonCode: "assertion-failed", detail: `${second.comparison.detail} Reproduced on a second observation of both sides with unchanged data.` };
-  return { verdict: "not-assessed", reasonCode: "not-reproduced", detail: "The mismatch did not reproduce on a second observation." };
+  const decision = classifyReproduction(first.comparison, second.comparison);
+  if (decision.verdict === "fail") return { verdict: "fail", reasonCode: "assertion-failed", detail: `${second.comparison.detail} Reproduced on a second observation of both sides with unchanged data.` };
+  return decision.reasonCode === "data-changed"
+    ? { verdict: "not-assessed", reasonCode: "data-changed", detail: "A compared value changed between the two observations, so the mismatch cannot be attributed to an inconsistency. The first observation's mismatch is kept in the attempts." }
+    : { verdict: "not-assessed", reasonCode: "not-reproduced", detail: "A record that differed in the first observation could not be matched again, so the mismatch did not reproduce. The first observation's mismatch is kept in the attempts." };
 }
 
 function record(check: ConsistencyCheck, ctx: ConsistencyContext, attempts: Attempt[], outcome: Outcome): void {

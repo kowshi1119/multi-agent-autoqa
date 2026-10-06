@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AUTH_FIXTURE_ACCOUNTS, startAuthFixtureServer, type AuthFixtureServer } from "../../fixture/auth-server.js";
@@ -42,5 +42,15 @@ describe("API observer in an authenticated run", () => {
       for (const secret of secrets) expect(content.includes(secret), `${file} contains a secret`).toBe(false);
     }
     expect(text).not.toContain("\"demo-a\"");
+  }, 120_000);
+
+  it("records nothing when sign-in fails", async () => {
+    server = await startAuthFixtureServer({ apiAuth: "cookie" });
+    const env = suiteEnvironment(server.origin);
+    saveSuite(env.store, "demo", { id: "wf", name: "Workflow only", description: "", items: [{ kind: "workflow", id: "OPEN-STATEMENTS", required: true }], limits: {} });
+    const run = await runSuite(env, "wf", { credentials: { username: "demo-a", password: "not-the-password" } });
+    expect(run.result.authentication).toBe("failed");
+    expect(existsSync(join(run.dir, "api-observations.json"))).toBe(false);
+    expect(server.hits.get("GET /api/me") ?? 0).toBe(0);
   }, 120_000);
 });
