@@ -21,12 +21,38 @@ function redactLogArgument(value: unknown, extraSecrets: readonly string[]): unk
  * UI-submitted password is scrubbed from every log line this logger
  * writes, the same as an env-sourced one already was.
  */
-export function createLogger(logFilePath?: string, extraSecrets: readonly string[] = []): Logger {
+/**
+ * Fields a minimal-evidence run log may keep (src/privacy/evidence-policy.ts):
+ * identifiers, states, codes and counts. Any other field of a logged object
+ * is dropped and its NAME recorded under `omittedFields`, so the log still
+ * says that something was left out without saying what it contained.
+ */
+const MINIMAL_LOG_FIELDS = new Set([
+  "runId", "workflowId", "checkId", "findingId", "oracleId", "heuristicId", "suiteId", "profileId", "requestId",
+  "phase", "state", "status", "outcome", "code", "reasonCode", "kind", "provider", "mode", "level",
+  "count", "counts", "attempt", "attempts", "durationMs", "elapsedMs", "actionsUsed", "modelCalls", "used", "max", "remaining",
+]);
+
+function minimalLogArgument(value: unknown): unknown {
+  if (typeof value === "string") return value.replace(/\bhttps?:\/\/\S+/g, "<url omitted>");
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return typeof value === "object" && value !== null ? { omitted: "non-plain value" } : value;
+  const kept: Record<string, unknown> = {};
+  const omitted: string[] = [];
+  for (const [key, nested] of Object.entries(value)) {
+    if (MINIMAL_LOG_FIELDS.has(key) && (typeof nested === "number" || typeof nested === "boolean" || (typeof nested === "string" && nested.length <= 80 && !/https?:\/\//.test(nested)))) kept[key] = nested;
+    else omitted.push(key);
+  }
+  return omitted.length ? { ...kept, omittedFields: omitted } : kept;
+}
+
+export function createLogger(logFilePath?: string, extraSecrets: readonly string[] = [], options: { minimal?: boolean } = {}): Logger {
   const loggerOptions: pino.LoggerOptions = {
     level: "debug",
     hooks: {
       logMethod(inputArgs, method) {
-        method.apply(this, inputArgs.map((a) => redactLogArgument(a, extraSecrets)) as never);
+        // Minimal evidence: field allow-list BEFORE serialization, then the usual secret scrub.
+        const args = options.minimal ? inputArgs.map(minimalLogArgument) : inputArgs;
+        method.apply(this, args.map((a) => redactLogArgument(a, extraSecrets)) as never);
       },
     },
   };

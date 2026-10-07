@@ -50,15 +50,18 @@ export function attachPageRecorders(page: Page, records: PageRecords, extraSecre
   // survive here unredacted, then cascade into Observation.networkRequests,
   // both oracle files' details.newFailures[].url, and report.json.
   page.on("requestfinished", (request) => {
-    void request.response().then((response) => {
-      records.networkRequests.push({
-        method: request.method(),
-        url: redactSecrets(request.url(), extraSecrets),
-        status: response?.status(),
-        resourceType: request.resourceType(),
-        timestamp: new Date().toISOString(),
-      });
+    const record = (status: number | undefined) => records.networkRequests.push({
+      method: request.method(),
+      url: redactSecrets(request.url(), extraSecrets),
+      status,
+      resourceType: request.resourceType(),
+      timestamp: new Date().toISOString(),
     });
+    // The response can become unreadable when Stop or teardown closes the
+    // page while a request is finishing. The request still happened, so it
+    // is recorded without a status (like requestfailed below) rather than
+    // leaving the rejection unhandled.
+    void request.response().then((response) => record(response?.status()), () => record(undefined));
   });
 
   page.on("requestfailed", (request) => {

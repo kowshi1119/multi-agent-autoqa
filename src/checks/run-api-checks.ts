@@ -1,3 +1,4 @@
+import { profileEvidenceMode } from "../privacy/evidence-policy.js";
 import { join } from "node:path";
 import type { DeclaredApiCheck } from "./checks-manifest.js";
 import { checkBudget, createCheckRequester, scopedCheckUrl, sessionFields, type CheckBudget, type RunSession } from "./request-scope.js";
@@ -197,8 +198,17 @@ export async function runApiChecks(
  * other names masked, types only -- and never the body or other headers.
  */
 /** Structure-only checks compare and report the media type only, so header parameters never reach findings or the ledger. */
+/**
+ * Structure-only evidence: declared on the check, or forced for every check
+ * when the profile's evidence policy is minimal (response bodies are never
+ * persisted for real targets by default).
+ */
+function structureOnly(check: DeclaredApiCheck, profile: ProjectProfile | undefined): boolean {
+  return check.evidence === "structure-only" || (profile !== undefined && profileEvidenceMode(profile) === "minimal");
+}
+
 function structureView<T extends CheckHttpResponse | CheckHttpError | { failed: true; reason: string }>(check: DeclaredApiCheck, response: T): T {
-  if ("failed" in response || check.evidence !== "structure-only") return response;
+  if ("failed" in response || !structureOnly(check, undefined)) return response;
   return { ...response, contentType: safeMediaType((response as CheckHttpResponse).contentType) || undefined };
 }
 
@@ -209,7 +219,7 @@ function digests(runDir: string, refs: string[]): Record<string, string> {
 
 function responseEvidence(check: DeclaredApiCheck, profile: ProjectProfile, origin: string, response: CheckHttpResponse | (CheckHttpError & Record<string, unknown>)) {
   if ("failed" in response) return response;
-  if (check.evidence !== "structure-only") return { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
+  if (!structureOnly(check, profile)) return { status: response.status, headers: response.headers, body: response.body, truncated: response.bodyTruncated };
   const known = new Set([...(profile.apiObservation?.knownFields ?? []), ...Object.keys(check.assertions.shape ?? {}).flatMap((p) => p.split(".")), ...(check.assertions.requiredFields ?? []).flatMap((p) => p.split("."))]);
   const walk = typeof response.body === "object" && response.body !== null && !response.jsonParseFailed ? walkShape(response.body, known) : undefined;
   const bodyShape = walk ? Object.fromEntries([...walk.paths].map(([p, t]) => [p, [...t].sort()])) : null;

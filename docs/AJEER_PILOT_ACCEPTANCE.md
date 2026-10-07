@@ -78,5 +78,10 @@ Phase 13.1 demo (2026-10-06, real local server API, synthetic fixture with **gzi
 
 ## Known limitations
 
-- The Phase 1 application map in `report.json` / `application-map.json` records the visible names of controls and links on visited pages, including list rows. These files are local and git-ignored. Tracked as a separate task.
-- Stage B proposes only named top-level field types from one executed response; masked names and array contents are never proposed.
+- **Application map (closed by Phase 14 for new real-target runs).** Real targets now default to the minimal evidence policy (`docs/privacy/EVIDENCE_POLICY.md`). Older runs, including the Ajeer runs from 2026-09-29, keep their original local files; exports label them *legacy / privacy-unclassified* and include no observed text.
+- **Stage B scope.** Stage B proposes only named top-level field types from one executed response.
+
+## Phase 14 note on Ajeer
+
+- **2026-10-07 attempt:** `RUN-20261007-040204103Z-22b2` ended with `AUTH_FAILED (stayed-on-login)`. The password was not accepted, and AutoQA did not retry. No workflow ran and nothing was observed. Confirm the current Ajeer password before the next local run.
+- **Next run:** it will use the minimal evidence policy.

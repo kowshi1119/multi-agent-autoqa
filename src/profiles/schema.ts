@@ -174,6 +174,12 @@ export const projectProfileSchema = z.object({
    * kept and every other field, query or path name is masked. Route
    * templates use `{name}` placeholders for single path segments.
    */
+  /**
+   * Evidence policy for this profile's runs (docs/privacy/EVIDENCE_POLICY.md).
+   * Absent: "minimal" for real targets, "diagnostic" for local fixtures.
+   * "diagnostic" on a real target persists page text, screenshots and bodies.
+   */
+  evidencePolicy: z.enum(["minimal", "diagnostic"]).optional(),
   apiObservation: z.object({
     knownFields: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).max(200).default([]),
     routeTemplates: z.array(z.string().regex(/^(\/([A-Za-z0-9._~-]{1,64}|\{[A-Za-z][A-Za-z0-9_]{0,31}\}))+$/)).max(50).default([]),

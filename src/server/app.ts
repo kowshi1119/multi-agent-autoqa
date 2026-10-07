@@ -1,3 +1,4 @@
+import { handleExport, handleExportPreview } from "./routes/export.js";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
@@ -19,7 +20,7 @@ import { handleContractApprove, handleContractDrafts, handleContractParse } from
 import { handleApproveCheckEvidenceDrafts, handleApproveObservedDrafts, handleCheckEvidenceDrafts, handleGetObservations, handleListCheckEvidence, handleListObservationRuns, handleObservedDrafts, handleSaveConsistency } from "./routes/api-drafts.js";
 import { loadWorkflowManifest } from "../pilot/workflow-manifest.js";
 import { handleApproveRequirement, handleExportRequirements, handleImportRequirements, handleListRequirements, handleRequirementSuggestions, handleSaveRequirement } from "./routes/requirements.js";
-import { csrfTokenValid, generateCsrfToken, originAllowed } from "./security.js";
+import { csrfTokenValid, generateCsrfToken, hostAllowed, originAllowed } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,9 +56,13 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     // Every mutating request is Origin/Host- and CSRF-token-checked before
     // touching any handler. No CORS headers are ever set (no wildcard, no
     // reflected origin) -- this API is never meant to be called cross-origin.
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    if (!hostAllowed(req, port)) {
+      sendJson(res, 403, { error: "Host check failed" });
+      return;
+    }
     if (method !== "GET" && method !== "HEAD") {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
       if (!originAllowed(req, port) || !csrfTokenValid(req, csrfToken)) {
         sendJson(res, 403, { error: "Origin/Host or CSRF token check failed" });
         return;
@@ -243,6 +248,16 @@ export function startServer(options: { port?: number; profilesDir?: string; runs
     const checksMatch = /^\/api\/runs\/([^/]+)\/checks$/.exec(path);
     if (checksMatch && method === "GET") {
       handleChecks(res, runsRootDir, decodeURIComponent(checksMatch[1] as string));
+      return;
+    }
+
+    const exportMatch = /^\/api\/runs\/([^/]+)\/export(\/preview)?$/.exec(path);
+    if (exportMatch && exportMatch[2] && method === "GET") {
+      handleExportPreview(res, runsRootDir, decodeURIComponent(exportMatch[1] as string), url.searchParams.get("includeApprovedLabels") === "true");
+      return;
+    }
+    if (exportMatch && !exportMatch[2] && method === "POST") {
+      await handleExport(req, res, runsRootDir, decodeURIComponent(exportMatch[1] as string), runManager.getActiveRun()?.runId);
       return;
     }
 

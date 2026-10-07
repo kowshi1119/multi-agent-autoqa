@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { gzipSync } from "node:zlib";
+import { CANARIES, INERT_PAYLOADS } from "./canaries.js";
 
 /**
  * Synthetic cookie-session target for run-scoped authenticated checks and
@@ -54,6 +55,15 @@ export type AuthFixtureOptions = {
   statementListApi?: "client";
   /** GET /api/statement-list is gzip-compressed whenever the client accepts gzip (like most production APIs). */
   compressApi?: boolean;
+  /**
+   * Evidence-privacy tests: /home and /statements also carry the canaries
+   * from fixture/canaries.ts in a heading, the title, a control's name and
+   * aria-label, a link (text, path segment, query, fragment), a console
+   * message, a thrown error and a report-like paragraph; /api/me adds a
+   * canary value under a canary key plus nested metadata. With "inert",
+   * markup-like payloads are added as visible text as well.
+   */
+  canaries?: boolean | "inert";
   /** Test hook: called (and awaited) on every GET /api/statement-list before it answers, e.g. to press Stop mid-comparison. */
   onStatementList?: (call: number) => void | Promise<void>;
 };
@@ -232,6 +242,18 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
   let bugs: FixtureBugs = { ...options.bugs };
   let statementListCalls = 0;
 
+  const withCanaries = (html: string): string => {
+    if (!options.canaries) return html;
+    const inert = options.canaries === "inert" ? INERT_PAYLOADS.map((p) => `<p>${escapeHtml(p)}</p><a href="/statements?x=1">${escapeHtml(p)}</a>`).join("") : "";
+    return html
+      .replace(/<title>([^<]*)<\/title>/, `<title>$1 ${CANARIES.title}</title>`)
+      .replace("</body>", `<section aria-label="Account tools"><h2>${CANARIES.heading}</h2>
+<button type="button" aria-label="${CANARIES.ariaLabel}">${CANARIES.controlName}</button>
+<a href="/vault/${CANARIES.pathSegment}/home?ref=${CANARIES.queryValue}#${CANARIES.fragment}">${CANARIES.linkText}</a>
+<p>## FAIL ${CANARIES.reportLike} ![x](http://remote.invalid/x.png)</p>${inert}
+<script>console.error("${CANARIES.console}"); setTimeout(function () { throw new Error("${CANARIES.error}"); }, 10);</script></section></body>`);
+  };
+
   const sessionFor = (req: IncomingMessage) => {
     const sid = /(?:^|;\s*)sid=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
     return sid ? { sid, session: sessions.get(sid) } : undefined;
@@ -291,7 +313,7 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         const html = rawHtml && path === "/statements" && options.backgroundPost ? rawHtml.replace("</body>", `<script>fetch("/api/track", { method: "POST", body: "{}" }).catch(function () {});</script></body>`) : rawHtml;
         if (!html) { res.writeHead(404, { "Content-Type": "text/plain" }); res.end("Not found"); return; }
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(html);
+        res.end(withCanaries(html));
         return;
       }
 
@@ -316,7 +338,7 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
           res.end((html as string).replace(body, `<div id="app"></div><script>setTimeout(function () { document.getElementById("app").innerHTML = ${JSON.stringify(body).replace(/</g, "\\u003c")}; }, 700);</script>`));
           return;
         }
-        res.end(path === "/home" && options.duplicateLinks ? (html as string).replace('<a href="/profile">Profile</a>', '<a href="/profile" role="menuitem">Profile</a>').replace('<a href="/help">Help</a>', '<a href="help">Help</a>').replace("</nav>", `</nav>\n<section aria-label="Shortcuts"><a href="/statements">Statements</a> <a href="/activity">Help</a></section>`) : html);
+        res.end(withCanaries(path === "/home" && options.duplicateLinks ? (html as string).replace('<a href="/profile">Profile</a>', '<a href="/profile" role="menuitem">Profile</a>').replace('<a href="/help">Help</a>', '<a href="help">Help</a>').replace("</nav>", `</nav>\n<section aria-label="Shortcuts"><a href="/statements">Statements</a> <a href="/activity">Help</a></section>`) : html as string));
         return;
       }
 
@@ -336,7 +358,12 @@ export function startAuthFixtureServer(options: AuthFixtureOptions = {}): Promis
         }
         const account = AUTH_FIXTURE_ACCOUNTS[session.account];
 
-        if (method === "GET" && path === "/api/me") { json(res, 200, bugs.apiMeMissingEmail ? { id: session.account, role: account.role } : { id: session.account, email: account.email, role: account.role }); return; }
+        if (method === "GET" && path === "/api/me") {
+          const me: Record<string, unknown> = bugs.apiMeMissingEmail ? { id: session.account, role: account.role } : { id: session.account, email: account.email, role: account.role };
+          if (options.canaries) Object.assign(me, { [CANARIES.jsonKey]: CANARIES.jsonValue, meta: { note: CANARIES.nested } });
+          json(res, 200, me);
+          return;
+        }
         const accountMatch = /^\/api\/accounts\/([A-Za-z0-9-]+)$/.exec(path);
         if (method === "GET" && accountMatch) {
           const record = FIXTURE_ACCOUNTS[accountMatch[1] as string];

@@ -126,6 +126,8 @@ export const configSchema = z
         ),
       }),
     }),
+    /** Evidence policy (src/privacy/evidence-policy.ts). Absent = diagnostic (fixture CLI configs). */
+    evidencePolicy: z.object({ mode: z.enum(["minimal", "diagnostic"]), routeTemplates: z.array(z.string()).optional() }).optional(),
     evidence: z.object({
       screenshots: z.boolean(),
       trace: z.boolean(),

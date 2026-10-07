@@ -1,6 +1,6 @@
 import { createReadStream, statSync } from "node:fs";
 import type { ServerResponse } from "node:http";
-import { extname } from "node:path";
+import { basename, extname } from "node:path";
 import { resolveArtifactPath } from "../security.js";
 import { sendJson } from "../http-helpers.js";
 
@@ -33,10 +33,13 @@ export function handleArtifact(res: ServerResponse, runsRootDir: string, runId: 
   }
 
   const contentType = CONTENT_TYPES[extname(resolved).toLowerCase()] ?? "application/octet-stream";
+  // Exports are downloaded, never rendered in the panel's origin.
+  const download = /^exports\/EXP-[A-Za-z0-9-]+\/export\.(json|md)$/.test(relativePath.replace(/\\/g, "/"));
   res.writeHead(200, {
     "Content-Type": contentType,
     "Content-Length": stat.size,
     "X-Content-Type-Options": "nosniff",
+    ...(download ? { "Content-Disposition": `attachment; filename="${basename(resolved)}"`, "Cache-Control": "no-store" } : {}),
   });
   createReadStream(resolved).pipe(res);
 }

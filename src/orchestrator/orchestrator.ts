@@ -23,6 +23,7 @@ import type { QaHeuristic } from "../qa/heuristics.js";
 import { Planner } from "../qa/planner.js";
 import type { ProjectProfile } from "../profiles/schema.js";
 import { phaseForState, reportableAndNeedsReviewCounts, type RunProgressEvent } from "../progress.js";
+import { policyOf } from "../privacy/evidence-policy.js";
 import { buildFindingNarrative, buildDisplayTitle, buildFindingTitle, categoryForOracle, generateFindingId, writeFindingJson } from "../report.js";
 import { dedupKeyForFinding, findExistingFinding } from "../reporting/dedup.js";
 import type { ActionPolicy } from "../safety/action-policy.js";
@@ -282,7 +283,7 @@ export class Orchestrator {
   }
 
   private finishWorkflow(id: string, status: WorkflowRunStatus, reason: string, evidence: unknown): void {
-    recordWorkflow(this.deps.runDir, id, status, reason, evidence, this.extraSecrets);
+    recordWorkflow(this.deps.runDir, id, status, reason, evidence, this.extraSecrets, policyOf(this.deps.config));
     this.completedWorkflows.add(id); this.planner.markWorkflowHandled(id);
   }
 
@@ -736,7 +737,7 @@ export class Orchestrator {
         { findingId: existing.id, occurrenceCount: existing.occurrenceCount },
         "Duplicate finding suppressed; incremented occurrenceCount"
       );
-      writeFindingJson(join(this.deps.runDir, "findings", existing.id), existing, this.extraSecrets);
+      writeFindingJson(join(this.deps.runDir, "findings", existing.id), existing, this.extraSecrets, policyOf(this.deps.config));
       this.progress(ctx, `Duplicate of ${existing.id} (occurrence ${existing.occurrenceCount}); no new finding recorded`);
       this.cycle.wasDuplicate = true;
       this.cycle.recordedFinding = undefined;
@@ -809,7 +810,7 @@ export class Orchestrator {
       abortSignal: this.runSignal,
     });
     const reviewedFinding = (await critic.review(finalizedFinding, validation, evidenceDir)).finding;
-    writeFindingJson(evidenceDir, reviewedFinding, this.extraSecrets);
+    writeFindingJson(evidenceDir, reviewedFinding, this.extraSecrets, policyOf(this.deps.config));
     this.progress(
       ctx,
       `Finding ${reviewedFinding.id} ${reviewedFinding.status.toUpperCase()} (${validation.finding.reproduction.successes}/${validation.finding.reproduction.attempts} reproductions)`

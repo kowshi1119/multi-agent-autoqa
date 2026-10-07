@@ -20,6 +20,8 @@ import type { ProjectProfile } from "./schema.js";
  */
 export function profileToAppConfig(profile: ProjectProfile): AppConfig {
   const isFixture = profile.target.environmentKind === "local-fixture";
+  const evidenceMode = profile.evidencePolicy ?? (isFixture ? "diagnostic" : "minimal");
+  const minimal = evidenceMode === "minimal";
 
   return {
     project: { name: profile.name },
@@ -60,14 +62,16 @@ export function profileToAppConfig(profile: ProjectProfile): AppConfig {
           httpFailure: { enabled: true },
           duplicateRequest: { enabled: true, patterns: [] },
         }),
+    evidencePolicy: { mode: evidenceMode, routeTemplates: profile.apiObservation?.routeTemplates ?? [] },
     evidence: {
-      screenshots: true,
+      // Minimal evidence never captures pixels: JSON minimization does not reach image contents.
+      screenshots: !minimal,
       // Authenticated real-target profiles default trace capture off --
       // native traces can still carry cookies/session headers after login
       // even though JSON evidence is redacted (see src/auth's secret-
       // hygiene notes). A profile can only turn this back on once its own
       // trace-sanitization has been explicitly verified, not by default.
-      trace: isFixture,
+      trace: isFixture && !minimal,
       console: true,
       network: true,
     },

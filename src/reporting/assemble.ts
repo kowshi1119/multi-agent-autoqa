@@ -10,6 +10,8 @@ import { redactSecrets } from "../redact.js";
 import { writeRunSummary, type RunSummary } from "../report.js";
 import type { PipelineResult } from "../run-pipeline.js";
 import type { Finding } from "../types.js";
+import type { ApplicationMap } from "../mapping/types.js";
+import { guardMinimized as guarded, isMinimal, minimalStopReason, minimizeApplicationMap, minimizeFinding, policyOf } from "../privacy/evidence-policy.js";
 import { loadGroundTruth, matchFindings } from "./benchmark.js";
 import { computeHeuristicCoverage } from "./coverage.js";
 import { computePhase2Metrics } from "./phase2-metrics.js";
@@ -120,6 +122,7 @@ export function assembleReport(
   const grouping = groupFindings(finalCtx.findings, { enabled: config.grouping.enabled });
 
   const finishedAt = new Date();
+  const evidencePolicy = policyOf(config);
   const applicationMap = mapper.toJSON();
   const pagesDiscovered = new Set([
     ...finalCtx.visitedPages,
@@ -146,7 +149,7 @@ export function assembleReport(
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     status,
-    ...(finalCtx.stopReason ? { stopReason: finalCtx.stopReason } : {}),
+    ...(finalCtx.stopReason ? { stopReason: minimalStopReason(finalCtx.stopReason, evidencePolicy)! } : {}),
     provider: provider.name,
     actionsPerformed: budget.actionsPerformed,
     modelCalls: budget.modelCalls,
@@ -212,17 +215,19 @@ export function assembleReport(
     writeFileSync(join(runDir, "grouping.json"), redactSecrets(JSON.stringify(grouping, null, 2), extraSecrets), "utf-8");
   }
 
+  const minimal = isMinimal(evidencePolicy);
   const report: QaReport = {
     runId,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     status,
-    ...(finalCtx.stopReason ? { stopReason: finalCtx.stopReason } : {}),
+    ...(finalCtx.stopReason ? { stopReason: minimalStopReason(finalCtx.stopReason, evidencePolicy)! } : {}),
     target: { url: config.target.url, environment: config.target.environment },
     provider: { name: provider.name },
-    applicationMap,
+    // Minimal evidence: run-local references, roles and route templates instead of page text (docs/privacy/EVIDENCE_POLICY.md).
+    applicationMap: minimal ? guarded(() => minimizeApplicationMap(applicationMap, evidencePolicy), "report-application-map", runDir) as ApplicationMap : applicationMap,
     coverage,
-    findings: annotateWithGroupIds(finalCtx.findings, grouping),
+    findings: minimal ? annotateWithGroupIds(finalCtx.findings, grouping).map((f) => guarded(() => minimizeFinding(f, evidencePolicy), "report-finding", runDir) as Finding) : annotateWithGroupIds(finalCtx.findings, grouping),
     groups: grouping.groups,
     oracleBreakdown: buildOracleBreakdown(finalCtx.findings),
     reportDispositionBreakdown: reportDispositionBreakdown(finalCtx.findings),
@@ -231,7 +236,8 @@ export function assembleReport(
     ...(benchmark ? { benchmark } : {}),
     ...(phase2 ? { phase2 } : {}),
     safetyEventCount: safetyEvents.length,
-    ...(status === "failed" ? { errorClassification: finalCtx.stopReason } : {}),
+    ...(status === "failed" ? { errorClassification: minimalStopReason(finalCtx.stopReason, evidencePolicy) } : {}),
+    evidencePolicy: { version: evidencePolicy.version, mode: evidencePolicy.mode },
     usage: summary.usage,
   };
   writeReportJson(runDir, report, extraSecrets);
@@ -241,7 +247,7 @@ export function assembleReport(
     const declaredWorkflows = profilesDir
       ? summarizeDeclaredWorkflows(readSnapshot(runDir) ?? loadWorkflowManifest(profilesDir, profile.id), loadWorkflowStatus(runDir))
       : undefined;
-    const pilotSummary = { ...buildPilotSummary(report, profile, declaredWorkflows), budget: budgetSnapshot, stopReason: finalCtx.stopReason, workflowOutcomes: loadWorkflowStatus(runDir).entries, authentication: existsSync(join(runDir, "authentication.json")) ? JSON.parse(readFileSync(join(runDir, "authentication.json"), "utf8")) : null, rawAnomalyCount: finalCtx.rawAnomalies ?? 0, groupedResults: grouping.groups.length };
+    const pilotSummary = { ...buildPilotSummary(report, profile, declaredWorkflows), budget: budgetSnapshot, stopReason: minimalStopReason(finalCtx.stopReason, evidencePolicy), workflowOutcomes: loadWorkflowStatus(runDir).entries, authentication: existsSync(join(runDir, "authentication.json")) ? JSON.parse(readFileSync(join(runDir, "authentication.json"), "utf8")) : null, rawAnomalyCount: finalCtx.rawAnomalies ?? 0, groupedResults: grouping.groups.length };
     writeFileSync(join(runDir, "pilot-summary.json"), redactSecrets(JSON.stringify(pilotSummary, null, 2), extraSecrets), "utf-8");
     refreshPilotSummary(runDir);
   }

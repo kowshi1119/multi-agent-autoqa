@@ -1,3 +1,4 @@
+import { guardMinimized, isMinimal, minimizeWorkflowEvidence, type EvidencePolicy } from "../privacy/evidence-policy.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Locator, Page } from "playwright";
@@ -88,11 +89,13 @@ export async function resetWorkflow(page: Page, workflow: DeclaredWorkflow, sign
 }
 
 /** Immutable runner evidence; annotations are separate and cannot rewrite this file. */
-export function recordWorkflow(runDir: string, workflowId: string, status: WorkflowRunStatus, reason: string, evidence: unknown, secrets: readonly string[] = []): void {
+export function recordWorkflow(runDir: string, workflowId: string, status: WorkflowRunStatus, reason: string, evidence: unknown, secrets: readonly string[] = [], policy?: EvidencePolicy): void {
   if (!/^[A-Za-z0-9_-]+$/.test(workflowId)) throw new Error("Invalid workflow ID");
   mkdirSync(join(runDir, "workflows"), { recursive: true });
   const ref = `workflows/${workflowId}.json`;
-  writeFileSync(join(runDir, ref), redactSecrets(JSON.stringify({ workflowId, status, reason, source: "runner", recordedAt: new Date().toISOString(), evidence }, null, 2), secrets), { flag: "wx" });
+  // Minimal evidence policy: observed page values never reach the file; a minimizer failure writes a marker, not raw evidence.
+  const persisted = isMinimal(policy) ? guardMinimized(() => minimizeWorkflowEvidence(evidence, policy!), "workflow", runDir) : evidence;
+  writeFileSync(join(runDir, ref), redactSecrets(JSON.stringify({ workflowId, status, reason, source: "runner", recordedAt: new Date().toISOString(), evidence: persisted }, null, 2), secrets), { flag: "wx" });
   saveWorkflowStatus(runDir, workflowId, status, [ref], undefined, redactSecrets(reason, secrets));
 }
 

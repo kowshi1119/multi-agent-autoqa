@@ -20,6 +20,8 @@ export type QaReport = {
   finishedAt: string;
   status: "completed" | "failed" | "cancelled";
   stopReason?: string;
+  /** Evidence policy that wrote this report (absent on legacy reports). In minimal mode applicationMap and findings hold the minimized shapes. */
+  evidencePolicy?: { version: string; mode: "minimal" | "diagnostic" };
   target: { url: string; environment: string };
   provider: { name: string; model?: string };
   applicationMap: ApplicationMap;
@@ -96,8 +98,10 @@ export function buildReportMarkdown(report: QaReport): string {
       lines.push(finding.displayTitle ?? finding.title, "");
       lines.push(`Status: ${finding.status}`, "");
       lines.push(`Reproduction: ${finding.reproduction.successes}/${finding.reproduction.attempts}`, "");
-      lines.push(`Oracle: ${finding.oracle.oracleId}`, "");
-      lines.push(`Page: ${finding.pathname} (${finding.pageId})`, "");
+      // Minimal-evidence reports hold minimized findings (oracleId and pathTemplate instead of oracle and pathname).
+      const minimized = finding as unknown as { oracleId?: string; pathTemplate?: string };
+      lines.push(`Oracle: ${finding.oracle?.oracleId ?? minimized.oracleId}`, "");
+      lines.push(`Page: ${finding.pathname ?? minimized.pathTemplate} (${finding.pageId})`, "");
       lines.push(`Occurrences: ${finding.occurrenceCount}`, "");
       if (finding.groupId) lines.push(`Group: ${finding.groupId}`, "");
       lines.push("");

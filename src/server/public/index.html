@@ -279,6 +279,15 @@
 <section id="results-section" hidden>
   <h2>5. Results</h2>
   <div id="results"></div>
+  <div id="export-panel" class="card" hidden>
+    <h3>Export this run</h3>
+    <p class="empty">Builds a local export from allow-listed fields (identities, verdicts, reason codes, counts, revisions). Nothing is uploaded. Page text, logs, screenshots and traces stay on this computer. The export is sanitized under the evidence policy shown below; that is not a guarantee that no personal information remains.</p>
+    <label><input type="checkbox" id="export-labels"> Include approved configuration labels (suite name, requirement titles, declared expectations)</label>
+    <div><button id="export-preview-btn">Preview export</button> <button id="export-create-btn" class="primary" disabled>Create export</button></div>
+    <div id="export-preview"></div>
+    <div id="export-links"></div>
+    <div id="export-status" class="error-text" role="status"></div>
+  </div>
 </section>
 
 <section id="prior-runs-section">
@@ -1487,8 +1496,62 @@
       return res.json();
     }).then(function (report) {
       if (report) renderResults(report, runId);
+      showExportPanel(runId);
     });
   }
+
+  // --- Safe local export ----------------------------------------------------
+  // Preview and export are bound to the run whose results are shown; a stale
+  // preview (another run selected meanwhile) is discarded.
+  state.exportRunId = null;
+  function showExportPanel(runId) {
+    state.exportRunId = runId;
+    el("export-panel").hidden = false;
+    el("export-preview").innerHTML = ""; el("export-links").innerHTML = ""; setText(el("export-status"), "");
+    el("export-create-btn").disabled = true;
+  }
+  function exportList(title, rows) {
+    var box = document.createElement("div");
+    var h = document.createElement("h4"); setText(h, title + " (" + rows.length + ")"); box.appendChild(h);
+    var ul = document.createElement("ul");
+    rows.slice(0, 60).forEach(function (r) { var li = document.createElement("li"); setText(li, r.artifact + " — " + r.reason); ul.appendChild(li); });
+    if (rows.length > 60) { var more = document.createElement("li"); setText(more, "… and " + (rows.length - 60) + " more"); ul.appendChild(more); }
+    box.appendChild(ul);
+    return box;
+  }
+  el("export-preview-btn").addEventListener("click", function () {
+    var runId = state.exportRunId; if (!runId) return;
+    var labels = el("export-labels").checked;
+    api("/api/runs/" + encodeURIComponent(runId) + "/export/preview?includeApprovedLabels=" + (labels ? "true" : "false")).then(function (data) {
+      if (state.exportRunId !== runId) return;
+      var m = data.manifest, box = el("export-preview");
+      box.innerHTML = "";
+      var head = document.createElement("p"); head.setAttribute("data-export-run", runId); head.setAttribute("data-classification", m.source.classification);
+      setText(head, m.statement + " Run " + runId + " · " + m.source.classification + (m.source.runPolicy ? " (" + m.source.runPolicy.version + ", " + m.source.runPolicy.mode + ")" : " (no evidence policy: legacy, privacy-unclassified)") + " · assessment: " + m.assessmentStatus + " · evidence " + (m.evidenceCompleteness.complete ? "complete" : "incomplete"));
+      box.appendChild(head);
+      if (m.source.note) { var note = document.createElement("p"); note.className = "next-step"; setText(note, m.source.note); box.appendChild(note); }
+      box.appendChild(exportList("Included", m.included));
+      box.appendChild(exportList("Omitted (kept local)", m.omitted));
+      box.appendChild(exportList("Excluded", m.excluded));
+      var pre = document.createElement("pre"); pre.id = "export-markdown"; setText(pre, data.markdownPreview); box.appendChild(pre);
+      el("export-create-btn").disabled = false;
+    }).catch(function (err) { setText(el("export-status"), "Preview not available: " + err.message); });
+  });
+  el("export-create-btn").addEventListener("click", function () {
+    var runId = state.exportRunId; if (!runId) return;
+    api("/api/runs/" + encodeURIComponent(runId) + "/export", { method: "POST", body: JSON.stringify({ includeApprovedLabels: el("export-labels").checked }) }).then(function (data) {
+      if (state.exportRunId !== runId) return;
+      var box = el("export-links"); box.innerHTML = "";
+      data.files.forEach(function (f) {
+        var a = document.createElement("a");
+        a.href = "/api/artifacts/" + encodeURIComponent(runId) + "/" + f.split("/").map(encodeURIComponent).join("/");
+        a.setAttribute("download", "");
+        setText(a, "Download " + f.split("/").pop());
+        box.appendChild(a); box.appendChild(document.createTextNode(" "));
+      });
+      setText(el("export-status"), "Export " + data.exportId + " written locally under the run folder (exports/).");
+    }).catch(function (err) { setText(el("export-status"), "Export not created: " + err.message); });
+  });
 
   function artifactUrl(runId, findingId, filename) {
     return "/api/artifacts/" + encodeURIComponent(runId) + "/findings/" + encodeURIComponent(findingId) + "/" + encodeURIComponent(filename);
@@ -1916,8 +1979,9 @@
         setText(h3, f.id + ": " + (f.displayTitle || f.title));
         card.appendChild(h3);
         [
-          "Expected: " + f.expected,
-          "Actual: " + f.actual,
+          // Minimal-evidence findings carry no expected/actual text (docs/privacy/EVIDENCE_POLICY.md).
+          f.expected !== undefined ? "Expected: " + f.expected : "Expected/actual text omitted under " + ((report.evidencePolicy && report.evidencePolicy.version) || "the run's evidence policy"),
+          f.actual !== undefined ? "Actual: " + f.actual : "",
           "Reproduction: " + f.reproduction.successes + "/" + f.reproduction.attempts,
           "Evidence: " + (f.evidenceLevel || ""),
           "Critic: " + (f.critic ? f.critic.verdict : "n/a"),

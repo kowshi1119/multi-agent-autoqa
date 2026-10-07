@@ -2,6 +2,7 @@ import type { WorkflowManifest } from "./pilot/workflow-manifest.js";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { redactSecrets } from "./redact.js";
+import { isMinimal, minimizeApplicationMap, policyOf, writeMinimizedJson, writePolicyFile } from "./privacy/evidence-policy.js";
 import type { SessionBootstrap, TransientCredentials } from "./auth/session-bootstrap.js";
 import { BrowserManager } from "./browser/browser.js";
 import { BudgetTracker } from "./budget.js";
@@ -237,6 +238,8 @@ export type PipelineOptions = {
  */
 export async function runPipeline(options: PipelineOptions): Promise<PipelineResult> {
   const { config, runId, runDir, logger, headless, onProgress, sessionAuth, abortSignal } = options;
+  const evidencePolicy = policyOf(config);
+  writePolicyFile(runDir, evidencePolicy, config.target.environment);
   const actionPolicy = options.actionPolicy ?? (config.target.environment !== "local-fixture" ? buildFallbackActionPolicy(config) : undefined);
 
   if (options.requireLiveAuthorization) {
@@ -375,7 +378,8 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     }
     await orchestrator.closeSession();
 
-    writeFileSync(join(runDir, "application-map.json"), JSON.stringify(mapper.toJSON(), null, 2), "utf-8");
+    if (isMinimal(evidencePolicy)) writeMinimizedJson(runDir, join(runDir, "application-map.json"), "application-map", () => minimizeApplicationMap(mapper.toJSON(), evidencePolicy));
+    else writeFileSync(join(runDir, "application-map.json"), JSON.stringify(mapper.toJSON(), null, 2), "utf-8");
 
     return { finalCtx, mapper, modelRouter, budget, safetyEvents, requirements, usageTracker };
   } finally {

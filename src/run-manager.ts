@@ -1,3 +1,4 @@
+import { minimalProgressEvent, minimalStopReason, policyOf } from "./privacy/evidence-policy.js";
 import { loadWorkflowManifest, type WorkflowManifest } from "./pilot/workflow-manifest.js";
 import { snapshotManifest } from "./pilot/workflow-runtime.js";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -296,7 +297,7 @@ export class RunManager {
       // TransientCredentials/redact.ts#credentialSecrets) -- this logger is
       // built with the actual per-run values so every line it writes is
       // scrubbed the same way an env-sourced QA_PASSWORD already was.
-      const logger = createLogger(join(runDir, "run.log"), credentialSecrets(input.credentials));
+      const logger = createLogger(join(runDir, "run.log"), credentialSecrets(input.credentials), { minimal: policyOf(config).mode === "minimal" });
 
       const actionPolicy = profile.target.environmentKind !== "local-fixture" ? new ActionPolicy(profile, workflowManifest) : undefined;
       const sessionAuth =
@@ -382,7 +383,10 @@ export class RunManager {
       if (!qaContext) return;
       try { writeQaSummary(runDir, qaContext, extraSecrets); } catch (error) { logger.warn({ error: error instanceof Error ? error.message : String(error) }, "qa-summary.json could not be written"); }
     };
-    const emit = (event: RunProgressEvent): void => {
+    const minimalEvents = policyOf(config).mode === "minimal";
+    const emit = (raw: RunProgressEvent): void => {
+      // Minimal evidence: progress events (SSE and /status) carry phase-level text, never page-derived detail.
+      const event = minimalEvents ? minimalProgressEvent(raw) : raw;
       active.lastEvent = event;
       for (const listener of active.listeners) listener(event);
     };
@@ -493,7 +497,7 @@ export class RunManager {
             explorer: usageSummary.explorer,
             critic: usageSummary.critic,
             estimatedCostUsd: costEstimate?.estimatedCostUsd ?? null,
-            costDisclosure: `Run failed after runPipeline() completed (${message}); usage below reflects actual measured requests before the failure, not necessarily the full intended run. ${costEstimate?.disclosure ?? ""}`.trim(),
+            costDisclosure: `Run failed after runPipeline() completed (${minimalStopReason(message, policyOf(config))}); usage below reflects actual measured requests before the failure, not necessarily the full intended run. ${costEstimate?.disclosure ?? ""}`.trim(),
           }
         : {
             explorer: { requests: 0, tokenUsage: null },
@@ -509,7 +513,7 @@ export class RunManager {
         startedAt: startedAt.toISOString(),
         finishedAt: new Date().toISOString(),
         status: "failed",
-        stopReason: message,
+        stopReason: minimalStopReason(message, policyOf(config))!,
         provider: "unknown",
         actionsPerformed: pipelineResult?.budget.actionsPerformed ?? 0,
         modelCalls: pipelineResult?.budget.modelCalls ?? 0,

@@ -176,10 +176,23 @@ describe("run-scoped authenticated API checks", () => {
     const [cookieA, cookieB] = [await login(server, "demo-a"), await login(server, "demo-b")];
     const dirA = mkdtempSync(join(tmpdir(), "autoqa-session-a-"));
     const dirB = mkdtempSync(join(tmpdir(), "autoqa-session-b-"));
-    await runApiChecks(profileFor(server.origin), [check("ME", "/api/me")], dirA, 1, server.origin, [], undefined, undefined, sessionFor(server, cookieA));
-    await runApiChecks(profileFor(server.origin), [check("ME", "/api/me")], dirB, 1, server.origin, [], undefined, undefined, sessionFor(server, cookieB));
+    // Reading the account id back needs the stored body, so this test opts into diagnostic evidence
+    // explicitly; real targets default to minimal evidence, which never stores response bodies.
+    const diagnostic = { ...profileFor(server.origin), evidencePolicy: "diagnostic" as const };
+    await runApiChecks(diagnostic, [check("ME", "/api/me")], dirA, 1, server.origin, [], undefined, undefined, sessionFor(server, cookieA));
+    await runApiChecks(diagnostic, [check("ME", "/api/me")], dirB, 1, server.origin, [], undefined, undefined, sessionFor(server, cookieB));
     const idIn = (dir: string) => (JSON.parse(readFileSync(join(dir, "checks", "ME", "response.json"), "utf-8")) as { body: { id: string } }).body.id;
     expect(idIn(dirA)).toBe("demo-a");
     expect(idIn(dirB)).toBe("demo-b");
+  });
+
+  it("never stores the response body for a real target under the default (minimal) evidence policy", async () => {
+    const server = await fixture();
+    const cookie = await login(server, "demo-a");
+    const dir = mkdtempSync(join(tmpdir(), "autoqa-session-min-"));
+    await runApiChecks(profileFor(server.origin), [check("ME", "/api/me")], dir, 1, server.origin, [], undefined, undefined, sessionFor(server, cookie));
+    const stored = readFileSync(join(dir, "checks", "ME", "response.json"), "utf-8");
+    expect(JSON.parse(stored)).toMatchObject({ evidence: "structure-only", bodyRecorded: false });
+    expect(stored).not.toContain("demo-a@");
   });
 });

@@ -1,5 +1,57 @@
 # AutoQA — Progress
 
+## Phase 14: evidence privacy, safe report export, pilot readiness — 2026-10-07
+
+**Status**
+
+| Gate | Status |
+|---|---|
+| Persistence (A) | verified |
+| Reporting (B) | verified |
+| Export (C) | verified |
+| Verification (D) | `VER-20261007-082759793Z-0896` (847 tests) |
+| Ajeer (E) | **pending** |
+
+Evidence: `docs/release/PHASE14_EVIDENCE.md`. Policy: `docs/privacy/EVIDENCE_POLICY.md`. Inventory: `docs/privacy/EVIDENCE_DATA_FLOWS.md`.
+
+**Evidence policy**
+- `evidence-policy/1` is **minimal** by default for every non-fixture target, and **diagnostic** (unchanged behaviour) for local fixtures or by explicit profile opt-in.
+- Each new run writes `evidence-policy.json`. Runs without it are legacy / privacy-unclassified.
+
+**What minimal mode persists**
+- **Application map:** run-local references, roles, route templates and counts. Names, labels, titles, hrefs, queries and fragments are gone. This closes the known gap.
+- **Findings:** identities, fixed titles, route templates, step types, and counts of console and page errors. No visible-text file, no screenshot or trace capture.
+- **Workflow records:** verdict-preserving observations with no values.
+- **Run log:** a field allow-list.
+- **Progress events:** phase-level text.
+- **Run summary:** stop reasons reduced to codes.
+- **Check evidence:** API checks are forced to structure-only, and security body excerpts are omitted.
+
+**Minimizer failures:** writes go through typed minimizers. A failure writes a marker and is recorded; it never falls back to raw data.
+
+**Export:** results panel → Export:
+- a preview with included, omitted and excluded categories;
+- a projection to `export.json` and `export.md`, with an opt-in for approved labels;
+- binary and unknown files excluded; links never followed;
+- no network use; Markdown-inert text.
+
+**Fixes**
+1. **DNS-rebinding read:** GET requests skipped the Host check. Reproduced by a test, then fixed.
+2. **Unhandled rejection on Stop:** found by verification `VER-20261007-081729342Z-7335`. The network recorder's `request.response()` rejection was unhandled when Stop closed the page. Regression test added.
+3. **Export requirement coverage:** the export read requirement coverage at the wrong level. Caught by its own test.
+
+**Tests changed for a changed requirement:** the run-session isolation test now opts into diagnostic evidence, because minimal evidence no longer stores response bodies. A new test asserts that bodies are not stored by default.
+
+**Benchmark:** `RUN-20261007-083911956Z-58a2`, unchanged.
+
+| Metric | Precision | Recall | F1 |
+|---|---|---|---|
+| Raw | 0.667 | 1.000 | 0.800 |
+| Final | 0.75 | 1.00 | 0.86 |
+| Grouped | 1.0 | 1.0 | 1.0 |
+
+**Ajeer:** the 2026-10-07 attempt `RUN-20261007-040204103Z-22b2` was refused at sign-in (stayed-on-login). No fresh Ajeer evidence.
+
 ## Phase 13.1: verified release, compressed-API workflow, Ajeer pilot closure — 2026-10-06
 
 Status: **Engineering verified** (`VER-20261006-105641629Z-79b5`) · **Synthetic acceptance verified** · **Ajeer acceptance pending**. Evidence: `docs/release/PHASE13_1_EVIDENCE.md`.

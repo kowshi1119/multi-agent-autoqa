@@ -1,6 +1,7 @@
+import { guardMinimized, isMinimal, minimizeFinding, type EvidencePolicy } from "./privacy/evidence-policy.js";
 import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { BudgetSnapshot } from "./budget.js";
 import { redactSecrets } from "./redact.js";
 import type { Finding, FindingCategory } from "./types.js";
@@ -162,8 +163,10 @@ export function buildFindingNarrative(
  * embedded in Finding.url (or anywhere else in the object) straight to
  * disk. Mirrors evidence.ts's exact idiom.
  */
-export function writeFindingJson(evidenceDir: string, finding: Finding, extraSecrets: readonly string[] = []): void {
-  writeFileSync(join(evidenceDir, "finding.json"), redactSecrets(JSON.stringify(finding, null, 2), extraSecrets), "utf-8");
+export function writeFindingJson(evidenceDir: string, finding: Finding, extraSecrets: readonly string[] = [], policy?: EvidencePolicy): void {
+  // Minimal evidence policy: identities, verdicts and route templates only (src/privacy/evidence-policy.ts).
+  const persisted = isMinimal(policy) ? guardMinimized(() => minimizeFinding(finding, policy!), "finding", dirname(dirname(evidenceDir))) : finding;
+  writeFileSync(join(evidenceDir, "finding.json"), redactSecrets(JSON.stringify(persisted, null, 2), extraSecrets), "utf-8");
 }
 
 export function writeRunSummary(runDir: string, summary: RunSummary): void {

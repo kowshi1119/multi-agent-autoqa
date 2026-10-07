@@ -14,6 +14,16 @@ export function csrfTokenValid(req: IncomingMessage, expectedToken: string): boo
 }
 
 /** Loopback-only: validates Origin/Host against the server's own bound address so no other site's page can drive this API cross-origin. */
+/**
+ * Every request, reads included, must address the loopback server by its
+ * own Host. Without this a page on another site could resolve its domain to
+ * 127.0.0.1 (DNS rebinding) and read run artifacts through plain GETs.
+ */
+export function hostAllowed(req: IncomingMessage, port: number): boolean {
+  const host = req.headers["host"];
+  return typeof host === "string" && (host === `127.0.0.1:${port}` || host === `localhost:${port}`);
+}
+
 export function originAllowed(req: IncomingMessage, port: number): boolean {
   const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
   const origin = req.headers["origin"];

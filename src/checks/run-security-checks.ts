@@ -1,3 +1,4 @@
+import { profileEvidenceMode } from "../privacy/evidence-policy.js";
 import { join } from "node:path";
 import type { DeclaredSecurityCheck } from "./checks-manifest.js";
 import { checkBudget, createCheckRequester, scopedCheckUrl, sessionFields, type CheckBudget, type RunSession } from "./request-scope.js";
@@ -105,7 +106,10 @@ export async function runSecurityChecks(
       : assessSecretLeakage(response.body, typeof response.body === "object" && response.body !== null ? findSecretByKey(response.body) : undefined,
           KEY_SHAPED_SECRET_RE.test(typeof response.body === "string" ? response.body : JSON.stringify(response.body)),
           typeof response.body === "string" && KEY_VALUE_TEXT_SECRET_RE.test(response.body));
-    const responseSnapshot = { status: response.status, headers: response.headers, bodyExcerpt: typeof response.body === "string" ? response.body.slice(0, 2000) : response.body };
+    // Minimal evidence policy: the assessed headers are kept, the response body is not persisted.
+    const responseSnapshot = profileEvidenceMode(profile) === "minimal"
+      ? { status: response.status, headers: response.headers, bodyOmitted: "response body not persisted under the minimal evidence policy" }
+      : { status: response.status, headers: response.headers, bodyExcerpt: typeof response.body === "string" ? response.body.slice(0, 2000) : response.body };
     const failing = assessment.assertions.filter((a) => a.verdict === "fail");
     const notAssessed = assessment.assertions.filter((a) => a.verdict !== "pass" && a.verdict !== "fail");
     const summary = failing.length

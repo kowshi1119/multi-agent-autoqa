@@ -218,7 +218,8 @@ export class Critic {
               ...(criticProvider.modelId ? { model: criticProvider.modelId } : {}),
               ...decision,
             },
-            extraSecrets
+            extraSecrets,
+            config
           );
         }
       } catch (error) {

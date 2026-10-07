@@ -71,6 +71,11 @@ const readJson = <T>(path: string): T | undefined => {
 const describeTarget = (t: { role?: string; name?: string; label?: string; text?: string; testId?: string } | undefined): string =>
   !t ? "the page" : [t.role, t.name ?? t.label ?? t.text ?? t.testId].filter(Boolean).map((v, i) => i === 1 ? `"${v}"` : v).join(" ");
 
+/** A step from minimal evidence: its type, the target's role and route template, never names or values. */
+function describeMinimalStep(step: { number: number; type: string; targetRole?: string | null; pathTemplate?: string }): string {
+  return `Step ${step.number}: ${step.type}${step.targetRole ? ` ${step.targetRole}` : ""}${step.pathTemplate ? ` ${step.pathTemplate}` : ""} (names and values omitted)`;
+}
+
 function describeAction(action: QaAction): string {
   switch (action.type) {
     case "click": return `Click ${describeTarget(action.target)}`;
@@ -194,8 +199,9 @@ export function buildQaSummary(runDir: string, context: QaSummaryContext): QaSum
         source: "exploration", id: f.id, title: f.displayTitle ?? f.title, reproduced: validated ? f.reproduction.successes > 0 : null,
         severity: validated && f.reportDisposition === "report" ? "medium (provisional)" : "unrated",
         severityRule: validated && f.reportDisposition === "report" ? "Deterministic oracle mismatch reproduced by replay; business impact not assessed." : "Needs human review before any severity is assigned.",
-        reproductionSteps: [`Open ${f.pathname}`, ...f.steps.map((s) => describeAction(s.action))],
-        expectedVsObserved: [`expected ${f.expected}; observed ${f.actual}`], evidenceRefs: f.evidence,
+        // Minimal-evidence reports hold minimized findings: route templates and step types/roles only.
+        reproductionSteps: [`Open ${f.pathname ?? (f as unknown as { pathTemplate?: string }).pathTemplate}`, ...f.steps.map((s) => s.action ? describeAction(s.action) : describeMinimalStep(s as unknown as { number: number; type: string; targetRole?: string | null; pathTemplate?: string }))],
+        expectedVsObserved: [f.expected !== undefined ? `expected ${f.expected}; observed ${f.actual}` : "Expected and observed text omitted under the run's evidence policy; see the oracle and reproduction counts."], evidenceRefs: f.evidence,
       });
     }
   }
