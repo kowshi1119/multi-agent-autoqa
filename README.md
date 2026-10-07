@@ -144,7 +144,7 @@ An Ollama Critic and the full end-to-end fixture-pipeline benchmark (comparing r
 
 ## What it is
 
-AutoQA is a prototype of an autonomous QA agent. It opens a real Chromium
+AutoQA is a prototype of an autonomous QA agent. It opens a real Chromium 
 browser, systematically explores a small web app across multiple pages,
 and lets an AI "explorer" pick one candidate test at a time from a list a
 deterministic **Planner** builds — never a raw, invented action. It uses
